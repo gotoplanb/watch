@@ -1,0 +1,25 @@
+# OTel Collector (spec §4.8): Django + frontend -> Collector -> Watchtower (LGTM).
+# Reuse, don't rebuild. Masking/redaction happens at the app layer; CloudWatch Logs
+# data-protection policies are the sink-level floor (masked drains).
+receivers:
+  otlp:
+    protocols:
+      grpc: {endpoint: 0.0.0.0:4317}
+      http: {endpoint: 0.0.0.0:4318}
+
+processors:
+  batch: {}
+  # Telemetry-quality / masking processors belong here (drop malformed codes,
+  # redact PII) before export — authoritative records stay complete upstream.
+
+exporters:
+  # Point at the Watchtower (LGTM) stack; debug exporter for the local loop.
+  debug: {verbosity: normal}
+  # otlphttp/watchtower:
+  #   endpoint: https://watchtower.example/otlp
+
+service:
+  pipelines:
+    traces:  {receivers: [otlp], processors: [batch], exporters: [debug]}
+    metrics: {receivers: [otlp], processors: [batch], exporters: [debug]}
+    logs:    {receivers: [otlp], processors: [batch], exporters: [debug]}

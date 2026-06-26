@@ -1,0 +1,66 @@
+# Local development stack (spec §5). Brings up the core spine; Step Functions Local
+# + Lambda containers and the full OTel→Watchtower path are wired but commented as
+# opt-in to keep the default `up` fast (the honest "clunky local loop" tax, ADR-001).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-watch}
+      POSTGRES_USER: ${POSTGRES_USER:-watch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-watch}
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-watch}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+
+  valkey:
+    image: valkey/valkey:8
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # AppConfig Agent (ADR-003): identical localhost:2772 path as prod's ECS sidecar.
+  appconfig-agent:
+    image: public.ecr.aws/aws-appconfig/aws-appconfig-agent:2.x
+    ports: ["2772:2772"]
+    environment:
+      LOCAL_DEVELOPMENT_DIRECTORY: /flags
+    volumes: ["./local/flags:/flags:ro"]
+
+  backend:
+    build: ./backend
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+    env_file: [.env]
+    environment:
+      POSTGRES_HOST: postgres
+      VALKEY_URL: redis://valkey:6379/0
+      APPCONFIG_AGENT_URL: http://appconfig-agent:2772
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      valkey: {condition: service_healthy}
+
+  # --- Opt-in (uncomment for escalation integration tests, §6) ---
+  # stepfunctions-local:
+  #   image: amazon/aws-stepfunctions-local
+  #   ports: ["8083:8083"]
+  #   environment:
+  #     LAMBDA_ENDPOINT: http://lambda:9001
+
+  # --- Opt-in (OTel Collector -> Watchtower/LGTM, §4.8) ---
+  # otel-collector:
+  #   image: otel/opentelemetry-collector-contrib
+  #   command: ["--config=/etc/otel/config.yaml"]
+  #   volumes: ["./observability/otel-collector-config.yaml:/etc/otel/config.yaml:ro"]
+  #   ports: ["4317:4317", "4318:4318"]
+
+volumes:
+  pgdata:

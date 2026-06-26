@@ -1,0 +1,13 @@
+# Core runtime deps for the v1 backend slice.
+# Pinned loosely for the scaffold; tighten in CodeBuild (ADR-004) before release.
+Django>=5.0,<5.2
+djangorestframework>=3.15,<3.16
+psycopg[binary]>=3.1,<4
+django-redis>=5.4,<6           # Valkey-backed cache + sessions (ADR-008)
+boto3>=1.34                    # Step Functions client (ADR-001/007)
+requests>=2.31                 # AppConfig Agent localhost:2772 (ADR-003)
+gunicorn>=21.2                 # served behind ALB on Fargate (§4.3)
+
+# Dev / test (hermetic units, no Docker/network — spec §6)
+pytest>=8.0
+pytest-django>=4.8

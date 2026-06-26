@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Django
+*.sqlite3
+/backend/staticfiles/
+.env
+.env.local
+
+# Node / frontend
+node_modules/
+frontend/dist/
+
+# Terraform / Terragrunt
+.terraform/
+*.tfstate
+*.tfstate.*
+.terragrunt-cache/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

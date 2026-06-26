@@ -1,0 +1,18 @@
+[project]
+name = "watch-backend"
+version = "0.1.0"
+description = "Watch — incident intake & tiered escalation (Django/DRF, v1 slice)"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings_test"
+python_files = ["test_*.py"]
+addopts = "-q"
+# Hermetic units never touch Docker/network (spec §6); integration tests opt in.
