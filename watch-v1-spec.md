@@ -64,6 +64,7 @@ React SPA (S3 + CloudFront) ─────────────────�
 
 ### 4.1 Intake
 - `Sumo webhook → API Gateway → SQS → consumer`.
+- **Webhook auth (ADR-008):** machine-to-machine, separate from human sessions — API Gateway authorizes via shared secret / request signature (or IAM), validated *before* enqueue. No shared credentials with the user-facing path.
 - **Ack on enqueue, not on processing.** The source never waits on Django/RDS. (ADR-002)
 - Consumer is idempotent on a source-provided dedupe key (or hash of payload) so retried deliveries don't create duplicate incidents.
 - Consumer creates the Incident, then **starts one Step Functions execution** for it.
@@ -83,6 +84,7 @@ React SPA (S3 + CloudFront) ─────────────────�
 ### 4.3 API
 - Django + DRF on **ECS Fargate** behind an ALB.
 - **Stateless tasks** — sessions externalized to **Valkey (ElastiCache)**; durable data in **RDS Postgres Multi-AZ**.
+- **Auth (ADR-008):** Django built-in **session auth** (cookies in Valkey); tiers as **Django Groups** (T1/T2/T3); SSO/OIDC left as a clean seam. **Authorization for ACK/ESCALATE/RESOLVE:** a user may act iff they hold the incident's `current_tier` role *or higher* (senior override) — the guard in front of `SendTaskSuccess` (ADR-007). Role-based, not per-assignee.
 - Secrets via SSM **SecureString** (static) and **Secrets Manager** (RDS rotation), referenced through the task definition's `secrets` block — never inline `environment`. Plain config goes inline.
 
 ### 4.4 Frontend

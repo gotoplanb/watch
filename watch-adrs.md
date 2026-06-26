@@ -107,3 +107,23 @@
 - *Cost:* ACK has no protective effect — a tier whose SLA is set too short will auto-escalate even while actively worked. Mitigated by setting tier SLAs to realistic working windows; **per-incident SLA extension is deferred** as a later explicit feature, not v1.
 - *Cost:* a single token field keeps no in-tier token history — acceptable, since a tier issues exactly one token and the `transitions[]` log already provides per-tier audit.
 - *Guardrail:* token consumption is idempotent; concurrency races are resolved by the expected-tier check plus treating consumed-token errors as no-ops. Transitions remain idempotent (ADR-001).
+
+---
+
+## ADR-008 — Authentication & authorization: Django session auth, tier-role-or-above, separate webhook auth
+**Status:** Accepted
+
+**Context.** Spec review (#5) found auth unspecified: §4.3 externalizes sessions to Valkey and §3 names T1/T2/T3 roles, but no authentication mechanism was stated and no rule said *who* may advance or resolve an incident — i.e. nothing guarded the `SendTaskSuccess` call introduced in ADR-007. Two sub-problems: human auth (which must cohere with the existing Valkey *session-cookie* decision — a stateless JWT model would moot it), and machine intake auth (the webhook), plus the authorization rule itself. ADR-003's "prefer a managed service over homegrown" instinct points at Cognito, but Django's session auth is a framework feature, not a reimplemented managed service, and it's the option coherent with §4.3.
+
+**Decision.**
+1. **Human authentication = Django's built-in session auth**, server-side session cookies in **Valkey** (consistent with §4.3 and the stateless-task requirement). Tiers are **Django Groups** (T1/T2/T3). **SSO/OIDC federation is left as a clean seam** (pluggable Django auth backend), not built in v1.
+2. **Authorization rule for tier-ending actions** (ACK / ESCALATE / RESOLVE): a user may act **iff they hold the incident's `current_tier` role or any higher tier** (senior override). Role-based, **not** per-assignee (v1 keeps assignment simple, §3). This is the guard in front of the `SendTaskSuccess` path from ADR-007.
+3. **Intake/webhook auth is machine-to-machine and fully separate** from human sessions: **API Gateway** authorizes the Sumo webhook via a shared secret / request signature (or IAM), validated **before** SQS enqueue. The human path and intake path share no credentials.
+
+**Consequences.**
+- *Gain:* coherent with the existing Valkey session decision — no rework of §4.3; trivial for the local/phone loop; no external IdP dependency for v1.
+- *Gain:* the tier role is a real **access boundary**, so "who was allowed to hand off" is enforced and auditable — the `actor` on each `Transition` is an authenticated, authorized user, reinforcing the core audit story (ADR-001).
+- *Gain:* senior override ("or above") matches real ops without per-assignee complexity.
+- *Cost:* **no SSO in v1** — users carry app-local credentials, real identity-duplication friction for a day-job tool; accepted, with the OIDC backend seam as the upgrade path (consistent with ADR-005's "leave seams clean").
+- *Cost:* "or above" lets a higher tier act on a lower-tier incident the assigned tier hasn't yet seen — intentional (override), so tier is a floor, not an exclusive lock.
+- *Guardrail:* the authz check sits at the API boundary in front of `SendTaskSuccess`; combined with ADR-007's expected-tier/optimistic-concurrency check, an authorized-but-stale action is still rejected. The webhook secret is handled per §4.3 (Secrets Manager / SSM), not inline.
