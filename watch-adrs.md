@@ -11,6 +11,8 @@
 
 **Decision.** Model escalation as **one Step Functions Standard execution per incident**, with `waitForTaskToken`+timeout states per tier. **Python Lambdas make the decisions; Step Functions owns orchestration and timing.** Django remains system-of-record.
 
+**Assumed volume (#6).** This is sized for **< 100 incidents/day**, human-paced — low-priority research/investigation tasks, not a high-frequency alarm stream. That implies a handful of state transitions per execution and few concurrent open executions. Standard workflows' 25k-event history ceiling is therefore non-binding, and per-transition billing is negligible at this rate. **At machine-generated or high-frequency volume, one-execution-per-incident would be the wrong primitive and this ADR must be revisited.**
+
 **Consequences.**
 - *Gain:* the timer **cannot silently fail** — it's held by AWS, survives any task death, and a missed escalation surfaces as a *failed execution → alarm*. Escalation reliability moves from best-effort to provable. Each execution is visually inspectable (strong audit story).
 - *Gain:* the pattern transfers directly to deadline-driven case routing (e.g. benefits turnaround SLAs) — same primitive.

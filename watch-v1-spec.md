@@ -70,7 +70,7 @@ React SPA (S3 + CloudFront) ─────────────────�
 - Consumer creates the Incident, then **starts one Step Functions execution** for it.
 
 ### 4.2 Escalation engine (Step Functions)
-- **One Standard-workflow execution per incident**, started at creation. Standard workflows bill per state transition and run up to a year — ideal for slow, human-paced escalation timelines.
+- **One Standard-workflow execution per incident**, started at creation. Standard workflows bill per state transition and run up to a year — ideal for slow, human-paced escalation timelines. **Sized for < 100 incidents/day, human-paced** (ADR-001); not for high-frequency/machine-generated streams.
 - Each tier modeled as a **`waitForTaskToken` task with `timeout` = that tier's SLA**. The token is consumed **exactly once per tier**, by a tier-ending decision (ADR-007):
   - **ESCALATE / RESOLVE** → app calls `SendTaskSuccess` with an `outcome` field → ASL `Choice` routes (ESCALATE → next tier; RESOLVE → `Succeed`, ending the execution cleanly — no zombie timer).
   - **ACK** ("I've got this, still working") → **Postgres event + audit record only; does *not* consume the token.** An acked-but-unresolved incident still auto-escalates at its SLA deadline — acking is not progress.
