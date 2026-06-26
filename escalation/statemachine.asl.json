@@ -10,12 +10,13 @@
         "FunctionName": "${record_token_function_arn}",
         "Payload": {"incidentId.$": "$.incidentId", "tier": "T1", "taskToken.$": "$$.Task.Token"}
       },
+      "ResultPath": "$.decision",
       "Catch": [{"ErrorEquals": ["States.Timeout"], "Next": "T1_AutoEscalate"}],
       "Next": "T1_Decision"
     },
     "T1_Decision": {
       "Type": "Choice",
-      "Choices": [{"Variable": "$.outcome", "StringEquals": "RESOLVE", "Next": "Resolved"}],
+      "Choices": [{"Variable": "$.decision.outcome", "StringEquals": "RESOLVE", "Next": "Resolved"}],
       "Default": "T2_Wait"
     },
     "T1_AutoEscalate": {
@@ -37,12 +38,13 @@
         "FunctionName": "${record_token_function_arn}",
         "Payload": {"incidentId.$": "$.incidentId", "tier": "T2", "taskToken.$": "$$.Task.Token"}
       },
+      "ResultPath": "$.decision",
       "Catch": [{"ErrorEquals": ["States.Timeout"], "Next": "T2_AutoEscalate"}],
       "Next": "T2_Decision"
     },
     "T2_Decision": {
       "Type": "Choice",
-      "Choices": [{"Variable": "$.outcome", "StringEquals": "RESOLVE", "Next": "Resolved"}],
+      "Choices": [{"Variable": "$.decision.outcome", "StringEquals": "RESOLVE", "Next": "Resolved"}],
       "Default": "T3_Wait"
     },
     "T2_AutoEscalate": {
@@ -64,12 +66,13 @@
         "FunctionName": "${record_token_function_arn}",
         "Payload": {"incidentId.$": "$.incidentId", "tier": "T3", "taskToken.$": "$$.Task.Token"}
       },
+      "ResultPath": "$.decision",
       "Catch": [{"ErrorEquals": ["States.Timeout"], "Next": "EscalationExhausted"}],
       "Next": "T3_Decision"
     },
     "T3_Decision": {
       "Type": "Choice",
-      "Choices": [{"Variable": "$.outcome", "StringEquals": "RESOLVE", "Next": "Resolved"}],
+      "Choices": [{"Variable": "$.decision.outcome", "StringEquals": "RESOLVE", "Next": "Resolved"}],
       "Default": "EscalationExhausted"
     },
 
