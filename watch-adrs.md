@@ -127,3 +127,24 @@
 - *Cost:* **no SSO in v1** — users carry app-local credentials, real identity-duplication friction for a day-job tool; accepted, with the OIDC backend seam as the upgrade path (consistent with ADR-005's "leave seams clean").
 - *Cost:* "or above" lets a higher tier act on a lower-tier incident the assigned tier hasn't yet seen — intentional (override), so tier is a floor, not an exclusive lock.
 - *Guardrail:* the authz check sits at the API boundary in front of `SendTaskSuccess`; combined with ADR-007's expected-tier/optimistic-concurrency check, an authorized-but-stale action is still rejected. The webhook secret is handled per §4.3 (Secrets Manager / SSM), not inline.
+
+---
+
+## ADR-009 — Intake idempotency: source-id-first key, dedupe scoped to the open incident
+**Status:** Accepted · *Refines ADR-002*
+
+**Context.** ADR-002 required an idempotent consumer that "dedupes on a source key / payload hash," but spec review (#4) found that under-specified: a source key and a payload hash are **not** equivalent, and neither alone handles both retried deliveries *and* legitimate recurrences. A pure content hash conflates "the same alert fired again next week" with "this delivery was retried"; requiring a source id outright is brittle if a source can't emit one.
+
+**Decision.**
+1. **Dedupe key** = the source-provided event/delivery id when present, **else** `sha256` over a **normalized** payload (volatile fields — firing timestamp, delivery/sequence ids — stripped before hashing; the exact strip-list is per-source config).
+2. **Dedupe is scoped to the open incident:** a partial unique constraint `UNIQUE(dedupe_key) WHERE status = OPEN`. The consumer creates via `INSERT … ON CONFLICT DO NOTHING`.
+   - Retries/redeliveries while the incident is `OPEN` → idempotent no-op.
+   - A re-fire **after** the incident is `RESOLVED` → a new incident (recurrence honored).
+3. **Enforcement is in Postgres** (system-of-record), not the queue. SQS stays **standard** (not FIFO); FIFO content-dedup (5-min window, ordering/throughput constraints) is neither durable nor authoritative enough for this guarantee. The DB constraint also resolves the concurrent-consumer race.
+
+**Consequences.**
+- *Gain:* retried deliveries can't double-create (ADR-002's goal), and genuine recurrences after resolution still raise a fresh incident — both behaviors fall out of one partial index tied to the ADR-007 `status` field.
+- *Gain:* precise dedupe for sources that emit a real event id; a safe fallback for those that don't, without rejecting deliveries.
+- *Cost:* while an incident is `OPEN`, a *legitimately distinct* event that happens to normalize to the same key (no source id, identical content) is absorbed into the open incident rather than raised separately — accepted; it surfaces as repeat deliveries on the existing incident, and a real source id avoids it.
+- *Cost:* per-source normalization (which fields are volatile) is config that must be maintained as sources are added — a small ongoing tax, localized to intake.
+- *Guardrail:* the unique index is the authority; the consumer's `ON CONFLICT DO NOTHING` must be a true no-op (no partial side effects before the insert), keeping intake idempotent under retry and concurrency (consistent with ADR-001/002).

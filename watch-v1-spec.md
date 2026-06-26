@@ -66,7 +66,7 @@ React SPA (S3 + CloudFront) ─────────────────�
 - `Sumo webhook → API Gateway → SQS → consumer`.
 - **Webhook auth (ADR-008):** machine-to-machine, separate from human sessions — API Gateway authorizes via shared secret / request signature (or IAM), validated *before* enqueue. No shared credentials with the user-facing path.
 - **Ack on enqueue, not on processing.** The source never waits on Django/RDS. (ADR-002)
-- Consumer is idempotent on a source-provided dedupe key (or hash of payload) so retried deliveries don't create duplicate incidents.
+- **Idempotent consumer (ADR-009):** dedupe key = source-provided event id when present, else `sha256(normalize(payload))` (volatile fields stripped). Enforced in Postgres via a **partial unique index `UNIQUE(dedupe_key) WHERE status = OPEN`** + `INSERT … ON CONFLICT DO NOTHING` — retries while OPEN are no-ops; a re-fire after `RESOLVED` opens a new incident. SQS stays standard (not FIFO); the DB constraint is the authority and resolves the concurrent-consumer race.
 - Consumer creates the Incident, then **starts one Step Functions execution** for it.
 
 ### 4.2 Escalation engine (Step Functions)
