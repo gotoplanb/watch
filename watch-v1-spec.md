@@ -46,9 +46,10 @@ React SPA (S3 + CloudFront) ─────────────────�
 
 **Incident**
 - `id`, `source`, `payload` (raw intake), `title`, `created_at`
-- `state`: `NEW → TRIAGED_T1 → ESCALATED_T2 → ESCALATED_T3 → RESOLVED`
-- `assignee` (user/role), `current_tier`
-- `sla_deadline_at` per tier, `escalation_execution_arn`
+- **Lifecycle is two orthogonal fields** (ADR-007): `status` ∈ `{OPEN, RESOLVED}` and `current_tier` ∈ `{T1, T2, T3}`, plus `acknowledged_at` (nullable — set when a human acks the *current* tier, cleared on escalation). `RESOLVED` is reachable from any tier. (Replaces the old linear `NEW→…→RESOLVED` enum: `NEW = (OPEN, T1, ack=null)`, `TRIAGED_T1 = (OPEN, T1, ack=set)`.)
+- `assignee` (user/role)
+- `sla_deadline_at` (current tier's deadline), `escalation_execution_arn`
+- `current_task_token` — the outstanding `waitForTaskToken` for the current tier; exactly one per incident, written atomically with `current_tier`/`sla_deadline_at` by the tier-entering Lambda, nulled on consume (ADR-007).
 - relationships: `transitions[]` (audit), `documents[]` (attachments — v1: metadata only)
 
 **Transition (append-only audit record)**
@@ -69,10 +70,12 @@ React SPA (S3 + CloudFront) ─────────────────�
 
 ### 4.2 Escalation engine (Step Functions)
 - **One Standard-workflow execution per incident**, started at creation. Standard workflows bill per state transition and run up to a year — ideal for slow, human-paced escalation timelines.
-- Each tier modeled as a **`waitForTaskToken` task with a timeout**:
-  - Human acknowledges/escalates → app calls `SendTaskSuccess` with the token → execution advances on the human's action.
-  - Timeout fires → caught as auto-escalation → advance to next tier.
+- Each tier modeled as a **`waitForTaskToken` task with `timeout` = that tier's SLA**. The token is consumed **exactly once per tier**, by a tier-ending decision (ADR-007):
+  - **ESCALATE / RESOLVE** → app calls `SendTaskSuccess` with an `outcome` field → ASL `Choice` routes (ESCALATE → next tier; RESOLVE → `Succeed`, ending the execution cleanly — no zombie timer).
+  - **ACK** ("I've got this, still working") → **Postgres event + audit record only; does *not* consume the token.** An acked-but-unresolved incident still auto-escalates at its SLA deadline — acking is not progress.
+  - **Timeout fires** → caught as auto-escalation → advance to next tier (`actor=system:auto-escalation`).
   - This unifies **manual and automatic escalation on one path**.
+  - The API never trusts a client-supplied token: it looks up `current_task_token`, rejects if `current_tier` moved from the client's expected tier (optimistic concurrency), and treats `SendTaskSuccess` on an already-consumed token (`TaskDoesNotExist`) as an idempotent no-op.
 - Python Lambda tasks make every decision ("is it still unacked? who's next? what's the new SLA?") and **write the transition back to Postgres** with an audit record.
 - **Idempotent transitions:** every escalation is "escalate *if still applicable*," never "escalate." Step Functions retries must be safe.
 - **A missed escalation is a failed execution → CloudWatch alarm.** Absence of escalation is itself detectable and alarmable — escalation reliability is provable, not best-effort. (ADR-001)

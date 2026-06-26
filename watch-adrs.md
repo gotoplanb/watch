@@ -85,3 +85,25 @@
 **Consequences.**
 - *Gain:* one idiom across all providers; human-readable plan diffs for change control / audit.
 - *Cost / tension:* slightly against the "prefer AWS-native when comparable" default — pre-empted by naming IaC as the intentional exception.
+
+---
+
+## ADR-007 — Incident lifecycle: orthogonal `status` × `tier`, ack doesn't stop the clock, one task token per tier
+**Status:** Accepted
+
+**Context.** Spec review surfaced three coupled gaps (#1/#2/#3). The original model used a single linear enum (`NEW → TRIAGED_T1 → ESCALATED_T2 → ESCALATED_T3 → RESOLVED`), which (a) conflated *tier* with *lifecycle* — implying resolution only follows T3, when most incidents resolve at T1/T2; (b) carried a `TRIAGED_T1` state with no T2/T3 equivalent (asymmetric); (c) left the `waitForTaskToken` token absent from the domain model, so the manual-escalation path had nothing to call `SendTaskSuccess` with; and (d) never said what resolution does to a still-parked execution — a resolved incident could later auto-escalate via timeout (zombie timer). Underneath all four sits one question: *what ends a tier's wait, and what merely annotates it?*
+
+**Decision.**
+1. **State is two orthogonal fields:** `status ∈ {OPEN, RESOLVED}` and `current_tier ∈ {T1, T2, T3}`, plus `acknowledged_at` (nullable). The old enum maps as `NEW = (OPEN, T1, ack=null)`, `TRIAGED_T1 = (OPEN, T1, ack=set)`. Resolution is legal from **any** tier.
+2. **One tier = one `waitForTaskToken`** with `timeout` = that tier's SLA. The token is consumed **exactly once per tier**, by a tier-ending decision.
+3. **Acknowledge does not stop the clock.** ACK is a Postgres event + audit record; it does **not** consume the token. An acked-but-unresolved incident still auto-escalates at its SLA deadline — acknowledging is not progress.
+4. **Three tier-ending outcomes, one path.** ESCALATE and RESOLVE call `SendTaskSuccess` with an `outcome` field routed by an ASL `Choice` (RESOLVE → `Succeed`; ESCALATE → next tier); a timeout is caught and auto-escalates with `actor=system:auto-escalation`. Resolution terminates via `Succeed`, **not** `StopExecution`, so the execution history stays a clean, inspectable record.
+5. **One outstanding token ⇒ one field.** `current_task_token` lives on Incident, written **atomically** by the tier-entering Lambda alongside `current_tier` + `sla_deadline_at`, and nulled on consume. The API **never trusts a client-supplied token**: it looks up the current one, rejects if `current_tier` moved from the client's expected tier (optimistic concurrency), and treats `SendTaskSuccess` on an already-consumed token (`TaskDoesNotExist`) as an idempotent no-op.
+
+**Consequences.**
+- *Gain:* resolve-from-any-tier is natural; the audit record carries both dimensions; the T1-only "triaged" asymmetry is gone. One token, one wait per tier — the simplest ASL that works.
+- *Gain:* "ack doesn't stop the clock" keeps the core promise intact — **absence of resolution stays alarmable** (consistent with ADR-001), and the unified manual/automatic path holds because every tier-ending action goes through the same token.
+- *Gain:* no zombie timers — RESOLVE consumes the token and ends the execution in `Succeed`.
+- *Cost:* ACK has no protective effect — a tier whose SLA is set too short will auto-escalate even while actively worked. Mitigated by setting tier SLAs to realistic working windows; **per-incident SLA extension is deferred** as a later explicit feature, not v1.
+- *Cost:* a single token field keeps no in-tier token history — acceptable, since a tier issues exactly one token and the `transitions[]` log already provides per-tier audit.
+- *Guardrail:* token consumption is idempotent; concurrency races are resolved by the expected-tier check plus treating consumed-token errors as no-ops. Transitions remain idempotent (ADR-001).
