@@ -1,6 +1,14 @@
-# Local development stack (spec §5). Brings up the core spine; Step Functions Local
-# + Lambda containers and the full OTel→Watchtower path are wired but commented as
-# opt-in to keep the default `up` fast (the honest "clunky local loop" tax, ADR-001).
+# Local development stack (spec §5). `docker compose up` brings up the Watch spine —
+# backend, Postgres, Valkey, AppConfig flags — and exports OTel to the EXISTING local
+# Watchtower (LGTM) stack via Grafana Alloy on the host (4317/4318). It does NOT run
+# its own LGTM.
+#
+# Host ports are offset to avoid colliding with other local stacks (e.g. conduct-*
+# on 8000/5432/6379). Container-to-container networking uses service names, so the
+# offsets are host-side only.
+#
+# Step Functions Local is under the `integration` profile (the honest "clunky local
+# loop" tax, ADR-001) — started only for escalation integration tests.
 services:
   postgres:
     image: postgres:16
@@ -8,7 +16,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-watch}
       POSTGRES_USER: ${POSTGRES_USER:-watch}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-watch}
-    ports: ["5432:5432"]
+    ports: ["5433:5432"]          # host 5433 (conduct-postgres holds 5432)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-watch}"]
       interval: 5s
@@ -18,7 +26,7 @@ services:
 
   valkey:
     image: valkey/valkey:8
-    ports: ["6379:6379"]
+    ports: ["6380:6379"]          # host 6380 (conduct-redis holds 6379)
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
@@ -33,34 +41,45 @@ services:
       LOCAL_DEVELOPMENT_DIRECTORY: /flags
     volumes: ["./local/flags:/flags:ro"]
 
+  # Containerized backend = the prod/CI artifact (built in CodeBuild where PyPI is
+  # reachable). In this local sandbox the Docker build network can't reach PyPI, so
+  # the app is run on the HOST venv instead (`make run`); this service stays behind a
+  # profile for parity / environments that can build it.
   backend:
-    build: ./backend
+    profiles: ["containerized"]
+    build:
+      context: ./backend
     command: >
       sh -c "python manage.py migrate &&
-             python manage.py runserver 0.0.0.0:8000"
+             python manage.py seed_demo &&
+             python manage.py runserver --noreload 0.0.0.0:8000"
     env_file: [.env]
     environment:
       POSTGRES_HOST: postgres
       VALKEY_URL: redis://valkey:6379/0
       APPCONFIG_AGENT_URL: http://appconfig-agent:2772
-    ports: ["8000:8000"]
+      FLAGS_PROVIDER: appconfig
+      OTEL_ENABLED: "1"
+      OTEL_SERVICE_NAME: watch-backend
+      # Export to the existing Watchtower Alloy OTLP/HTTP receiver on the host.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports: ["8010:8000"]          # host 8010 (conduct-api holds 8000)
     depends_on:
       postgres: {condition: service_healthy}
       valkey: {condition: service_healthy}
 
-  # --- Opt-in (uncomment for escalation integration tests, §6) ---
-  # stepfunctions-local:
-  #   image: amazon/aws-stepfunctions-local
-  #   ports: ["8083:8083"]
-  #   environment:
-  #     LAMBDA_ENDPOINT: http://lambda:9001
-
-  # --- Opt-in (OTel Collector -> Watchtower/LGTM, §4.8) ---
-  # otel-collector:
-  #   image: otel/opentelemetry-collector-contrib
-  #   command: ["--config=/etc/otel/config.yaml"]
-  #   volumes: ["./observability/otel-collector-config.yaml:/etc/otel/config.yaml:ro"]
-  #   ports: ["4317:4317", "4318:4318"]
+  # Escalation integration tests only (ADR-001/007). Mocked Lambda integrations via
+  # MockConfigFile so the ASL routing is exercised without real Lambdas.
+  stepfunctions-local:
+    image: amazon/aws-stepfunctions-local
+    profiles: ["integration"]
+    ports: ["8083:8083"]
+    environment:
+      SFN_MOCK_CONFIG: /home/StepFunctionsLocal/MockConfigFile.json
+    volumes:
+      - ./escalation/test/MockConfigFile.json:/home/StepFunctionsLocal/MockConfigFile.json:ro
 
 volumes:
   pgdata:

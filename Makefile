@@ -1,0 +1,88 @@
+# Watch — local developer workflow.
+# Goal: everything runs local — unit + integration tests, manual use, and OTel
+# telemetry visible in the local Watchtower (LGTM) stack.
+
+PY := python3.12
+VENV := backend/.venv
+PYTEST := $(VENV)/bin/pytest
+
+.PHONY: help venv test dev infra up down logs seed smoke integration clean
+
+# Env for running the backend on the HOST against compose-provided infra. This is the
+# primary local loop here: it needs no image-registry/PyPI egress (only the cached
+# postgres/valkey/appconfig images), and exports OTel to the existing Watchtower.
+HOSTENV := DJANGO_SECRET_KEY=dev DJANGO_DEBUG=1 \
+  POSTGRES_HOST=localhost POSTGRES_PORT=5433 \
+  VALKEY_URL=redis://localhost:6380/0 \
+  APPCONFIG_AGENT_URL=http://localhost:2772 FLAGS_PROVIDER=appconfig \
+  INTAKE_WEBHOOK_SECRET=dev-webhook-secret \
+  OTEL_ENABLED=1 OTEL_SERVICE_NAME=watch-backend OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+
+help:
+	@echo "make dev          PRIMARY local loop: infra in Docker + backend on host (:8010)"
+	@echo "                  migrate + seed + runserver; OTel -> existing Watchtower"
+	@echo "make infra        start only Postgres/Valkey/AppConfig in Docker"
+	@echo "make test         run hermetic unit tests (no Docker)"
+	@echo "make integration  run integration tests vs running infra (Postgres, AppConfig, [SFN if up])"
+	@echo "make smoke        push an incident through the intake webhook"
+	@echo "make up           full containerized stack (needs registry/PyPI egress; for CI/normal net)"
+	@echo "make down         stop the stack and remove volumes"
+	@echo ""
+	@echo "Watchtower Grafana (existing): http://localhost:3000  -> Explore -> Tempo (service watch-backend)"
+	@echo "App / browsable API:           http://localhost:8010/api/  (login: t1/t2/t3 pw 'watch')"
+
+venv:
+	$(PY) -m venv $(VENV)
+	$(VENV)/bin/pip install -q --upgrade pip
+	$(VENV)/bin/pip install -q -r backend/requirements.txt
+
+infra:
+	@test -f .env || cp .env.example .env
+	docker compose up -d postgres valkey appconfig-agent
+
+# One-command working loop (no image build): infra in Docker, app on the host.
+dev: venv infra
+	@echo "Waiting for Postgres on :5433..."
+	@for i in $$(seq 1 30); do nc -z localhost 5433 && break; sleep 1; done
+	cd backend && $(HOSTENV) .venv/bin/python manage.py migrate
+	cd backend && $(HOSTENV) .venv/bin/python manage.py seed_demo
+	cd backend && $(HOSTENV) .venv/bin/python manage.py runserver --noreload 0.0.0.0:8010
+
+test: venv
+	cd backend && .venv/bin/pytest
+
+up:
+	@test -f .env || cp .env.example .env
+	docker compose up -d --build
+	@echo "Stack up. App http://localhost:8010/api/  •  traces in Watchtower Grafana http://localhost:3000"
+
+logs:
+	docker compose logs -f backend
+
+seed:
+	docker compose exec backend python manage.py seed_demo
+
+smoke:
+	curl -fsS -X POST http://localhost:8010/api/intake/webhook \
+	  -H "X-Watch-Webhook-Secret: $$(grep INTAKE_WEBHOOK_SECRET .env | cut -d= -f2)" \
+	  -H "Content-Type: application/json" \
+	  -d '{"source":"sumo","title":"Smoke: cpu high on web-2","source_event_id":"smoke-1","payload":{"host":"web-2"}}' \
+	  && echo "" && echo "OK — see it at http://localhost:8010/api/incidents/"
+
+# Integration tests (spec §6): real Postgres + AppConfig Agent + Step Functions Local.
+# Tests run on the host venv against the running infra; SFN Local is best-effort
+# (the test skips if its container can't start, e.g. no registry egress).
+integration: venv infra
+	-docker compose --profile integration up -d stepfunctions-local
+	@echo "Giving Step Functions Local a moment (skipped if unavailable)..."
+	@for i in $$(seq 1 15); do nc -z localhost 8083 && break; sleep 1; done; true
+	cd backend && DJANGO_SETTINGS_MODULE=config.settings_integration \
+	  POSTGRES_HOST=localhost POSTGRES_PORT=5433 VALKEY_URL=redis://localhost:6380/0 \
+	  APPCONFIG_AGENT_URL=http://localhost:2772 \
+	  .venv/bin/pytest -m integration -p no:cacheprovider
+
+down:
+	docker compose --profile integration down -v
+
+clean: down
+	rm -rf $(VENV)

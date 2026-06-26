@@ -126,6 +126,11 @@ INTAKE_WEBHOOK_SECRET = _env("INTAKE_WEBHOOK_SECRET", "")
 # Per-source config; this is the v1 default set.
 INTAKE_VOLATILE_FIELDS = ["timestamp", "firedAt", "deliveryId", "messageId", "sequence"]
 
+# --- Observability (OTel — §4.8) ---
+OTEL_ENABLED = _bool("OTEL_ENABLED", False)
+OTEL_SERVICE_NAME = _env("OTEL_SERVICE_NAME", "watch-backend")
+OTEL_EXPORTER_OTLP_ENDPOINT = _env("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

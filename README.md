@@ -33,20 +33,36 @@ docker-compose.yml
 | Frontend / Terragrunt / OTel | Structured stubs + READMEs (lineage noted) |
 
 ## Quickstart (local, §5)
-```bash
-cp .env.example .env
-docker compose up            # backend, postgres, valkey, appconfig-agent
+Host ports are offset to coexist with other local stacks; the app is on **8010**.
+OTel exports to the **existing local Watchtower (LGTM)** stack via Grafana Alloy — it
+does not run its own LGTM (see `observability/README.md`).
 
-# create an incident through the idempotent intake path
-docker compose exec backend python manage.py consume_intake \
-    --source sumo --title "Disk full" --event-id alert-123 --payload '{"host":"web-1"}'
+```bash
+make dev       # infra (postgres:5433, valkey:6380, appconfig) in Docker + backend on
+               # host (:8010); runs migrate + seed_demo + runserver, OTel -> Watchtower
+make smoke     # (in another shell) push an incident through the intake webhook
 ```
 
-## Tests (hermetic — no Docker/network, §6)
+`make dev` runs the app on the host against containerized infra — the primary local
+loop, and the one that needs no image-registry/PyPI egress. `make up` runs the
+fully containerized stack (backend image included) and is meant for CI / normal-network
+environments where the image can build.
+
+### Use it by hand
+- **Browsable API:** http://localhost:8010/api/incidents/ — log in (top-right) as
+  `t1` / `t2` / `t3` (password `watch`), or `admin` / `admin` for the Django admin.
+- **Act on an incident:** open an incident, then `POST` to its `ack` / `escalate` /
+  `resolve` action. Authz is tier-or-above (ADR-008); `expected_tier` guards against
+  acting on a stale view (ADR-007).
+- **See telemetry:** Watchtower Grafana http://localhost:3000 → Explore → Tempo →
+  service `watch-backend`.
+
+## Tests
 ```bash
-cd backend
-pip install -r requirements.txt
-pytest          # idempotency, both flag branches, tier authz, lifecycle transitions
+make test          # hermetic units — no Docker/network (idempotency, flag branches,
+                   # tier authz, lifecycle transitions, ASL structure)
+make integration   # spins the stack incl. Step Functions Local, then runs the
+                   # integration suite: real Postgres, AppConfig Agent, SFN routing
 ```
 
 ## Decision map

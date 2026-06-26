@@ -8,6 +8,14 @@ boto3>=1.34                    # Step Functions client (ADR-001/007)
 requests>=2.31                 # AppConfig Agent localhost:2772 (ADR-003)
 gunicorn>=21.2                 # served behind ALB on Fargate (§4.3)
 
+# Observability (OpenTelemetry from day one — §4.8). Coordinated release train;
+# pip resolves matching sdk/instrumentation versions.
+opentelemetry-sdk>=1.27
+opentelemetry-exporter-otlp-proto-http>=1.27
+opentelemetry-instrumentation-django>=0.48b0
+opentelemetry-instrumentation-psycopg>=0.48b0
+opentelemetry-instrumentation-requests>=0.48b0
+
 # Dev / test (hermetic units, no Docker/network — spec §6)
 pytest>=8.0
 pytest-django>=4.8

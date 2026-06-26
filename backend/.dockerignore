@@ -1,0 +1,35 @@
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*.so
+.Python
+*.egg-info
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# uv / venv — never copy the host venv into the image
+.venv
+
+# Env (never bake secrets into images)
+.env
+.env.*
+
+# IDE / OS
+.idea
+.vscode
+*.swp
+.DS_Store
+
+# Logs
+*.log
+
+# Claude Code
+.claude
+
+# Build/docs that don't belong in the image
+Dockerfile
+.dockerignore

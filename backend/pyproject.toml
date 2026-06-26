@@ -14,5 +14,9 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings_test"
 python_files = ["test_*.py"]
-addopts = "-q"
-# Hermetic units never touch Docker/network (spec §6); integration tests opt in.
+# Hermetic units never touch Docker/network (spec §6). Integration tests are marked
+# and excluded here; run them with the compose stack up via `make integration`.
+addopts = "-q -m 'not integration'"
+markers = [
+    "integration: needs the docker-compose stack (Postgres, AppConfig Agent, SFN Local)",
+]

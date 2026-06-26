@@ -1,0 +1,24 @@
+{
+  "_comment": "Mocked Lambda integrations for Step Functions Local (spec §6). Mocks the per-tier waitForTaskToken task outputs so the ASL routing (Choice on outcome, tier-to-tier) is exercised without real Lambdas. Test cases are referenced as <stateMachineArn>#<TestCaseName>.",
+  "StateMachines": {
+    "Escalation": {
+      "TestCases": {
+        "ResolveAtT1": {
+          "T1_Wait": "resolveOutcome"
+        },
+        "EscalateThenResolveAtT2": {
+          "T1_Wait": "escalateOutcome",
+          "T2_Wait": "resolveOutcome"
+        }
+      }
+    }
+  },
+  "MockedResponses": {
+    "resolveOutcome": {
+      "0": { "Return": { "outcome": "RESOLVE" } }
+    },
+    "escalateOutcome": {
+      "0": { "Return": { "outcome": "ESCALATE" } }
+    }
+  }
+}
