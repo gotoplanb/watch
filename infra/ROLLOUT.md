@@ -12,6 +12,16 @@ durable **intake**, S3+CloudFront **status page**, OTel → **Watchtower**, all 
 - **This phase = author + validate IaC; apply deferred.** No AWS access in the build
   sandbox, so we write all Terragrunt + Lambda packaging and run `tofu validate` / `fmt`
   / hcl checks; `terraform apply` is gated on real credentials.
+- **Everything as Terraform (ADR-006).** Terragrunt/OpenTofu manages not just AWS but
+  **GitHub** (`github` provider — repo settings, branch protection, the required CodeBuild
+  status check, labels, repo variables) and **Cloudflare** (`cloudflare` provider — zone,
+  DNS, TLS). Principle: **if Terraform can manage it, it does** — no click-ops.
+- **Access posture (separation of duties).** A **temporary bootstrap credential**
+  (write) creates the state backend + OIDC + initial provider config, then is rotated/
+  disabled. In **normal operation Claude uses read-only credentials** (per service) to
+  *verify* changes — **no writes via CLI**; every mutation flows through CodePipeline via
+  OIDC-assumed roles (ADR-004). Provider tokens (GitHub, Cloudflare) are least-privilege
+  and stored outside the repo.
 - Everything else follows the ADRs (ECS Fargate, RDS Postgres Multi-AZ, ElastiCache
   Valkey, AppConfig, Step Functions, Terragrunt — ADR-001/003/005/006/010).
 
@@ -33,6 +43,7 @@ infra/
 | 00 | Local AWS access (operator prereq) | — | AWS CLI v2, account + region, bootstrap credential / SSO profile, `aws sts get-caller-identity` |
 | 0a | State backend + Terragrunt structure | 00 | S3 state bucket, DynamoDB lock, root `terragrunt.hcl`, `_envcommon` |
 | 0b | GitHub OIDC + IAM roles | 0a | OIDC provider, per-env deploy roles (least-priv), CI assume-role |
+| 0c | GitHub repo/org as code (`github` provider) | 0b | repo settings, branch protection, **required CodeBuild status check**, labels, repo variables (OIDC role ARN) |
 | 1 | `network` | 0 | VPC, public/private subnets ×AZ, NAT, SGs, VPC endpoints (ECR/S3/SSM/logs) |
 | 2 | `data` | 1 | RDS Postgres Multi-AZ + Secrets Manager rotation, ElastiCache Valkey, subnet/param groups, KMS |
 | 3 | `secrets` + AppConfig | 1 | SSM SecureString params, Secrets Manager entries; AppConfig app/env/profile + flags (ADR-003) |
@@ -43,7 +54,7 @@ infra/
 | 8 | `pipeline` (CD) | 4,5,6,7 | CodePipeline → CodeBuild (authoritative test/coverage/Sonar/build/push) → **CodeDeploy ECS blue/green** (alarm-gated canary/linear, auto-rollback, `BeforeAllowTraffic`/`AfterAllowTraffic` hooks), GitHub status-back; GitHub Actions = lint/format only (ADR-004) |
 | 9 | `observability` | 4 | ECS OTel → Watchtower (traces+metrics+logs, proven locally), CloudWatch alarms, **masked drains** (Logs data-protection), SmokeShow E2E hook (#7) |
 | 10 | Expand→contract migration | 4,8 | One real migration through expand → migrate → backfill → cut-over → **contract (separate release)** + runbook (§4.9) |
-| 11 | DNS / TLS | 4,7 | Cloudflare DNS + ACM certs (ALB + CloudFront), domain wiring (ADR-006) |
+| 11 | DNS / TLS (`cloudflare` provider) | 4,7 | Cloudflare zone + DNS records (Terraform-managed) + ACM certs (ALB + CloudFront), domain wiring (ADR-006) |
 
 ## Blue/green mechanics (ADR-004 / §4.6)
 Two ALB target groups + a **test listener**; CodeDeploy shifts traffic
