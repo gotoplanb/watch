@@ -111,6 +111,10 @@ APPCONFIG_PROFILE = _env("APPCONFIG_PROFILE", "flags")
 AWS_REGION = _env("AWS_REGION", "us-east-1")
 ESCALATION_STATE_MACHINE_ARN = _env("ESCALATION_STATE_MACHINE_ARN", "")
 ESCALATION_LOCAL_MODE = _bool("ESCALATION_LOCAL_MODE", True)
+# Point boto3 at Step Functions Local (e.g. http://localhost:8083) for the real local
+# engine; empty = real AWS. The local Lambda shim listens on LAMBDA_SHIM_PORT.
+ESCALATION_ENDPOINT_URL = _env("ESCALATION_ENDPOINT_URL", "")
+LAMBDA_SHIM_PORT = int(_env("LAMBDA_SHIM_PORT", "9050"))
 
 # Tier SLAs (seconds) — timeout on each waitForTaskToken (ADR-007)
 TIER_SLA_SECONDS = {

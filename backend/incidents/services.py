@@ -7,10 +7,12 @@ regardless of *how* it happened (spec §3).
 Every transition is idempotent: "act if still applicable", never blind "act"
 (ADR-001). Callers wrap these in select_for_update where concurrency matters.
 """
+from datetime import timedelta
+
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from . import escalation
 from .models import Incident, Status, Tier, Transition, next_tier
 
 
@@ -62,7 +64,10 @@ def escalate(incident_id, actor: str, reason: str = "") -> Incident:
     from_tier = incident.current_tier
     incident.current_tier = target.value
     incident.acknowledged_at = None  # new tier, not yet acknowledged
-    incident.save(update_fields=["current_tier", "acknowledged_at", "updated_at"])
+    incident.current_task_token = ""  # T-prev token consumed; record_token sets the next
+    incident.save(
+        update_fields=["current_tier", "acknowledged_at", "current_task_token", "updated_at"]
+    )
     _record(
         incident,
         from_status=incident.status,
@@ -71,6 +76,26 @@ def escalate(incident_id, actor: str, reason: str = "") -> Incident:
         to_tier=target.value,
         actor=actor,
         reason=reason or "escalated",
+    )
+    return incident
+
+
+@transaction.atomic
+def record_tier_token(incident_id, tier: str, token: str, sla_seconds: int | None = None) -> Incident:
+    """Called by the record_token Lambda when Step Functions enters a tier's
+    waitForTaskToken state (ADR-007). Persists the outstanding token + SLA deadline so
+    the API can later SendTaskSuccess. Idempotent — safe to retry. Writes no Transition;
+    the commit Lambda (services.escalate/resolve) owns the audit record."""
+    incident = Incident.objects.select_for_update().get(pk=incident_id)
+    if incident.status != Status.OPEN:
+        return incident  # resolved between dispatch and entry — leave it terminal
+    if sla_seconds is None:
+        sla_seconds = settings.TIER_SLA_SECONDS.get(tier, 0)
+    incident.current_tier = tier
+    incident.current_task_token = token
+    incident.sla_deadline_at = timezone.now() + timedelta(seconds=sla_seconds)
+    incident.save(
+        update_fields=["current_tier", "current_task_token", "sla_deadline_at", "updated_at"]
     )
     return incident
 

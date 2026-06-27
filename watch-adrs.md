@@ -150,3 +150,22 @@
 - *Cost:* while an incident is `OPEN`, a *legitimately distinct* event that happens to normalize to the same key (no source id, identical content) is absorbed into the open incident rather than raised separately — accepted; it surfaces as repeat deliveries on the existing incident, and a real source id avoids it.
 - *Cost:* per-source normalization (which fields are volatile) is config that must be maintained as sources are added — a small ongoing tax, localized to intake.
 - *Guardrail:* the unique index is the authority; the consumer's `ON CONFLICT DO NOTHING` must be a true no-op (no partial side effects before the insert), keeping intake idempotent under retry and concurrency (consistent with ADR-001/002).
+
+---
+
+## ADR-010 — Local realization of the escalation engine: commit-Lambda-as-sole-writer + host shim
+**Status:** Accepted · *Realizes ADR-001/007*
+
+**Context.** ADR-001/007 put escalation in Step Functions with Python Lambdas deciding. Making the engine *actually run* locally (not the `LOCAL_MODE` shortcut where the API calls `services` directly) raised two questions: (a) **who writes the Transition** when a human escalates — the API or a Lambda — and how the actor reaches the writer; and (b) **how Lambdas run locally** with DB access when this sandbox can't build Lambda images (no PyPI/registry egress at build time). A naïve "API writes the transition *and* SendTaskSuccess advances the ASL, which re-tokenizes" double-writes and races the Lambda.
+
+**Decision.**
+1. **The commit Lambda is the sole writer of Transitions when the real engine runs.** The API only `SendTaskSuccess({outcome, actor})`; the acting user flows through the task output (`$.decision.actor`), and timeouts commit with `actor=system:auto-escalation`. One ASL graph: each tier `waitForTaskToken` (`record_token` persists token+SLA) → `Choice` → a `commit` task that calls the shared idempotent `incidents.services.escalate/resolve`. Removes the API-vs-Lambda race; matches the spec's "Lambdas decide and write back".
+2. **Lambdas run on the host behind a tiny Lambda-Invoke shim** (`incidents/lambda_shim.py`, `run_lambda_shim`) that Step Functions Local reaches via `LAMBDA_ENDPOINT=http://host.docker.internal:9050`. Handlers `django.setup()` and call the same `services` the API uses — one decision implementation, two callers (ADR-001 guardrail).
+3. **`ESCALATION_LOCAL_MODE` keeps the direct-`services` path** so hermetic unit tests and a no-SFN dev loop work without the engine; the real path is integration-tested (Step Functions Local + shim + real Postgres).
+
+**Consequences.**
+- *Gain:* the real **timeout → auto-escalate → Transition(system)** and human SendTaskSuccess round-trips run against AWS's own engine locally — the core domain value, proven by `test_escalation_e2e.py`. ASL routing is separately covered by mocked Step Functions Local tests and a hermetic structural test.
+- *Gain:* manual and automatic transitions are identical in shape and idempotent; SFN retries and the LOCAL_MODE/real overlap are safe.
+- *Cost:* the host shim is a local-only stand-in for deployed Lambdas (prod packages the same handlers via the Terragrunt escalation stack). It speaks just enough of the Lambda Invoke API — notably **chunked** request bodies and the function-error header.
+- *Cost:* two code paths (LOCAL_MODE direct-call vs real engine). Accepted: LOCAL_MODE keeps units hermetic and the phone-first loop simple.
+- *Guardrail:* each tier wait sets `ResultPath` so the task output never clobbers `incidentId`; transitions stay idempotent (ADR-001).

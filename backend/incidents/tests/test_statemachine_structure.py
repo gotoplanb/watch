@@ -1,8 +1,8 @@
 """
 Hermetic structural check of the escalation ASL (ADR-007): every transition target
-exists and the routing matches the decision contract. Catches malformed graphs the
-service-layer unit tests can't see; complements the Step Functions Local integration
-test (which validates execution against AWS's own engine).
+exists and the routing matches the decision contract — each tier waits, a Choice
+routes the outcome, and a commit task is the single writer. Complements the Step
+Functions Local integration test (which validates execution against AWS's own engine).
 """
 import json
 from pathlib import Path
@@ -13,7 +13,6 @@ STATES = ASL["States"]
 
 
 def _targets(state: dict):
-    """All state names this state can transition to."""
     out = []
     if "Next" in state:
         out.append(state["Next"])
@@ -32,26 +31,40 @@ def test_all_transition_targets_exist():
             assert target in STATES, f"{name} -> missing state {target}"
 
 
-def test_resolve_routes_to_succeed_at_every_tier():
+def test_resolve_routes_through_commit_to_succeed():
     for tier in ("T1", "T2", "T3"):
-        decision = STATES[f"{tier}_Decision"]
-        resolve_rules = [c for c in decision["Choices"] if c.get("StringEquals") == "RESOLVE"]
-        assert resolve_rules, f"{tier}_Decision has no RESOLVE rule"
-        assert resolve_rules[0]["Next"] == "Resolved"
+        choice = STATES[f"{tier}_Choice"]
+        resolve = [c for c in choice["Choices"] if c.get("StringEquals") == "RESOLVE"]
+        assert resolve and resolve[0]["Next"] == "ResolveCommit", f"{tier}_Choice RESOLVE rule"
+    assert STATES["ResolveCommit"]["Next"] == "Resolved"
     assert STATES["Resolved"]["Type"] == "Succeed"
 
 
-def test_escalate_advances_tiers_and_top_tier_fails():
-    # Default (ESCALATE) advances T1->T2->T3.
-    assert STATES["T1_Decision"]["Default"] == "T2_Wait"
-    assert STATES["T2_Decision"]["Default"] == "T3_Wait"
-    # No tier above T3 — both its Choice default and SLA timeout end in the Fail state.
-    assert STATES["T3_Decision"]["Default"] == "EscalationExhausted"
+def test_escalate_advances_tiers_via_commit_and_top_tier_fails():
+    # ESCALATE (Choice default) -> per-tier commit -> next tier's wait.
+    assert STATES["T1_Choice"]["Default"] == "T1_EscalateCommit"
+    assert STATES["T1_EscalateCommit"]["Next"] == "T2_Wait"
+    assert STATES["T2_Choice"]["Default"] == "T2_EscalateCommit"
+    assert STATES["T2_EscalateCommit"]["Next"] == "T3_Wait"
+    # Nothing above T3: both its Choice default and SLA timeout end in the Fail state.
+    assert STATES["T3_Choice"]["Default"] == "EscalationExhausted"
     assert STATES["T3_Wait"]["Catch"][0]["Next"] == "EscalationExhausted"
     assert STATES["EscalationExhausted"]["Type"] == "Fail"
 
 
-def test_timeouts_auto_escalate_below_top_tier():
-    assert STATES["T1_Wait"]["Catch"][0]["ErrorEquals"] == ["States.Timeout"]
-    assert STATES["T1_Wait"]["Catch"][0]["Next"] == "T1_AutoEscalate"
-    assert STATES["T2_Wait"]["Catch"][0]["Next"] == "T2_AutoEscalate"
+def test_timeouts_auto_commit_below_top_tier():
+    for tier in ("T1", "T2"):
+        catch = STATES[f"{tier}_Wait"]["Catch"][0]
+        assert catch["ErrorEquals"] == ["States.Timeout"]
+        assert catch["Next"] == f"{tier}_AutoCommit"
+    # Auto-commit uses the system actor.
+    payload = STATES["T1_AutoCommit"]["Parameters"]["Payload"]
+    assert payload["actor"] == "system:auto-escalation"
+    assert payload["action"] == "ESCALATE"
+
+
+def test_waits_preserve_input_with_resultpath():
+    # ResultPath on each wait keeps $.incidentId alive for later tiers (the bug the
+    # SFN Local test caught).
+    for tier in ("T1", "T2", "T3"):
+        assert STATES[f"{tier}_Wait"]["ResultPath"] == "$.decision"

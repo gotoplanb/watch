@@ -1,24 +1,24 @@
 {
-  "_comment": "Mocked Lambda integrations for Step Functions Local (spec §6). Mocks the per-tier waitForTaskToken task outputs so the ASL routing (Choice on outcome, tier-to-tier) is exercised without real Lambdas. Test cases are referenced as <stateMachineArn>#<TestCaseName>.",
+  "_comment": "Mocked Lambda integrations for Step Functions Local (spec §6). Mocks the per-tier waitForTaskToken outcomes AND the commit tasks so the ASL routing (Choice on outcome, tier-to-tier, commit -> next) is exercised WITHOUT the lambda shim or a DB. Test cases are referenced as <stateMachineArn>#<TestCaseName>. The real end-to-end path (no #TestCase) invokes the shim instead.",
   "StateMachines": {
     "Escalation": {
       "TestCases": {
         "ResolveAtT1": {
-          "T1_Wait": "resolveOutcome"
+          "T1_Wait": "resolveOutcome",
+          "ResolveCommit": "commitOk"
         },
         "EscalateThenResolveAtT2": {
           "T1_Wait": "escalateOutcome",
-          "T2_Wait": "resolveOutcome"
+          "T1_EscalateCommit": "commitOk",
+          "T2_Wait": "resolveOutcome",
+          "ResolveCommit": "commitOk"
         }
       }
     }
   },
   "MockedResponses": {
-    "resolveOutcome": {
-      "0": { "Return": { "outcome": "RESOLVE" } }
-    },
-    "escalateOutcome": {
-      "0": { "Return": { "outcome": "ESCALATE" } }
-    }
+    "resolveOutcome": {"0": {"Return": {"outcome": "RESOLVE", "actor": "mock-user"}}},
+    "escalateOutcome": {"0": {"Return": {"outcome": "ESCALATE", "actor": "mock-user"}}},
+    "commitOk": {"0": {"Return": {"committed": "ok"}}}
   }
 }

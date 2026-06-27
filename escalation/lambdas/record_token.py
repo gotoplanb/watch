@@ -1,31 +1,22 @@
 """
 record_token Lambda (ADR-007).
 
-Invoked when a tier's waitForTaskToken state is entered. Its only job: persist the
-tier's task token + SLA deadline to Postgres atomically, so the API can later call
-SendTaskSuccess to advance/resolve. It returns immediately; the Step Functions task
-then waits for the token to be sent (human action) or to time out (auto-escalate).
+Invoked when a tier's waitForTaskToken state is entered. Persists the tier's task token
++ SLA deadline to Postgres so the API can later SendTaskSuccess. Returns immediately;
+the Step Functions task then waits for the token (human action) or times out
+(auto-escalate). Writes NO transition — the commit Lambda owns the audit record.
 
-Decision logic lives in Python; ASL only orchestrates. This stub shows the contract;
-wire it to the Django ORM / a thin DB layer in the real build.
+The return value is ignored by Step Functions for waitForTaskToken tasks (the task
+output comes from SendTaskSuccess), so this only needs to perform its side effect.
 """
-import logging
-
-logger = logging.getLogger()
-logger.setLevel("INFO")
+import _bootstrap
 
 
-def handler(event, context):
-    incident_id = event["incidentId"]
-    tier = event["tier"]
-    task_token = event["taskToken"]
+def handler(event, context=None):
+    _bootstrap.setup_django()
+    from incidents import services
 
-    # TODO(real build): in one transaction —
-    #   UPDATE incidents SET current_task_token = :token,
-    #                        current_tier = :tier,
-    #                        sla_deadline_at = now() + tier_sla(:tier)
-    #   WHERE id = :incident_id;
-    # Idempotent: writing the token is safe to retry (ADR-001).
-    logger.info("record_token incident=%s tier=%s token=%s...",
-                incident_id, tier, task_token[:12])
-    return {"recorded": True, "incidentId": incident_id, "tier": tier}
+    incident = services.record_tier_token(
+        event["incidentId"], event["tier"], event["taskToken"]
+    )
+    return {"recorded": True, "incidentId": event["incidentId"], "tier": incident.current_tier}

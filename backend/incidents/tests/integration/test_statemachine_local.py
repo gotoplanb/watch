@@ -26,8 +26,8 @@ def _concrete_asl() -> str:
     return (
         raw.replace("${record_token_function_arn}",
                     "arn:aws:lambda:us-east-1:000000000000:function:record_token")
-           .replace("${auto_escalate_function_arn}",
-                    "arn:aws:lambda:us-east-1:000000000000:function:auto_escalate")
+           .replace("${commit_function_arn}",
+                    "arn:aws:lambda:us-east-1:000000000000:function:commit")
     )
 
 

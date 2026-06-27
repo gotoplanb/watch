@@ -18,10 +18,15 @@ Audit of *design* decisions lives in this GitHub-issue→ADR trail (the runtime 
 boundary is AWS — see ADR-004).
 
 ## Architecture invariants (don't violate without a new ADR)
-- **ADR-001 / 007 — escalation engine:** one Step Functions Standard execution per
-  incident; **ASL orchestrates, Python decides.** Every transition is idempotent
+- **ADR-001 / 007 / 010 — escalation engine:** one Step Functions Standard execution
+  per incident; **ASL orchestrates, Python decides.** Every transition is idempotent
   ("act if still applicable", never blind act) — `incidents/services.py` is the single
-  decision implementation called by both the API and the Lambdas.
+  decision implementation called by both the API and the Lambdas. In the **real engine**
+  the **commit Lambda is the sole writer** of Transitions (actor flows via
+  `$.decision.actor`; timeouts use `system:auto-escalation`); the API only
+  `SendTaskSuccess`. Locally the Lambdas run via `run_lambda_shim` (host) +
+  `sfn_register` against Step Functions Local; `ESCALATION_LOCAL_MODE=1` short-circuits
+  to direct `services` calls for hermetic tests and the simple `make dev` loop.
 - **ADR-007 — lifecycle:** state is orthogonal `status` (OPEN/RESOLVED) × `current_tier`
   (T1/T2/T3) + `acknowledged_at`. One tier = one `waitForTaskToken`; the token is
   consumed **exactly once per tier**. **ACK does not consume the token and does not stop

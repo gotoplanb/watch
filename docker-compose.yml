@@ -77,7 +77,12 @@ services:
     profiles: ["integration"]
     ports: ["8083:8083"]
     environment:
+      # Mocked routing tests use <arn>#TestCase; the real e2e path invokes the host
+      # lambda shim (run_lambda_shim) via this endpoint.
       SFN_MOCK_CONFIG: /home/StepFunctionsLocal/MockConfigFile.json
+      LAMBDA_ENDPOINT: http://host.docker.internal:9050
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./escalation/test/MockConfigFile.json:/home/StepFunctionsLocal/MockConfigFile.json:ro
 

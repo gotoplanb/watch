@@ -25,7 +25,15 @@ OUTCOME_RESOLVE = "RESOLVE"
 
 
 def _client():
-    return boto3.client("stepfunctions", region_name=settings.AWS_REGION)
+    kwargs = {"region_name": settings.AWS_REGION}
+    if settings.ESCALATION_ENDPOINT_URL:
+        # Step Functions Local — dummy creds, explicit endpoint.
+        kwargs.update(
+            endpoint_url=settings.ESCALATION_ENDPOINT_URL,
+            aws_access_key_id="x",
+            aws_secret_access_key="x",
+        )
+    return boto3.client("stepfunctions", **kwargs)
 
 
 def start_escalation(incident) -> str:
@@ -43,12 +51,14 @@ def start_escalation(incident) -> str:
     return resp["executionArn"]
 
 
-def send_outcome(incident, outcome: str) -> None:
+def send_outcome(incident, outcome: str, actor: str = "") -> None:
     """
-    Consume the incident's current task token with ESCALATE or RESOLVE.
+    Advance the incident's current tier via SendTaskSuccess, carrying the outcome
+    (ESCALATE / RESOLVE) and the acting user. The commit Lambda then writes the
+    Transition with that actor (ADR-001/007) — the API itself writes no state here.
 
-    Idempotent: a SendTaskSuccess on an already-consumed token raises
-    TaskDoesNotExist, which we treat as a no-op (ADR-007).
+    Idempotent: a SendTaskSuccess on an already-consumed token raises TaskDoesNotExist,
+    which we treat as a no-op (ADR-007).
     """
     token = incident.current_task_token
     if settings.ESCALATION_LOCAL_MODE or not token:
@@ -56,7 +66,10 @@ def send_outcome(incident, outcome: str) -> None:
             "escalation.send_outcome (local) incident=%s outcome=%s", incident.id, outcome
         )
         return
+    client = _client()
     try:
-        _client().send_task_success(taskToken=token, output=json.dumps({"outcome": outcome}))
-    except _client().exceptions.TaskDoesNotExist:
+        client.send_task_success(
+            taskToken=token, output=json.dumps({"outcome": outcome, "actor": actor})
+        )
+    except client.exceptions.TaskDoesNotExist:
         logger.warning("escalation.send_outcome token already consumed incident=%s", incident.id)

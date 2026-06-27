@@ -1,5 +1,5 @@
 {
-  "Comment": "Watch per-incident escalation timeline (ADR-001/007). One Standard execution per incident. Each tier is a waitForTaskToken with timeout = tier SLA (literal defaults below; Terragrunt may re-render per env). ${...function_arn} placeholders are rendered by the escalation stack. ASL orchestrates; Python Lambdas decide and write transitions to Postgres.",
+  "Comment": "Watch per-incident escalation timeline (ADR-001/007). One Standard execution per incident. Each tier is a waitForTaskToken (record_token persists the token+SLA) -> Choice on the human/auto outcome -> a commit task (the single writer of the Transition, via incidents.services). Manual actor flows in via SendTaskSuccess output ($.decision.actor); timeouts commit with actor=system:auto-escalation. ${...function_arn} are rendered by the escalation stack (locally: record_token / commit, routed by the lambda shim).",
   "StartAt": "T1_Wait",
   "States": {
     "T1_Wait": {
@@ -11,22 +11,32 @@
         "Payload": {"incidentId.$": "$.incidentId", "tier": "T1", "taskToken.$": "$$.Task.Token"}
       },
       "ResultPath": "$.decision",
-      "Catch": [{"ErrorEquals": ["States.Timeout"], "Next": "T1_AutoEscalate"}],
-      "Next": "T1_Decision"
+      "Catch": [{"ErrorEquals": ["States.Timeout"], "ResultPath": "$.error", "Next": "T1_AutoCommit"}],
+      "Next": "T1_Choice"
     },
-    "T1_Decision": {
+    "T1_Choice": {
       "Type": "Choice",
-      "Choices": [{"Variable": "$.decision.outcome", "StringEquals": "RESOLVE", "Next": "Resolved"}],
-      "Default": "T2_Wait"
+      "Choices": [{"Variable": "$.decision.outcome", "StringEquals": "RESOLVE", "Next": "ResolveCommit"}],
+      "Default": "T1_EscalateCommit"
     },
-    "T1_AutoEscalate": {
+    "T1_EscalateCommit": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${auto_escalate_function_arn}",
-        "Payload": {"incidentId.$": "$.incidentId", "fromTier": "T1"}
+        "FunctionName": "${commit_function_arn}",
+        "Payload": {"incidentId.$": "$.incidentId", "action": "ESCALATE", "actor.$": "$.decision.actor"}
       },
-      "ResultPath": "$.autoEscalate",
+      "ResultPath": "$.commit",
+      "Next": "T2_Wait"
+    },
+    "T1_AutoCommit": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${commit_function_arn}",
+        "Payload": {"incidentId.$": "$.incidentId", "action": "ESCALATE", "actor": "system:auto-escalation"}
+      },
+      "ResultPath": "$.commit",
       "Next": "T2_Wait"
     },
 
@@ -39,22 +49,32 @@
         "Payload": {"incidentId.$": "$.incidentId", "tier": "T2", "taskToken.$": "$$.Task.Token"}
       },
       "ResultPath": "$.decision",
-      "Catch": [{"ErrorEquals": ["States.Timeout"], "Next": "T2_AutoEscalate"}],
-      "Next": "T2_Decision"
+      "Catch": [{"ErrorEquals": ["States.Timeout"], "ResultPath": "$.error", "Next": "T2_AutoCommit"}],
+      "Next": "T2_Choice"
     },
-    "T2_Decision": {
+    "T2_Choice": {
       "Type": "Choice",
-      "Choices": [{"Variable": "$.decision.outcome", "StringEquals": "RESOLVE", "Next": "Resolved"}],
-      "Default": "T3_Wait"
+      "Choices": [{"Variable": "$.decision.outcome", "StringEquals": "RESOLVE", "Next": "ResolveCommit"}],
+      "Default": "T2_EscalateCommit"
     },
-    "T2_AutoEscalate": {
+    "T2_EscalateCommit": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${auto_escalate_function_arn}",
-        "Payload": {"incidentId.$": "$.incidentId", "fromTier": "T2"}
+        "FunctionName": "${commit_function_arn}",
+        "Payload": {"incidentId.$": "$.incidentId", "action": "ESCALATE", "actor.$": "$.decision.actor"}
       },
-      "ResultPath": "$.autoEscalate",
+      "ResultPath": "$.commit",
+      "Next": "T3_Wait"
+    },
+    "T2_AutoCommit": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${commit_function_arn}",
+        "Payload": {"incidentId.$": "$.incidentId", "action": "ESCALATE", "actor": "system:auto-escalation"}
+      },
+      "ResultPath": "$.commit",
       "Next": "T3_Wait"
     },
 
@@ -67,18 +87,29 @@
         "Payload": {"incidentId.$": "$.incidentId", "tier": "T3", "taskToken.$": "$$.Task.Token"}
       },
       "ResultPath": "$.decision",
-      "Catch": [{"ErrorEquals": ["States.Timeout"], "Next": "EscalationExhausted"}],
-      "Next": "T3_Decision"
+      "Catch": [{"ErrorEquals": ["States.Timeout"], "ResultPath": "$.error", "Next": "EscalationExhausted"}],
+      "Next": "T3_Choice"
     },
-    "T3_Decision": {
+    "T3_Choice": {
       "Type": "Choice",
-      "Choices": [{"Variable": "$.decision.outcome", "StringEquals": "RESOLVE", "Next": "Resolved"}],
+      "Choices": [{"Variable": "$.decision.outcome", "StringEquals": "RESOLVE", "Next": "ResolveCommit"}],
       "Default": "EscalationExhausted"
+    },
+
+    "ResolveCommit": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${commit_function_arn}",
+        "Payload": {"incidentId.$": "$.incidentId", "action": "RESOLVE", "actor.$": "$.decision.actor"}
+      },
+      "ResultPath": "$.commit",
+      "Next": "Resolved"
     },
 
     "Resolved": {
       "Type": "Succeed",
-      "Comment": "RESOLVE consumed the token (ADR-007). Clean terminal state — inspectable, no zombie timer."
+      "Comment": "RESOLVE committed; token consumed (ADR-007). Clean, inspectable terminal — no zombie timer."
     },
     "EscalationExhausted": {
       "Type": "Fail",
