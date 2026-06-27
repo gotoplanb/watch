@@ -4,7 +4,8 @@ from django.urls import include, path
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", include("incidents.urls")),
-    # Session login/logout for the DRF browsable API — lets you exercise the
-    # ack/escalate/resolve endpoints by hand as a logged-in tier user (manual use).
+    # Server-rendered incident-management UI (ADR-011): HTMX + Alpine + Tailwind.
+    path("ui/", include("incidents.ui_urls")),
+    # Session login/logout for the DRF browsable API + the UI (@login_required).
     path("api-auth/", include("rest_framework.urls")),
 ]

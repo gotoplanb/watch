@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ incident.title }} · Watch{% endblock %}
+{% block content %}
+<a href="{% url 'ui:incident_list' %}" class="text-sm text-slate-500 hover:underline">&larr; all incidents</a>
+{% include "incidents/_body.html" %}
+{% endblock %}

@@ -1,0 +1,21 @@
+<tbody id="incident-rows">
+  {% for inc in incidents %}
+  <tr class="border-b last:border-0 hover:bg-slate-50">
+    <td class="p-3">
+      <a class="text-indigo-600 hover:underline" href="{% url 'ui:incident_detail' inc.id %}">{{ inc.title }}</a>
+    </td>
+    <td class="p-3">
+      {% if inc.status == 'RESOLVED' %}
+        <span class="px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700">Resolved</span>
+      {% else %}
+        <span class="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700">Open</span>
+      {% endif %}
+    </td>
+    <td class="p-3"><span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-700">{{ inc.current_tier }}</span></td>
+    <td class="p-3 text-slate-600">{{ inc.source }}</td>
+    <td class="p-3 text-slate-500">{{ inc.created_at|date:"M j, H:i" }}</td>
+  </tr>
+  {% empty %}
+  <tr><td class="p-6 text-center text-slate-400" colspan="5">No incidents match.</td></tr>
+  {% endfor %}
+</tbody>

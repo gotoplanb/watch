@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Incident, Transition
+from .models import Comment, Incident, Transition
 
 
 class TransitionInline(admin.TabularInline):
@@ -22,3 +22,9 @@ class IncidentAdmin(admin.ModelAdmin):
 class TransitionAdmin(admin.ModelAdmin):
     list_display = ["incident", "from_tier", "to_tier", "to_status", "actor", "at"]
     list_filter = ["to_status", "to_tier", "actor"]
+
+
+@admin.register(Comment)
+class CommentAdmin(admin.ModelAdmin):
+    list_display = ["incident", "author", "created_at"]
+    search_fields = ["incident__id", "body"]

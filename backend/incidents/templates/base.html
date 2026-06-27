@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Watch{% endblock %}</title>
+  <!-- CDN, zero-build (ADR-011). Prod compiles Tailwind to a fingerprinted bundle. -->
+  <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen"
+      hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+  <header class="bg-slate-900 text-white px-6 py-3 flex items-center justify-between">
+    <a href="{% url 'ui:incident_list' %}" class="font-semibold tracking-tight">Watch · Incidents</a>
+    <div class="text-sm text-slate-300">
+      {% if user.is_authenticated %}
+        {{ user.username }}
+        <a class="ml-3 underline" href="{% url 'rest_framework:logout' %}?next={% url 'ui:incident_list' %}">log out</a>
+      {% else %}
+        <a class="underline" href="{% url 'rest_framework:login' %}">log in</a>
+      {% endif %}
+    </div>
+  </header>
+  <main class="max-w-5xl mx-auto p-6">{% block content %}{% endblock %}</main>
+</body>
+</html>

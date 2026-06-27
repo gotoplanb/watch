@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Incidents · Watch{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-4">Incidents</h1>
+
+<form class="flex gap-3 mb-4 text-sm"
+      hx-get="{% url 'ui:incident_list' %}" hx-target="#incident-rows" hx-swap="outerHTML"
+      hx-trigger="change">
+  <select name="status" class="border rounded px-2 py-1 bg-white">
+    <option value="">all statuses</option>
+    {% for value, label in statuses %}
+      <option value="{{ value }}" {% if value == status %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <select name="tier" class="border rounded px-2 py-1 bg-white">
+    <option value="">all tiers</option>
+    {% for value, label in tiers %}
+      <option value="{{ value }}" {% if value == tier %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+</form>
+
+<table class="w-full text-sm bg-white rounded shadow overflow-hidden">
+  <thead class="text-left text-slate-500 border-b">
+    <tr>
+      <th class="p-3 font-medium">Title</th>
+      <th class="p-3 font-medium">Status</th>
+      <th class="p-3 font-medium">Tier</th>
+      <th class="p-3 font-medium">Source</th>
+      <th class="p-3 font-medium">Created</th>
+    </tr>
+  </thead>
+  {% include "incidents/_rows.html" %}
+</table>
+{% endblock %}

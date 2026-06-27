@@ -106,3 +106,24 @@ class Transition(models.Model):
 
     def __str__(self):
         return f"{self.incident_id}: {self.from_tier}->{self.to_tier} by {self.actor}"
+
+
+class Comment(models.Model):
+    """Investigator note on an incident (internal — this tool runs alongside
+    ServiceNow as the working surface). Renders in the incident timeline next to
+    Transitions, ordered by time."""
+
+    id = models.BigAutoField(primary_key=True)
+    incident = models.ForeignKey(Incident, related_name="comments", on_delete=models.CASCADE)
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL
+    )
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def __str__(self):
+        who = self.author.username if self.author else "unknown"
+        return f"{self.incident_id}: comment by {who}"

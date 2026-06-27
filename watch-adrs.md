@@ -169,3 +169,22 @@
 - *Cost:* the host shim is a local-only stand-in for deployed Lambdas (prod packages the same handlers via the Terragrunt escalation stack). It speaks just enough of the Lambda Invoke API — notably **chunked** request bodies and the function-error header.
 - *Cost:* two code paths (LOCAL_MODE direct-call vs real engine). Accepted: LOCAL_MODE keeps units hermetic and the phone-first loop simple.
 - *Guardrail:* each tier wait sets `ResultPath` so the task output never clobbers `incidentId`; transitions stay idempotent (ADR-001).
+
+---
+
+## ADR-011 — Server-rendered working surface (Django + HTMX) + React status page
+**Status:** Accepted · *Refines §4.4*
+
+**Context.** §4.4 specified a single React SPA on S3+CloudFront as *the* frontend. But two needs are distinct: (a) the **internal working surface** where investigators view / comment / ack / escalate / resolve — high-interaction, auth-gated, tightly coupled to the Django domain and its tier authz; and (b) a **public, at-a-glance status page**. Building (a) as an SPA duplicates the domain + authz across a JSON API and a client, and adds a JS build/deploy pipeline for what is mostly server-driven forms over existing models.
+
+**Decision.**
+1. **The working surface is server-rendered Django templates + HTMX + Alpine.js + Tailwind** (`/ui/...`). Mutating actions reuse the **same `incidents.services` decision functions and tier-or-above permissions as the API**; HTMX swaps one `#incident-body` partial. Assets load via **CDN (zero build)** for v1; prod compiles Tailwind to a fingerprinted bundle in CodeBuild (§4.6).
+2. **The React SPA (S3+CloudFront) narrows to a status page** (system health + incident posture), keeping the honest-degradation story (ADR-005). Read-only; need not share the working surface's session auth.
+3. **Added a `Comment` model** (flat: author, body, timestamp), rendered in the incident timeline next to Transitions. Internal-only (this tool runs alongside ServiceNow).
+
+**Consequences.**
+- *Gain:* one implementation of incident state + authz drives **both** the API and the UI — no duplicated domain logic in a client. The working surface ships without a JS build step and is fast to extend.
+- *Gain:* clear separation of concerns — interactive internal work (Django/HTMX) vs public read-only status (React SPA).
+- *Cost:* two frontend idioms instead of one. Accepted: each fits its job, and the SPA shrinks to a thin read-only surface.
+- *Cost:* Tailwind via CDN isn't production-grade (no purge/fingerprint). Mitigated by the documented prod path (compile in CodeBuild, §4.6).
+- *Guardrail:* UI actions go through the same idempotent services + permission checks as the API (ADR-001/008); no business logic in templates. New UI code is held to the same coverage + Sonar gates.

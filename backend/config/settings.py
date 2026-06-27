@@ -89,6 +89,10 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
 ]
 
+# @login_required (UI, ADR-011) redirects here; the DRF/Django auth login honors ?next.
+LOGIN_URL = "/api-auth/login/"
+LOGIN_REDIRECT_URL = "/ui/incidents/"
+
 REST_FRAMEWORK = {
     # ADR-008: session auth (cookies in Valkey). OIDC/SSO is a clean seam — add a
     # DRF auth class here later; nothing else changes.

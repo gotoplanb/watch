@@ -88,7 +88,8 @@ React SPA (S3 + CloudFront) ─────────────────�
 - Secrets via SSM **SecureString** (static) and **Secrets Manager** (RDS rotation), referenced through the task definition's `secrets` block — never inline `environment`. Plain config goes inline.
 
 ### 4.4 Frontend
-- **React SPA on S3 + CloudFront** (lineage: `gotoplanb/hermit-watch-gen`).
+- **Working surface = server-rendered Django + HTMX + Alpine + Tailwind** (`/ui/...`, ADR-011): the internal investigation UI (view / comment / ack / escalate / resolve), reusing the same `services` + tier authz as the API. Assets via CDN in v1; Tailwind compiled to a fingerprinted bundle in prod (§4.6).
+- **React SPA on S3 + CloudFront** (lineage: `gotoplanb/hermit-watch-gen`) — narrowed to a **read-only status page** (health + incident posture), per ADR-011.
 - **Fingerprinted assets (long TTL) + short-TTL `index.html`** — a deploy never serves a half-old/half-new bundle.
 - **Honest degradation is a first-class feature:** the SPA probes backend health and, when the app tier is unreachable, shows a loud read-only/stale banner plus the documented "use ServiceNow" fallback. The static shell staying up must never *imply* liveness it doesn't have. (ADR-005)
 

@@ -49,11 +49,13 @@ boundary is AWS — see ADR-004).
 
 ## Repo layout
 ```
-backend/        Django + DRF, system of record (incidents app)
+backend/        Django + DRF, system of record (incidents app). DRF API under /api/;
+                server-rendered HTMX/Alpine/Tailwind working surface under /ui/
+                (ui_views.py + templates/, ADR-011) — reuses services + permissions.
 escalation/     Step Functions ASL + Python decision Lambda stubs; test/MockConfigFile.json
 infra/          Terragrunt multi-stack (network/data/app/escalation/pipeline/frontend)
 observability/  OTel notes — exports to the EXISTING Watchtower, not a bundled LGTM
-frontend/       React SPA stub (honest-degradation probe in src/health.js)
+frontend/       React SPA — narrowed to a read-only status page (ADR-011)
 local/flags/    AppConfig Agent local-dev files (named application:environment:profile)
 ```
 
