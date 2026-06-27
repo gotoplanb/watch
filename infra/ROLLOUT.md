@@ -30,7 +30,8 @@ infra/
 ## Sequence & dependencies
 | # | Phase | Depends on | Key resources |
 |---|-------|-----------|---------------|
-| 0a | State backend + Terragrunt structure | — | S3 state bucket, DynamoDB lock, root `terragrunt.hcl`, `_envcommon` |
+| 00 | Local AWS access (operator prereq) | — | AWS CLI v2, account + region, bootstrap credential / SSO profile, `aws sts get-caller-identity` |
+| 0a | State backend + Terragrunt structure | 00 | S3 state bucket, DynamoDB lock, root `terragrunt.hcl`, `_envcommon` |
 | 0b | GitHub OIDC + IAM roles | 0a | OIDC provider, per-env deploy roles (least-priv), CI assume-role |
 | 1 | `network` | 0 | VPC, public/private subnets ×AZ, NAT, SGs, VPC endpoints (ECR/S3/SSM/logs) |
 | 2 | `data` | 1 | RDS Postgres Multi-AZ + Secrets Manager rotation, ElastiCache Valkey, subnet/param groups, KMS |
@@ -66,6 +67,7 @@ reachable from AWS** (or we run an OTel Collector/Alloy in-VPC that forwards to 
 (ntfy, ADR-013 / issue #8) layers on after the app tier is live.
 
 ## Apply order
-0a → 0b → 1 → (2,3 parallel) → (6 intake parallel with 4 app) → 4 → 5 → 7 → 8 → 9 → 10/11.
+00 (operator: CLI + bootstrap creds) → 0a → 0b → 1 → (2,3 parallel) → (6 intake parallel
+with 4 app) → 4 → 5 → 7 → 8 → 9 → 10/11.
 Rollback is per-stack `destroy` in reverse, but prefer forward-fix; blue/green handles app
 rollback automatically.
