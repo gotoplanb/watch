@@ -1,10 +1,13 @@
 # Observability
 
 OpenTelemetry from day one (§4.8): Django (+ psycopg, requests) is auto-instrumented
-(`backend/config/otel.py`) and exports OTLP traces + metrics to the **existing local
-Watchtower (LGTM) stack** — specifically the **Grafana Alloy** collector on the host
-(`4317` gRPC / `4318` HTTP), which forwards to Tempo / Loki / Prometheus and is viewed
-in `watchtower-grafana` (http://localhost:3000).
+(`backend/config/otel.py`) and exports **all three signals** over OTLP — **traces,
+metrics, and logs** — to the **existing local Watchtower (LGTM) stack**: the **Grafana
+Alloy** collector on the host (`4318` HTTP), which forwards to **Tempo** (traces),
+**Prometheus** (metrics), and **Loki** (logs), viewed in `watchtower-grafana`
+(http://localhost:3000). Logs go through the OTel `LoggingHandler`, so each line is
+stamped with its trace id and links to the trace in Tempo. All three verified landing
+under service `watch-backend` (Prometheus/Loki job `watch/watch-backend`).
 
 The backend container reaches the host collector via
 `OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318` (set in
