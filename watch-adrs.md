@@ -188,3 +188,40 @@
 - *Cost:* two frontend idioms instead of one. Accepted: each fits its job, and the SPA shrinks to a thin read-only surface.
 - *Cost:* Tailwind via CDN isn't production-grade (no purge/fingerprint). Mitigated by the documented prod path (compile in CodeBuild, §4.6).
 - *Guardrail:* UI actions go through the same idempotent services + permission checks as the API (ADR-001/008); no business logic in templates. New UI code is held to the same coverage + Sonar gates.
+
+---
+
+## ADR-012 — On-call schedule overlays tier Groups (capability vs. responsibility)
+**Status:** Accepted · *Refines ADR-008 / §3*
+
+**Context.** Tiers are static Django Groups granting who *may* act (ADR-008, tier-or-above). Real escalation also needs to know who is **on-call** for each tier right now — to auto-assign and to page (ADR-013). Making the schedule the source of authz would couple "can act" to the rota: a scheduling gap would leave a live incident with **nobody authorized**, and it loses senior-override / coverage.
+
+**Decision.** Add an on-call schedule that **overlays** the Groups; it does **not** change authz.
+- **Groups remain capability/authz** (tier-or-above, ADR-008), unchanged.
+- An **`OnCallShift`** (tier, user, starts_at, ends_at) defines **responsibility**. `current_on_call(tier, at=now)` resolves the active shift (most recent if overlapping; `None` on a gap).
+- On entering/escalating to a tier, the engine sets `incident.assignee = current_on_call(tier)` — realizing §3's "auto-route on escalation" and giving the unused `assignee` field meaning. A gap leaves `assignee` null; the incident stays actionable by any T-or-above member.
+- v1: explicit shifts (admin + a small HTMX schedule view). Recurring-rotation generation is later.
+
+**Consequences.**
+- *Gain:* who-can-act and who's-on-call are orthogonal — a rota gap degrades to "anyone in the tier can act," never "no one can." Senior override preserved.
+- *Gain:* `assignee` becomes real, giving paging a target (ADR-013).
+- *Cost:* two concepts (membership + schedule) to manage — accepted; they answer different questions.
+- *Guardrail:* assignment is **advisory** (who *should* take it); authz is still the gate on every action (ADR-008). Assigning grants no authority.
+
+---
+
+## ADR-013 — Escalation paging via ntfy, targeted at the on-call
+**Status:** Accepted
+
+**Context.** Escalation moves the tier silently — no human is notified. We need to page the responsible person when an incident reaches their tier (manual or auto). ntfy.sh is a lightweight pub-sub push service (HTTP POST to a topic; phone/web subscribers) that fits the phone-first loop.
+
+**Decision.**
+- On a **real tier change** (new incident at T1, or escalate to T2/T3 — **not** on ACK), **page the current on-call** (ADR-012) via ntfy: POST to the on-call's per-user topic `watch-<env>-user-<id>`; **fall back** to the tier topic `watch-<env>-tier-<T>` when the rota has a gap.
+- **One hook in the single transition-writer** (`services`), so manual and auto escalation page through one path (ADR-001).
+- **Behind a flag** `paging_enabled` (ADR-003); **best-effort**, with a notification **audit record** per attempt (sent/failed). Provider behind a thin `notify(...)` seam so ntfy can be swapped/self-hosted.
+
+**Consequences.**
+- *Gain:* humans actually get paged on time, targeted to the on-call, quiet, degrading to a tier broadcast on a gap.
+- *Cost / caveat:* ntfy topics are **public by default** — prod uses **access tokens or a self-hosted ntfy** (topic names are guessable and pages can be sensitive). The seam keeps that swap to one class.
+- *Cost:* best-effort paging is not guaranteed delivery. Upgrade path: enqueue (SQS) → a notifier with retries, decoupled from the engine; the audit record makes misses visible.
+- *Guardrail:* paging is **fire-and-forget after the transition commits** — it never blocks or alters the escalation decision, and a paging failure ≠ an escalation failure (the latter is still the alarmable "failed execution", ADR-001).

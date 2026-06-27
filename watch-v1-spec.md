@@ -56,7 +56,11 @@ React SPA (S3 + CloudFront) ─────────────────�
 - `incident_id`, `from_state`, `to_state`, `actor` (user id *or* `system:auto-escalation`), `reason`, `at`
 - Manual and automatic escalations write the **same record shape** — the audit trail is agnostic to *how* a transition happened.
 
-**Role/tier** — T1, T2, T3 as roles; users belong to one or more. v1 keeps assignment simple (role-based, manual claim or auto-route on escalation).
+**Role/tier** — T1, T2, T3 as roles (Django Groups); users belong to one or more. Group membership = **capability/authz** (who *may* act, tier-or-above — ADR-008).
+
+**OnCallShift (on-call schedule, ADR-012)** — `tier`, `user`, `starts_at`, `ends_at`. Defines **responsibility** (who's on-call now), distinct from capability. `current_on_call(tier)` resolves the active shift; on entering/escalating to a tier the engine auto-sets `incident.assignee` to it (realizes "auto-route on escalation"). A rota gap leaves `assignee` null; the incident stays actionable by any T-or-above member.
+
+**Paging (ADR-013)** — on a real tier change (new incident at T1, or escalate to T2/T3), the single transition-writer pages the current on-call via **ntfy** (per-user topic, tier-topic fallback), behind the `paging_enabled` flag, best-effort with an audit record. ntfy topics are public by default → prod uses access tokens / self-hosted ntfy.
 
 ---
 
