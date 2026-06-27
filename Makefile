@@ -12,6 +12,7 @@ PYTEST := $(VENV)/bin/pytest
 # primary local loop here: it needs no image-registry/PyPI egress (only the cached
 # postgres/valkey/appconfig images), and exports OTel to the existing Watchtower.
 HOSTENV := DJANGO_SECRET_KEY=dev DJANGO_DEBUG=1 \
+  DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,host.docker.internal \
   POSTGRES_HOST=localhost POSTGRES_PORT=5433 \
   VALKEY_URL=redis://localhost:6380/0 \
   APPCONFIG_AGENT_URL=http://localhost:2772 FLAGS_PROVIDER=appconfig \

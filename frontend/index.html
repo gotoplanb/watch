@@ -9,7 +9,9 @@
     prod this becomes a fingerprinted bundle on S3 + CloudFront (short-TTL index.html,
     long-TTL assets — ADR-005). Point WATCH_API at the API origin.
   -->
-  <script>window.WATCH_API = "http://localhost:8010";</script>
+  <!-- Dev default: the API on :8010 of whatever host serves this page (localhost,
+       host.docker.internal, …). In prod, set this to the API origin. -->
+  <script>window.WATCH_API = `${location.protocol}//${location.hostname}:8010`;</script>
   <style>
     :root { color-scheme: light dark; }
     * { box-sizing: border-box; }
