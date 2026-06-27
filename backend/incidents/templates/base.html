@@ -12,7 +12,10 @@
 <body class="bg-slate-50 text-slate-800 min-h-screen"
       hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
   <header class="bg-slate-900 text-white px-6 py-3 flex items-center justify-between">
-    <a href="{% url 'ui:incident_list' %}" class="font-semibold tracking-tight">Watch · Incidents</a>
+    <div class="flex items-center gap-5">
+      <a href="{% url 'ui:incident_list' %}" class="font-semibold tracking-tight">Watch · Incidents</a>
+      <a href="{% url 'ui:schedule' %}" class="text-sm text-slate-300 hover:text-white">Schedule</a>
+    </div>
     <div class="text-sm text-slate-300">
       {% if user.is_authenticated %}
         {{ user.username }}

@@ -1,0 +1,60 @@
+{% comment %}On-call schedule body (ADR-012). Swapped by the add-shift HTMX post.{% endcomment %}
+<div id="schedule-body">
+  <div class="grid grid-cols-3 gap-3 mb-6">
+    {% for tier, shift in on_call.items %}
+    <div class="bg-white rounded shadow p-4">
+      <div class="text-xs text-slate-500">{{ tier }} on-call now</div>
+      <div class="text-lg font-semibold mt-1">
+        {% if shift %}{{ shift.user.username }}{% else %}<span class="text-slate-400">— gap —</span>{% endif %}
+      </div>
+      {% if shift %}<div class="text-xs text-slate-400 mt-1">until {{ shift.ends_at|date:"M j, H:i" }}</div>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <form class="flex flex-wrap items-end gap-3 mb-6 bg-white rounded shadow p-4 text-sm"
+        hx-post="{% url 'ui:add_shift' %}" hx-target="#schedule-body" hx-swap="outerHTML">
+    <label class="flex flex-col gap-1">Tier
+      <select name="tier" class="border rounded px-2 py-1">
+        {% for value, label in tiers %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="flex flex-col gap-1">User
+      <select name="user" class="border rounded px-2 py-1">
+        {% for u in users %}<option value="{{ u.id }}">{{ u.username }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="flex flex-col gap-1">Start
+      <input type="datetime-local" name="starts_at" class="border rounded px-2 py-1" required>
+    </label>
+    <label class="flex flex-col gap-1">End
+      <input type="datetime-local" name="ends_at" class="border rounded px-2 py-1" required>
+    </label>
+    <button class="px-3 py-2 rounded bg-indigo-600 text-white">Add shift</button>
+  </form>
+
+  <table class="w-full text-sm bg-white rounded shadow overflow-hidden">
+    <thead class="text-left text-slate-500 border-b">
+      <tr>
+        <th class="p-3 font-medium">Tier</th>
+        <th class="p-3 font-medium">User</th>
+        <th class="p-3 font-medium">Start</th>
+        <th class="p-3 font-medium">End</th>
+        <th class="p-3 font-medium"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in shifts %}
+      <tr class="border-b last:border-0">
+        <td class="p-3"><span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-700">{{ s.tier }}</span></td>
+        <td class="p-3">{{ s.user.username }}</td>
+        <td class="p-3 text-slate-600">{{ s.starts_at|date:"M j, H:i" }}</td>
+        <td class="p-3 text-slate-600">{{ s.ends_at|date:"M j, H:i" }}</td>
+        <td class="p-3 text-xs">{% if s.starts_at <= now and s.ends_at > now %}<span class="text-emerald-600">on-call now</span>{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="p-6 text-center text-slate-400">No shifts yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

@@ -13,7 +13,8 @@ import json
 
 from django.conf import settings
 
-from .models import Incident, Status
+from . import services
+from .models import Incident, Status, Tier
 
 
 def normalize_payload(payload: dict) -> dict:
@@ -43,7 +44,10 @@ def create_incident_idempotent(
 
     # The UUID PK is generated client-side (default=uuid4), so we keep our candidate
     # id to tell "we inserted it" from "we hit an existing open row".
-    candidate = Incident(source=source, payload=payload, title=title, dedupe_key=dedupe_key)
+    candidate = Incident(
+        source=source, payload=payload, title=title, dedupe_key=dedupe_key,
+        assignee=services.on_call_user(Tier.T1),  # auto-route a new incident to T1 on-call
+    )
     candidate_id = candidate.id
 
     # bulk_create(ignore_conflicts=True) issues INSERT ... ON CONFLICT DO NOTHING,

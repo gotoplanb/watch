@@ -6,12 +6,15 @@ partial so the page updates without a full reload.
 """
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, render
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_GET, require_POST
 
 from . import escalation, services
-from .models import Comment, Incident, Status, Tier, next_tier
+from .models import Comment, Incident, OnCallShift, Status, Tier, next_tier
 from .permissions import can_act_on
 
 
@@ -94,3 +97,40 @@ def act(request, pk, action):
 
     incident.refresh_from_db()
     return render(request, "incidents/_body.html", _detail_ctx(request, incident))
+
+
+# --- On-call schedule (ADR-012) ---
+
+def _aware(dt):
+    if dt and timezone.is_naive(dt):
+        return timezone.make_aware(dt)
+    return dt
+
+
+def _schedule_ctx():
+    return {
+        "on_call": {tier.value: services.current_on_call(tier.value) for tier in Tier},
+        "shifts": OnCallShift.objects.select_related("user")[:50],
+        "tiers": Tier.choices,
+        "users": User.objects.order_by("username"),
+        "now": timezone.now(),
+    }
+
+
+@login_required
+@require_GET
+def schedule(request):
+    return render(request, "incidents/schedule.html", _schedule_ctx())
+
+
+@login_required
+@require_POST
+def add_shift(request):
+    tier = request.POST.get("tier")
+    user_id = request.POST.get("user") or ""
+    starts = _aware(parse_datetime(request.POST.get("starts_at") or ""))
+    ends = _aware(parse_datetime(request.POST.get("ends_at") or ""))
+    if (tier in Tier.values and user_id.isdigit() and starts and ends and ends > starts
+            and User.objects.filter(pk=user_id).exists()):
+        OnCallShift.objects.create(tier=tier, user_id=int(user_id), starts_at=starts, ends_at=ends)
+    return render(request, "incidents/_schedule_body.html", _schedule_ctx())

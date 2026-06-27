@@ -13,7 +13,24 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Incident, Status, Tier, Transition, next_tier
+from .models import Incident, OnCallShift, Status, Tier, Transition, next_tier
+
+
+def current_on_call(tier, at=None):
+    """The active on-call shift for a tier (ADR-012), or None on a rota gap. Most
+    recently-started shift wins if windows overlap."""
+    at = at or timezone.now()
+    return (
+        OnCallShift.objects.filter(tier=tier, starts_at__lte=at, ends_at__gt=at)
+        .select_related("user")
+        .order_by("-starts_at")
+        .first()
+    )
+
+
+def on_call_user(tier, at=None):
+    shift = current_on_call(tier, at)
+    return shift.user if shift else None
 
 
 def _record(incident, *, to_status, to_tier, actor, reason, from_status, from_tier):
@@ -65,8 +82,11 @@ def escalate(incident_id, actor: str, reason: str = "") -> Incident:
     incident.current_tier = target.value
     incident.acknowledged_at = None  # new tier, not yet acknowledged
     incident.current_task_token = ""  # T-prev token consumed; record_token sets the next
+    incident.assignee = on_call_user(target.value)  # auto-route to the new tier's on-call
     incident.save(
-        update_fields=["current_tier", "acknowledged_at", "current_task_token", "updated_at"]
+        update_fields=[
+            "current_tier", "acknowledged_at", "current_task_token", "assignee", "updated_at"
+        ]
     )
     _record(
         incident,
@@ -94,8 +114,11 @@ def record_tier_token(incident_id, tier: str, token: str, sla_seconds: int | Non
     incident.current_tier = tier
     incident.current_task_token = token
     incident.sla_deadline_at = timezone.now() + timedelta(seconds=sla_seconds)
+    incident.assignee = on_call_user(tier)  # auto-route to this tier's on-call (ADR-012)
     incident.save(
-        update_fields=["current_tier", "current_task_token", "sla_deadline_at", "updated_at"]
+        update_fields=[
+            "current_tier", "current_task_token", "sla_deadline_at", "assignee", "updated_at"
+        ]
     )
     return incident
 

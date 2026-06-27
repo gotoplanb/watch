@@ -127,3 +127,27 @@ class Comment(models.Model):
     def __str__(self):
         who = self.author.username if self.author else "unknown"
         return f"{self.incident_id}: comment by {who}"
+
+
+class OnCallShift(models.Model):
+    """On-call schedule (ADR-012). Defines *responsibility* — who is on-call for a tier
+    during a window — distinct from Group membership (which defines *capability*/authz).
+    `services.current_on_call(tier)` resolves the active shift; the engine auto-assigns
+    the incident to it on tier entry. A gap leaves the incident unassigned (still
+    actionable by any tier-or-above member)."""
+
+    id = models.BigAutoField(primary_key=True)
+    tier = models.CharField(max_length=8, choices=Tier.choices)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="on_call_shifts", on_delete=models.CASCADE
+    )
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-starts_at", "-id"]
+        indexes = [models.Index(fields=["tier", "starts_at", "ends_at"])]
+
+    def __str__(self):
+        return f"{self.tier} {self.user}: {self.starts_at:%b %d %H:%M}–{self.ends_at:%b %d %H:%M}"

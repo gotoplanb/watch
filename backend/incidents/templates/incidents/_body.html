@@ -20,8 +20,11 @@ The root keeps id="incident-body" so subsequent swaps still find it.
       </div>
     </div>
 
+    <p class="text-xs text-slate-500 mt-2">
+      Assigned to {% if incident.assignee %}<span class="font-medium text-slate-700">{{ incident.assignee.username }}</span>{% else %}<span class="text-slate-400">unassigned</span>{% endif %}
+    </p>
     {% if incident.acknowledged_at %}
-      <p class="text-xs text-emerald-600 mt-2">Acknowledged {{ incident.acknowledged_at|date:"M j, H:i" }}</p>
+      <p class="text-xs text-emerald-600 mt-1">Acknowledged {{ incident.acknowledged_at|date:"M j, H:i" }}</p>
     {% endif %}
     {% if incident.sla_deadline_at and incident.status == 'OPEN' %}
       <p class="text-xs text-slate-500 mt-1">SLA deadline {{ incident.sla_deadline_at|date:"M j, H:i" }}</p>
