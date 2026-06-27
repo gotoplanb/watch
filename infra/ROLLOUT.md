@@ -13,9 +13,14 @@ durable **intake**, S3+CloudFront **status page**, OTel → **Watchtower**, all 
   sandbox, so we write all Terragrunt + Lambda packaging and run `tofu validate` / `fmt`
   / hcl checks; `terraform apply` is gated on real credentials.
 - **Everything as Terraform (ADR-006).** Terragrunt/OpenTofu manages not just AWS but
-  **GitHub** (`github` provider — repo settings, branch protection, the required CodeBuild
-  status check, labels, repo variables) and **Cloudflare** (`cloudflare` provider — zone,
-  DNS, TLS). Principle: **if Terraform can manage it, it does** — no click-ops.
+  **GitHub** (`github` provider — repo settings, rulesets/branch protection, the required
+  CodeBuild status check, labels, repo variables) and **Cloudflare** (`cloudflare`
+  provider — zone, DNS, TLS). Principle: **if Terraform can manage it, it does** — no
+  click-ops. GitHub target is the **`gotoplanb` user account** (no org) — all repos are
+  **public**, so rulesets/branch protection are free; auth via a **fine-grained PAT**.
+  The repo config is a reusable module so it can extend to a handful of public
+  `gotoplanb` repos (watch, watchtower, conduct). Cloudflare is a **personal account** +
+  a **zone-scoped API token**.
 - **Access posture (separation of duties).** A **temporary bootstrap credential**
   (write) creates the state backend + OIDC + initial provider config, then is rotated/
   disabled. In **normal operation Claude uses read-only credentials** (per service) to
