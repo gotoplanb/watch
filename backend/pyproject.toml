@@ -20,3 +20,33 @@ addopts = "-q -m 'not integration'"
 markers = [
     "integration: needs the docker-compose stack (Postgres, AppConfig Agent, SFN Local)",
 ]
+
+[tool.coverage.run]
+source = ["incidents", "config"]
+branch = true
+# Portable paths so the host-generated coverage.xml matches files inside the
+# in-container SonarQube scanner.
+relative_files = true
+omit = [
+    "*/tests/*",
+    "*/migrations/*",
+    # Bootstrap / config — too thin to unit-test meaningfully.
+    "manage.py",
+    "config/settings*.py",
+    "config/wsgi.py",
+    "config/asgi.py",
+    "config/otel.py",
+    # Integration / CLI glue — exercised by integration tests + manual use, not units.
+    "incidents/lambda_shim.py",
+    "incidents/management/*",
+]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

@@ -15,6 +15,8 @@ import json
 import logging
 
 import boto3
+from botocore import UNSIGNED
+from botocore.config import Config
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -24,15 +26,13 @@ OUTCOME_ESCALATE = "ESCALATE"
 OUTCOME_RESOLVE = "RESOLVE"
 
 
-def _client():
+def _client(endpoint_url: str | None = None):
+    url = endpoint_url or settings.ESCALATION_ENDPOINT_URL
     kwargs = {"region_name": settings.AWS_REGION}
-    if settings.ESCALATION_ENDPOINT_URL:
-        # Step Functions Local — dummy creds, explicit endpoint.
-        kwargs.update(
-            endpoint_url=settings.ESCALATION_ENDPOINT_URL,
-            aws_access_key_id="x",
-            aws_secret_access_key="x",
-        )
+    if url:
+        # Step Functions Local: explicit endpoint, unsigned requests (no credentials
+        # needed — it doesn't validate signatures).
+        kwargs.update(endpoint_url=url, config=Config(signature_version=UNSIGNED))
     return boto3.client("stepfunctions", **kwargs)
 
 

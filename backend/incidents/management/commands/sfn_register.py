@@ -11,9 +11,10 @@ function placeholders bound to the names the lambda shim routes (record_token / 
 """
 from pathlib import Path
 
-import boto3
 from django.conf import settings
 from django.core.management.base import BaseCommand
+
+from incidents import escalation
 
 
 class Command(BaseCommand):
@@ -29,10 +30,7 @@ class Command(BaseCommand):
             asl.replace("${record_token_function_arn}", "record_token")
                .replace("${commit_function_arn}", "commit")
         )
-        client = boto3.client(
-            "stepfunctions", endpoint_url=opts["endpoint"], region_name=settings.AWS_REGION,
-            aws_access_key_id="x", aws_secret_access_key="x",
-        )
+        client = escalation._client(endpoint_url=opts["endpoint"])
         arn = f"arn:aws:states:{settings.AWS_REGION}:000000000000:stateMachine:{opts['name']}"
         try:
             client.delete_state_machine(stateMachineArn=arn)

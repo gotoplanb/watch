@@ -51,7 +51,7 @@ def create_incident_idempotent(
     Incident.objects.bulk_create([candidate], ignore_conflicts=True)
 
     live = Incident.objects.filter(dedupe_key=dedupe_key, status=Status.OPEN).first()
-    if live is None:
+    if live is None:  # pragma: no cover - defensive: row resolved between insert and read
         # No open row with this key (e.g. it was resolved between insert and read) —
         # our insert is the authoritative row; read it back by id.
         return Incident.objects.get(pk=candidate_id), True

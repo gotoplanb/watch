@@ -29,3 +29,5 @@ frontend/dist/
 .DS_Store
 .idea/
 .vscode/
+coverage.xml
+.scannerwork/

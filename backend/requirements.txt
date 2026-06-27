@@ -19,3 +19,4 @@ opentelemetry-instrumentation-requests>=0.48b0
 # Dev / test (hermetic units, no Docker/network — spec §6)
 pytest>=8.0
 pytest-django>=4.8
+pytest-cov>=6.0           # coverage.xml (Cobertura) for the 90% gate + SonarQube

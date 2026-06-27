@@ -23,6 +23,8 @@ help:
 	@echo "                  migrate + seed + runserver; OTel -> existing Watchtower"
 	@echo "make infra        start only Postgres/Valkey/AppConfig in Docker"
 	@echo "make test         run hermetic unit tests (no Docker)"
+	@echo "make coverage     run units under coverage; fails if < 90% (the gate)"
+	@echo "make sonar-scan   coverage + SonarQube scan (local Watchtower :9000, project watch)"
 	@echo "make integration  run integration tests vs running infra (Postgres, AppConfig, [SFN if up])"
 	@echo "make smoke        push an incident through the intake webhook"
 	@echo "make up           full containerized stack (needs registry/PyPI egress; for CI/normal net)"
@@ -50,6 +52,25 @@ dev: venv infra
 
 test: venv
 	cd backend && .venv/bin/pytest
+
+# Run hermetic units under coverage; writes backend/coverage.xml (Cobertura) and a
+# terminal summary. Fails if total coverage < 90% (the gate, in pyproject.toml).
+coverage: venv
+	cd backend && .venv/bin/pytest --cov --cov-report=xml --cov-report=term -q
+
+# Static analysis + coverage to the local Watchtower SonarQube (:9000). Reads
+# SONAR_TOKEN from .env. Runs the scanner with backend/ as the base dir. Results at
+# http://localhost:9000/dashboard?id=watch
+sonar-scan: coverage
+	@if [ -z "$$SONAR_TOKEN" ] && ! grep -q '^SONAR_TOKEN=' .env 2>/dev/null; then \
+		echo "Set SONAR_TOKEN in .env (generate at http://localhost:9000)"; exit 1; \
+	fi
+	@set -a; . ./.env; set +a; \
+	cd backend && docker run --rm \
+		-e SONAR_HOST_URL=http://host.docker.internal:9000 \
+		-e SONAR_TOKEN=$$SONAR_TOKEN \
+		-v "$$(pwd):/usr/src" \
+		sonarsource/sonar-scanner-cli:latest
 
 up:
 	@test -f .env || cp .env.example .env

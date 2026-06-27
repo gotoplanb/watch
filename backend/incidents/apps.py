@@ -10,7 +10,7 @@ class IncidentsConfig(AppConfig):
         # Off by default so hermetic unit tests don't export; compose turns it on.
         from django.conf import settings
 
-        if getattr(settings, "OTEL_ENABLED", False):
+        if getattr(settings, "OTEL_ENABLED", False):  # pragma: no cover - bootstrap
             from config.otel import configure_otel
 
             configure_otel(settings.OTEL_SERVICE_NAME, settings.OTEL_EXPORTER_OTLP_ENDPOINT)

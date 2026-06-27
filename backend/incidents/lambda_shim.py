@@ -27,7 +27,9 @@ def _make_handler(handlers):
         protocol_version = "HTTP/1.1"
 
         def log_message(self, *args):
-            pass
+            # Intentionally silent: suppress the default per-request stderr logging;
+            # the handlers log their own work.
+            return
 
         def _read_body(self):
             if "chunked" in self.headers.get("Transfer-Encoding", "").lower():

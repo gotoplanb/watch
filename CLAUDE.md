@@ -69,6 +69,17 @@ can't reach PyPI, so `make dev` is the working loop.
   `make integration` = real Postgres + AppConfig Agent + Step Functions Local
   (`config.settings_integration`); integration tests are marked and skip cleanly when a
   dependency container is down.
+
+## Quality gates (before committing)
+Mirror the conduct project. **Both must be green before a commit:**
+1. **≥90% unit-test coverage** — `make coverage` (gate enforced by `fail_under = 90` in
+   `pyproject.toml`; writes `backend/coverage.xml`). Coverage `omit`/Sonar
+   `coverage.exclusions` cover only bootstrap + integration/CLI glue (settings, wsgi,
+   otel, migrations, lambda shim, management commands); everything else is unit-tested.
+2. **Green SonarQube Quality Gate** — `make sonar-scan` (scanner → local Watchtower
+   SonarQube at :9000, project `watch`). Reads `SONAR_TOKEN` from `.env`. Aim for 0
+   bugs / 0 vulnerabilities / 0 code smells, not just a passing gate. For local AWS
+   emulators use botocore `UNSIGNED` (no hardcoded creds — Sonar flags them).
 - **OTel → existing Watchtower:** the backend exports OTLP to the running Grafana
   **Alloy** (`localhost:4318`), viewable in `watchtower-grafana` (:3000) → Tempo, service
   `watch-backend`. Never stand up a second LGTM.
