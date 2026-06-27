@@ -43,6 +43,11 @@ infra:
 	@test -f .env || cp .env.example .env
 	docker compose up -d postgres valkey appconfig-agent
 
+# Serve the build-less React status page (ADR-011). Expects the API on :8010.
+status-page:
+	@echo "status page -> http://localhost:5173  (API at http://localhost:8010)"
+	cd frontend && python3 -m http.server 5173
+
 # One-command working loop (no image build): infra in Docker, app on the host.
 dev: venv infra
 	@echo "Waiting for Postgres on :5433..."

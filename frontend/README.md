@@ -1,19 +1,29 @@
-# Frontend (React SPA on S3 + CloudFront)
+# Frontend — status page (React SPA)
 
-Lineage: `gotoplanb/hermit-watch-gen` (§4.4). Scaffold is intentionally thin — the
-one piece worth pinning down now is **honest degradation** (ADR-005), shown in
-`src/health.js`.
+Per **ADR-011**, the React SPA is the **read-only status page** (system health +
+incident posture). The interactive working surface lives in Django (`/ui/...`).
+Lineage: `gotoplanb/hermit-watch-gen` (§4.4).
 
-## Deploy (audit lives in AWS — ADR-004)
-CodeBuild builds → S3 sync → CloudFront invalidation. Fingerprinted assets (long
-TTL) + short-TTL `index.html`, so a deploy never serves a half-old/half-new bundle.
+## Build-less (local)
+React + `htm` load from an **ESM CDN** (`esm.sh`) — no npm/Vite build (which this
+sandbox can't run). `src/app.js` polls `GET /api/status` every 10s and renders:
 
-## Honest degradation (ADR-005)
-The static shell staying up must never *imply* liveness it doesn't have. The SPA
-polls `GET /api/health` (dependency-checked: Postgres + Valkey). When the backend is
-unreachable or `degraded`, the SPA shows a loud read-only/stale banner and the
-documented "use ServiceNow" fallback — see `src/health.js`.
+- **Honest degradation banner (ADR-005):** green (ok) / amber (a dependency degraded) /
+  red "use ServiceNow" (backend unreachable). The static shell staying up never implies
+  liveness it doesn't have.
+- **Posture cards:** open incidents, open-by-tier (T1/T2/T3), resolved in the last 24h.
 
-## To build out
-- Vite + React app shell, incident list/detail, ack/escalate/resolve actions.
-- OTel browser instrumentation → Collector (§4.8, `smokeshow` lineage for E2E).
+`/api/status` is public + CORS-open (aggregate counts only), so the SPA can call it from
+its own origin.
+
+## Run it
+```bash
+make status-page          # serves this dir at http://localhost:5173
+# open http://localhost:5173  (expects the API at http://localhost:8010)
+```
+Point at a different API by editing `window.WATCH_API` in `index.html`.
+
+## Production (deferred)
+Compile to a **fingerprinted bundle** (long-TTL assets + short-TTL `index.html`) on
+S3 + CloudFront via CodeBuild (ADR-005 / §4.6) — replaces the ESM-CDN imports. OTel
+browser instrumentation + SmokeShow/Playwright E2E (§4.8) are the next layers.

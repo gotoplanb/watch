@@ -130,6 +130,10 @@ TIER_SLA_SECONDS = {
 # --- Intake webhook auth (ADR-008): machine-to-machine shared secret ---
 INTAKE_WEBHOOK_SECRET = _env("INTAKE_WEBHOOK_SECRET", "")
 
+# CORS origin allowed to read the public /api/status posture (ADR-011). Default open
+# for the local status-page SPA; set to the CloudFront/status domain in prod.
+STATUS_PAGE_CORS_ORIGIN = _env("STATUS_PAGE_CORS_ORIGIN", "*")
+
 # Volatile payload fields stripped before hashing the dedupe key (ADR-009).
 # Per-source config; this is the v1 default set.
 INTAKE_VOLATILE_FIELDS = ["timestamp", "firedAt", "deliveryId", "messageId", "sequence"]
