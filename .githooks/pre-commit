@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Watch quality gates (see CLAUDE.md): >=90% unit coverage + green SonarQube.
+# Install with `make install-hooks` (sets core.hooksPath=.githooks).
+#
+# Bypass when needed:
+#   SKIP_SONAR=1 git commit ...   # run coverage gate only (e.g. SonarQube offline)
+#   git commit --no-verify ...    # skip all hooks (use sparingly)
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+# Only gate commits that touch backend code.
+if ! git diff --cached --name-only | grep -q '^backend/'; then
+  echo "[pre-commit] no backend/ changes staged — skipping quality gates"
+  exit 0
+fi
+
+if [ ! -x backend/.venv/bin/pytest ]; then
+  echo "[pre-commit] backend venv missing — run 'make venv' first"
+  exit 1
+fi
+
+echo "[pre-commit] unit coverage gate (>=90%)…"
+( cd backend && .venv/bin/pytest --cov --cov-report=xml -q )
+
+if [ "${SKIP_SONAR:-0}" = "1" ]; then
+  echo "[pre-commit] SKIP_SONAR=1 — SonarQube gate skipped"
+  exit 0
+fi
+
+if ! curl -fsS http://localhost:9000/api/system/status >/dev/null 2>&1; then
+  echo "[pre-commit] SonarQube (:9000) unreachable — Sonar gate skipped (SKIP_SONAR=1 to silence)"
+  exit 0
+fi
+
+echo "[pre-commit] SonarQube quality gate (waits for result)…"
+make sonar-scan-only
+echo "[pre-commit] ✓ quality gates passed"

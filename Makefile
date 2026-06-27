@@ -25,6 +25,7 @@ help:
 	@echo "make test         run hermetic unit tests (no Docker)"
 	@echo "make coverage     run units under coverage; fails if < 90% (the gate)"
 	@echo "make sonar-scan   coverage + SonarQube scan (local Watchtower :9000, project watch)"
+	@echo "make install-hooks install the pre-commit quality gates (coverage + Sonar)"
 	@echo "make integration  run integration tests vs running infra (Postgres, AppConfig, [SFN if up])"
 	@echo "make smoke        push an incident through the intake webhook"
 	@echo "make up           full containerized stack (needs registry/PyPI egress; for CI/normal net)"
@@ -59,9 +60,14 @@ coverage: venv
 	cd backend && .venv/bin/pytest --cov --cov-report=xml --cov-report=term -q
 
 # Static analysis + coverage to the local Watchtower SonarQube (:9000). Reads
-# SONAR_TOKEN from .env. Runs the scanner with backend/ as the base dir. Results at
-# http://localhost:9000/dashboard?id=watch
-sonar-scan: coverage
+# SONAR_TOKEN from .env. Runs the scanner with backend/ as the base dir and waits for
+# the quality gate (sonar.qualitygate.wait in sonar-project.properties), so a red gate
+# exits non-zero. Results at http://localhost:9000/dashboard?id=watch
+sonar-scan: coverage sonar-scan-only
+
+# Scan using the already-generated backend/coverage.xml (used by the pre-commit hook,
+# which runs coverage itself first).
+sonar-scan-only:
 	@if [ -z "$$SONAR_TOKEN" ] && ! grep -q '^SONAR_TOKEN=' .env 2>/dev/null; then \
 		echo "Set SONAR_TOKEN in .env (generate at http://localhost:9000)"; exit 1; \
 	fi
@@ -71,6 +77,12 @@ sonar-scan: coverage
 		-e SONAR_TOKEN=$$SONAR_TOKEN \
 		-v "$$(pwd):/usr/src" \
 		sonarsource/sonar-scanner-cli:latest
+
+# Install the versioned git hooks (coverage + Sonar gates on commit).
+install-hooks:
+	git config core.hooksPath .githooks
+	@chmod +x .githooks/* 2>/dev/null || true
+	@echo "git hooks installed (core.hooksPath=.githooks)"
 
 up:
 	@test -f .env || cp .env.example .env

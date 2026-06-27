@@ -80,6 +80,11 @@ Mirror the conduct project. **Both must be green before a commit:**
    SonarQube at :9000, project `watch`). Reads `SONAR_TOKEN` from `.env`. Aim for 0
    bugs / 0 vulnerabilities / 0 code smells, not just a passing gate. For local AWS
    emulators use botocore `UNSIGNED` (no hardcoded creds — Sonar flags them).
+
+Both gates are enforced by a **pre-commit hook** (`.githooks/pre-commit`, installed via
+`make install-hooks` → `core.hooksPath`). It runs only when `backend/` is staged; the
+coverage gate is hard, the Sonar gate runs when SonarQube is reachable. Bypass with
+`SKIP_SONAR=1 git commit …` (coverage only) or `git commit --no-verify` (sparingly).
 - **OTel → existing Watchtower:** the backend exports OTLP to the running Grafana
   **Alloy** (`localhost:4318`), viewable in `watchtower-grafana` (:3000) → Tempo, service
   `watch-backend`. Never stand up a second LGTM.
