@@ -95,6 +95,13 @@ coverage gate is hard, the Sonar gate runs when SonarQube is reachable. Bypass w
 ## Conventions
 - **Long-running processes go in the `watch` tmux session** (windows `server`/`infra`/
   `shell`), not Claude background shells. Start with `tmux send-keys -t watch:<win> …`.
+- **UI verification via the Playwright MCP.** The `/ui/` working surface (:8010) and the
+  React status page (:5173) can be driven in a real browser through the `MCP_DOCKER`
+  gateway (`mcp/playwright`). The container has **no host mount**, so
+  `browser_take_screenshot` writes to `/home/node/<file>.png` *inside* it — retrieve with
+  `docker cp $(docker ps --filter ancestor=mcp/playwright -q):/home/node/<file>.png <host>`
+  then Read the PNG. `browser_evaluate` reading `getComputedStyle(...)` is a quick no-copy
+  check. (Browser reaches the host via `host.docker.internal`, allow-listed in `make dev`.)
 - Commit only when asked; branch off `main` if needed. End commit messages with the
   `Co-Authored-By: Claude …` trailer the harness provides.
 - Don't bake secrets into images or inline `environment`; secrets come from SSM/Secrets
