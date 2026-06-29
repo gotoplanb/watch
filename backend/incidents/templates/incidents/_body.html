@@ -4,27 +4,27 @@ HTMX replaces #incident-body (outerHTML), so the page updates without a full rel
 The root keeps id="incident-body" so subsequent swaps still find it.
 {% endcomment %}
 <div id="incident-body" class="mt-3">
-  <div class="bg-white rounded shadow p-5">
+  <div class="bg-slate-900 border border-slate-800 rounded p-5">
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h1 class="text-lg font-semibold">{{ incident.title }}</h1>
+        <h1 class="text-lg font-semibold text-slate-100">{{ incident.title }}</h1>
         <p class="text-sm text-slate-500 mt-1">{{ incident.source }} · {{ incident.id }}</p>
       </div>
       <div class="flex gap-2 shrink-0">
         {% if incident.status == 'RESOLVED' %}
-          <span class="px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700">Resolved</span>
+          <span class="px-2 py-0.5 rounded text-xs bg-emerald-500/15 text-emerald-300">Resolved</span>
         {% else %}
-          <span class="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700">Open</span>
+          <span class="px-2 py-0.5 rounded text-xs bg-amber-500/15 text-amber-300">Open</span>
         {% endif %}
-        <span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-700">{{ incident.current_tier }}</span>
+        <span class="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">{{ incident.current_tier }}</span>
       </div>
     </div>
 
     <p class="text-xs text-slate-500 mt-2">
-      Assigned to {% if incident.assignee %}<span class="font-medium text-slate-700">{{ incident.assignee.username }}</span>{% else %}<span class="text-slate-400">unassigned</span>{% endif %}
+      Assigned to {% if incident.assignee %}<span class="font-medium text-slate-200">{{ incident.assignee.username }}</span>{% else %}<span class="text-slate-500">unassigned</span>{% endif %}
     </p>
     {% if incident.acknowledged_at %}
-      <p class="text-xs text-emerald-600 mt-1">Acknowledged {{ incident.acknowledged_at|date:"M j, H:i" }}</p>
+      <p class="text-xs text-emerald-400 mt-1">Acknowledged {{ incident.acknowledged_at|date:"M j, H:i" }}</p>
     {% endif %}
     {% if incident.sla_deadline_at and incident.status == 'OPEN' %}
       <p class="text-xs text-slate-500 mt-1">SLA deadline {{ incident.sla_deadline_at|date:"M j, H:i" }}</p>
@@ -34,26 +34,26 @@ The root keeps id="incident-body" so subsequent swaps still find it.
       {% if can_act %}
       <div class="flex flex-wrap gap-2 mt-4">
         {% if not incident.acknowledged_at %}
-        <button class="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-sm"
+        <button class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm"
                 hx-post="{% url 'ui:ack' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML">
           Acknowledge
         </button>
         {% endif %}
         {% if next_tier %}
-        <button class="px-3 py-1.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-800 text-sm"
+        <button class="px-3 py-1.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-sm"
                 hx-post="{% url 'ui:escalate' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
                 hx-confirm="Escalate to {{ next_tier.label }}?">
           Escalate to {{ next_tier.value }}
         </button>
         {% endif %}
-        <button class="px-3 py-1.5 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-sm"
+        <button class="px-3 py-1.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-sm"
                 hx-post="{% url 'ui:resolve' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
                 hx-confirm="Resolve this incident?">
           Resolve
         </button>
       </div>
       {% else %}
-      <p class="text-xs text-slate-400 mt-4">You need the {{ incident.current_tier }} role (or higher) to act.</p>
+      <p class="text-xs text-slate-500 mt-4">You need the {{ incident.current_tier }} role (or higher) to act.</p>
       {% endif %}
     {% endif %}
   </div>
@@ -62,29 +62,29 @@ The root keeps id="incident-body" so subsequent swaps still find it.
         hx-post="{% url 'ui:add_comment' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
         x-data="{ body: '' }">
     <input name="body" x-model="body" autocomplete="off" placeholder="Add a note…"
-           class="flex-1 border rounded px-3 py-2 text-sm">
-    <button class="px-3 py-2 rounded bg-indigo-600 text-white text-sm disabled:opacity-40"
+           class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 placeholder-slate-500">
+    <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm disabled:opacity-40"
             :disabled="!body.trim()">Comment</button>
   </form>
 
-  <h2 class="text-sm font-semibold text-slate-500 mt-6 mb-2">Timeline</h2>
+  <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Timeline</h2>
   <ol class="space-y-2">
     {% for e in timeline %}
       {% if e.kind == 'comment' %}
-      <li class="bg-white rounded shadow-sm p-3 text-sm">
-        <span class="font-medium">{{ e.obj.author.username|default:'unknown' }}</span>
-        <span class="text-slate-400 text-xs"> · {{ e.at|date:"M j, H:i" }}</span>
-        <p class="mt-1 whitespace-pre-wrap">{{ e.obj.body }}</p>
+      <li class="bg-slate-900 border border-slate-800 rounded p-3 text-sm">
+        <span class="font-medium text-slate-200">{{ e.obj.author.username|default:'unknown' }}</span>
+        <span class="text-slate-500 text-xs"> · {{ e.at|date:"M j, H:i" }}</span>
+        <p class="mt-1 whitespace-pre-wrap text-slate-300">{{ e.obj.body }}</p>
       </li>
       {% else %}
-      <li class="text-sm px-3 py-2 border-l-2 border-slate-300">
-        <span class="text-slate-700">{{ e.obj.from_tier }} → {{ e.obj.to_tier }}{% if e.obj.to_status == 'RESOLVED' %} · resolved{% endif %}</span>
-        <span class="text-slate-400 text-xs"> · {{ e.obj.actor }} · {{ e.at|date:"M j, H:i" }}</span>
-        {% if e.obj.reason %}<span class="text-slate-400 text-xs"> — {{ e.obj.reason }}</span>{% endif %}
+      <li class="text-sm px-3 py-2 border-l-2 border-slate-700">
+        <span class="text-slate-300">{{ e.obj.from_tier }} → {{ e.obj.to_tier }}{% if e.obj.to_status == 'RESOLVED' %} · resolved{% endif %}</span>
+        <span class="text-slate-500 text-xs"> · {{ e.obj.actor }} · {{ e.at|date:"M j, H:i" }}</span>
+        {% if e.obj.reason %}<span class="text-slate-500 text-xs"> — {{ e.obj.reason }}</span>{% endif %}
       </li>
       {% endif %}
     {% empty %}
-    <li class="text-sm text-slate-400">No activity yet.</li>
+    <li class="text-sm text-slate-500">No activity yet.</li>
     {% endfor %}
   </ol>
 </div>

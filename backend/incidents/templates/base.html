@@ -9,19 +9,19 @@
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen"
+<body class="bg-slate-950 text-slate-200 min-h-screen [color-scheme:dark]"
       hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
-  <header class="bg-slate-900 text-white px-6 py-3 flex items-center justify-between">
+  <header class="bg-slate-900 border-b border-slate-800 text-slate-100 px-6 py-3 flex items-center justify-between">
     <div class="flex items-center gap-5">
       <a href="{% url 'ui:incident_list' %}" class="font-semibold tracking-tight">Watch · Incidents</a>
-      <a href="{% url 'ui:schedule' %}" class="text-sm text-slate-300 hover:text-white">Schedule</a>
+      <a href="{% url 'ui:schedule' %}" class="text-sm text-slate-400 hover:text-slate-100">Schedule</a>
     </div>
-    <div class="text-sm text-slate-300">
+    <div class="text-sm text-slate-400">
       {% if user.is_authenticated %}
         {{ user.username }}
-        <a class="ml-3 underline" href="{% url 'rest_framework:logout' %}?next={% url 'ui:incident_list' %}">log out</a>
+        <a class="ml-3 text-indigo-400 hover:text-indigo-300" href="{% url 'rest_framework:logout' %}?next={% url 'ui:incident_list' %}">log out</a>
       {% else %}
-        <a class="underline" href="{% url 'rest_framework:login' %}">log in</a>
+        <a class="text-indigo-400 hover:text-indigo-300" href="{% url 'rest_framework:login' %}">log in</a>
       {% endif %}
     </div>
   </header>
