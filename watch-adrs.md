@@ -225,3 +225,23 @@
 - *Cost / caveat:* ntfy topics are **public by default** — prod uses **access tokens or a self-hosted ntfy** (topic names are guessable and pages can be sensitive). The seam keeps that swap to one class.
 - *Cost:* best-effort paging is not guaranteed delivery. Upgrade path: enqueue (SQS) → a notifier with retries, decoupled from the engine; the audit record makes misses visible.
 - *Guardrail:* paging is **fire-and-forget after the transition commits** — it never blocks or alters the escalation decision, and a paging failure ≠ an escalation failure (the latter is still the alarmable "failed execution", ADR-001).
+
+---
+
+## ADR-014 — Rollout modes: generalize the flag seam (on/off/sample), env-var + AppConfig providers
+**Status:** Accepted · *Refines ADR-003*
+
+**Context.** ADR-003 put a thin `flags.is_enabled(name, default)` seam in front of AppConfig so the provider is swappable. Two needs push past a boolean: (a) some controls want **always-on / always-off / random-sampling** — e.g. run AWS DevOps Agent on a *fraction* of incidents (`gotoplanb/platform#17`), or sample any expensive/experimental path; and (b) the right *storage* differs by case. A stable, reviewed per-environment posture ("always on for work") is better as an **env var set via Terraform** — a change is a PR + `plan` diff + redeploy, audited in the IaC (ADR-006/004) — while an occasional/on-demand toggle or a live-tuned sample rate ("occasionally in the personal project") wants **AppConfig**'s runtime flip (~45s, CloudTrail). So *env var vs feature flag is a **provider** choice behind the one seam, not an either/or.*
+
+**Decision.**
+1. **Generalize the seam to a rollout mode.** A control resolves to `on`, `off`, or `sample:<rate>` (0.0–1.0). The seam exposes `rollout.active(name, key=None) -> bool`: `on`→True, `off`→False, `sample:R`→**deterministic** `hash(key) < R` (stable per entity — a given incident is consistently in or out), or random when no `key`. `flags.is_enabled(name, default)` stays as the on/off convenience wrapper.
+2. **Pluggable providers, one value format** (`on|off|sample:0.1`): **env var** (static per-env via Terraform/ECS task def — the **default**; keeps config changes in the IaC audit trail), **AppConfig** (runtime toggle + live-tunable rate via the agent; identical `localhost:2772` path, ADR-003), **in-memory** (tests).
+3. **Flag taxonomy.** **Release flags** are short-lived forks ("done" = both branches tested + a documented removal step, ADR-003). **Operational toggles / kill-switches** (`devops_agent.*`, `paging_enabled`) are **permanent** — kept indefinitely, both branches tested forever; the removal step does not apply.
+4. **Implementation lands with the first consumer** (paging `gotoplanb/watch#8` or DevOps Agent #17), behind the existing `incidents/flags.py` seam, with both branches + the sampling boundary unit-tested (90% gate). Built ahead of a consumer = unused, so deferred.
+
+**Consequences.**
+- *Gain:* one reusable primitive covers always-on / always-off / sampled rollouts for anything (cost-gating an agent, sampling an experiment, rate-limiting), with storage chosen per case.
+- *Gain:* "always on for work" = env var via Terraform (reviewed, IaC-audited, stable); "occasionally in personal" / live rate tuning = AppConfig (nimble). Each environment picks without app changes.
+- *Gain:* deterministic sampling makes sampled behaviour debuggable and stable per entity.
+- *Cost / nuance vs ADR-003:* env var becomes a first-class (default) provider, softening "prefer the managed service" — justified, since a Terraform-set env var is *more* reviewed/auditable than a runtime flip for stable posture; AppConfig stays for when runtime dynamism is the point.
+- *Guardrail:* AppConfig propagation is poll-based (~45s) — never assume sub-second flips (ADR-003). Operational toggles are permanent — don't "clean them up."

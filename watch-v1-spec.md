@@ -97,11 +97,22 @@ React SPA (S3 + CloudFront) ─────────────────�
 - **Fingerprinted assets (long TTL) + short-TTL `index.html`** — a deploy never serves a half-old/half-new bundle.
 - **Honest degradation is a first-class feature:** the SPA probes backend health and, when the app tier is unreachable, shows a loud read-only/stale banner plus the documented "use ServiceNow" fallback. The static shell staying up must never *imply* liveness it doesn't have. (ADR-005)
 
-### 4.5 Feature flags
-- **AWS AppConfig**, via the **AppConfig Agent** — sidecar in the ECS task in prod, container in docker-compose locally. Identical `localhost:2772` evaluation path in both. (ADR-003)
-- All evaluation behind a thin `flags.is_enabled(name, default)` seam. Swapping providers later = one class.
-- Note: AppConfig propagation is poll-based (~45s default) — fine for flags, never assume sub-second flips.
-- A flag is a fork → "done" for a flagged feature means **both branches tested and a documented flag-removal step** once permanent.
+### 4.5 Feature flags / rollout modes
+- All evaluation behind a thin seam (ADR-003/014). The seam resolves a **rollout mode** —
+  `on` / `off` / `sample:<rate>` — via `rollout.active(name, key=None)` (deterministic
+  sampling: a given entity is consistently in/out); `flags.is_enabled(name, default)` is
+  the on/off wrapper. Swapping providers/format later = one class.
+- **Pluggable providers** (one value format): **env var** (static per-env via Terraform/
+  ECS task def — default; config changes stay in the IaC audit trail), **AWS AppConfig**
+  via the **AppConfig Agent** (runtime toggle + live-tunable rate; identical `localhost:2772`
+  path, sidecar in ECS / container locally), **in-memory** (tests). (ADR-014)
+- Use env var for stable, reviewed per-environment posture ("always on"); AppConfig when
+  you want a runtime flip / live sample tuning. AppConfig propagation is poll-based (~45s)
+  — never assume sub-second flips.
+- **Two flag kinds (ADR-014):** *release flags* (short-lived fork → "done" = both branches
+  tested + a documented removal step) vs *operational toggles / kill-switches* (e.g.
+  `devops_agent.*`, `paging_enabled`) which are **permanent** — kept indefinitely, both
+  branches tested forever.
 
 ### 4.6 Pipeline
 - **GitHub validates; AWS adjudicates.** (ADR-004)
