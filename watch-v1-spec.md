@@ -124,6 +124,10 @@ React SPA (S3 + CloudFront) ─────────────────�
 
 ### 4.7 IaC
 - **Terragrunt**, separate stacks: `network / data / app / pipeline / frontend / escalation`.
+- **Cost profiles (ADR-015):** **lean** (public subnets / no NAT, ephemeral staging,
+  single-AZ option) is the default for personal/dev (~$60–90/mo); a Terragrunt toggle
+  flips to **ha** (private subnets + NAT + Multi-AZ, the ADR-005 design) for occasional
+  secure testing. The public→private extension is documented in `platform/ROLLOUT.md`.
 - Pattern lineage: existing multi-stack Terragrunt project. Terraform/Terragrunt over CDK because the estate spans providers and a readable `plan` diff is an audit artifact. (ADR-006)
 
 ### 4.8 Observability

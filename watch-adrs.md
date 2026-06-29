@@ -245,3 +245,21 @@
 - *Gain:* deterministic sampling makes sampled behaviour debuggable and stable per entity.
 - *Cost / nuance vs ADR-003:* env var becomes a first-class (default) provider, softening "prefer the managed service" — justified, since a Terraform-set env var is *more* reviewed/auditable than a runtime flip for stable posture; AppConfig stays for when runtime dynamism is the point.
 - *Guardrail:* AppConfig propagation is poll-based (~45s) — never assume sub-second flips (ADR-003). Operational toggles are permanent — don't "clean them up."
+
+---
+
+## ADR-015 — Cost profiles: lean (public-subnet, no-NAT) default with a documented HA upgrade
+**Status:** Accepted · *Refines ADR-005*
+
+**Context.** ADR-005 targets single-region Multi-AZ survival (RDS Multi-AZ, private subnets behind NAT, Fargate across AZs). For the **personal deployment** that runs ~$220–280/mo across a persistent staging+prod — **NAT gateways (~$36/env)**, **Multi-AZ RDS** (~2× the instance), and **two always-on environments** dominate the bill. Goal: keep dev/personal use **< $100/mo** without throwing away the HA design.
+
+**Decision.** Two **cost profiles**, selected by Terragrunt variables; **lean is the default for personal/dev**, **ha** is one flag-flip away and fully documented.
+- **lean (default):** **public subnets + public-IP Fargate (no NAT gateway)**; one persistent **prod** env + **ephemeral staging** (spun up for a pipeline run, then `terragrunt destroy`); RDS **single-AZ** (Multi-AZ optional). ≈ **$60–90/mo**.
+- **ha:** private subnets + **NAT gateway(s)**, RDS **Multi-AZ**, Fargate across AZs — the ADR-005 design — applied for occasional secure testing then torn down, or kept on when the workload warrants.
+- The **network stack ships the toggle from day one** (e.g. `enable_nat` / `private_networking`, default `false`) so switching profiles is a *variable change, not a rewrite*. App subnet placement + `assign_public_ip` and RDS `multi_az` follow the profile.
+- **The architecture docs say so explicitly:** "these are public subnets, chosen for cost and simplicity while developing; see *Extending to private subnets + NAT* for the secure profile" (`platform/ROLLOUT.md`).
+
+**Consequences.**
+- *Gain:* ~$60–90/mo personal/dev cost; the HA/secure profile is a documented, low-friction toggle for occasional testing — best of both worlds. Ephemeral staging means you pay for pre-prod only while a pipeline run needs it.
+- *Cost / trade-off:* lean runs the app in **public subnets with public IPs** and (optionally) **single-AZ** RDS — a conscious reduction of isolation/survival vs ADR-005, accepted for personal/dev. **Not** the posture for the day-job production estate, where `ha` (private + Multi-AZ) applies.
+- *Guardrail:* keep **both code paths exercised** — `tofu validate`/`plan` both profiles so the `ha` path never bit-rots. Security groups stay least-privilege regardless of subnet placement; secrets/state posture is unchanged.
