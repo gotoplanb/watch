@@ -1,0 +1,77 @@
+# Authoritative CD build (ADR-004 / platform#10). Runs in CodeBuild (PyPI/registry egress
+# available, unlike the local sandbox). The coverage gate is HARD here — it cannot be
+# bypassed with `git commit --no-verify`; a red gate fails the build and blocks the deploy.
+# Sonar runs only when SONAR_HOST_URL/SONAR_TOKEN are configured (the local Watchtower
+# SonarQube isn't reachable from CodeBuild — platform#10 decision: coverage now, Sonar
+# authoritative once a reachable SonarQube/SonarCloud is onboarded).
+#
+# Env (set by the CodeBuild project, Terraform modules/pipeline):
+#   ECR_REPO_URL, AWS_REGION, AWS_ACCOUNT_ID, ECS_TASK_FAMILY, CONTAINER_NAME,
+#   CONTAINER_PORT, DEPLOY_HOOK_FUNCTION   (SONAR_HOST_URL/SONAR_TOKEN optional)
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: "3.12"
+    commands:
+      - python -m pip install --quiet --upgrade pip
+
+  pre_build:
+    commands:
+      - IMAGE_TAG="${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}"
+      - IMAGE_URI="${ECR_REPO_URL}:${IMAGE_TAG}"
+      - echo "Building ${IMAGE_URI}"
+      - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REPO_URL"
+
+  build:
+    commands:
+      # --- HARD GATE: >=90% unit coverage (fail_under in pyproject.toml) ---
+      - echo "== coverage gate =="
+      - make coverage
+      # --- Sonar: authoritative only when a reachable server is configured ---
+      - |
+        if [ -n "$SONAR_HOST_URL" ] && [ -n "$SONAR_TOKEN" ]; then
+          echo "== sonar gate ($SONAR_HOST_URL) =="
+          docker run --rm -e SONAR_HOST_URL -e SONAR_TOKEN -v "$(pwd)/backend:/usr/src" \
+            sonarsource/sonar-scanner-cli:latest
+        else
+          echo "== sonar skipped (SONAR_HOST_URL/SONAR_TOKEN unset) =="
+        fi
+      # --- Build + push the app image ---
+      - docker build -t "$IMAGE_URI" backend/
+      - docker push "$IMAGE_URI"
+
+  post_build:
+    commands:
+      # Render the CodeDeploy task definition from the live (Terraform-managed) revision,
+      # swapping in the freshly built image — no task-def duplication in this repo.
+      - |
+        aws ecs describe-task-definition --task-definition "$ECS_TASK_FAMILY" \
+          --query 'taskDefinition' --output json \
+        | jq --arg img "$IMAGE_URI" --arg c "$CONTAINER_NAME" '
+            .containerDefinitions = (.containerDefinitions | map(if .name==$c then .image=$img else . end))
+            | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)
+          ' > taskdef.json
+      # Blue/green appspec: CodeDeploy fills <TASK_DEFINITION>; hooks gate traffic shift.
+      - |
+        cat > appspec.yaml <<YAML
+        version: 0.0
+        Resources:
+          - TargetService:
+              Type: AWS::ECS::Service
+              Properties:
+                TaskDefinition: <TASK_DEFINITION>
+                LoadBalancerInfo:
+                  ContainerName: ${CONTAINER_NAME}
+                  ContainerPort: ${CONTAINER_PORT}
+        Hooks:
+          - BeforeAllowTraffic: "${DEPLOY_HOOK_FUNCTION}"
+          - AfterAllowTraffic: "${DEPLOY_HOOK_FUNCTION}"
+        YAML
+      - echo "Artifacts:" && cat appspec.yaml
+
+artifacts:
+  files:
+    - taskdef.json
+    - appspec.yaml
