@@ -23,6 +23,14 @@ SECRET_KEY = _env("DJANGO_SECRET_KEY", "dev-insecure-change-me")
 DEBUG = _bool("DJANGO_DEBUG", False)
 ALLOWED_HOSTS = [h for h in _env("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h]
 
+# Behind a TLS-terminating ALB (§4.3): trust X-Forwarded-Proto so request.is_secure() is
+# correct, and trust the public HTTPS origin for CSRF (Django checks POST Origin against this).
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CSRF_TRUSTED_ORIGINS = [o for o in _env("CSRF_TRUSTED_ORIGINS", "").split(",") if o]
+# Secure cookies only when fronted by HTTPS (env-gated so local http still works).
+SESSION_COOKIE_SECURE = _bool("SESSION_COOKIE_SECURE", False)
+CSRF_COOKIE_SECURE = _bool("CSRF_COOKIE_SECURE", False)
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
