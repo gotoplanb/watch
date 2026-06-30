@@ -1,7 +1,8 @@
 """
 Seed a usable local environment (manual use):
 - Tier groups T1 / T2 / T3 (ADR-008)
-- One user per tier (t1 / t2 / t3) plus an admin superuser
+- Two users per tier (t1a/t1b, t2a/t2b, t3a/t3b) plus an admin superuser — two per tier
+  so on-call scheduling (rotations/handoffs, ADR-012) can be exercised
 - An optional demo incident pushed through the real intake path
 
     python manage.py seed_demo
@@ -14,7 +15,12 @@ from django.core.management.base import BaseCommand
 from incidents import escalation
 from incidents.intake import create_incident_idempotent
 
-TIER_USERS = {"t1": "T1", "t2": "T2", "t3": "T3"}
+# Two users per tier so scheduling has someone to rotate between (ADR-012).
+TIER_USERS = {
+    "t1a": "T1", "t1b": "T1",
+    "t2a": "T2", "t2b": "T2",
+    "t3a": "T3", "t3b": "T3",
+}
 
 
 class Command(BaseCommand):

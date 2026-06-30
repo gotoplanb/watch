@@ -67,7 +67,8 @@ build egress and is for CI / normal networks; in restricted sandboxes the Docker
 can't reach PyPI, so `make dev` is the working loop.
 
 - App: http://localhost:8010  (ports offset off the conduct-* stack: app 8010, pg 5433,
-  valkey 6380). Seeded users `t1`/`t2`/`t3` (pw `watch`), `admin`/`admin`.
+  valkey 6380). Seeded users `t1a`/`t1b`/`t2a`/`t2b`/`t3a`/`t3b` (two per tier for
+  on-call scheduling, pw `watch`), `admin`/`admin`.
 - **Tests:** `make test` = hermetic units (sqlite via `config.settings_test`, no Docker).
   `make integration` = real Postgres + AppConfig Agent + Step Functions Local
   (`config.settings_integration`); integration tests are marked and skip cleanly when a
