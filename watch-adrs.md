@@ -335,6 +335,7 @@
 
 **Consequences.**
 - *Gain:* build/scan/deploy/migrate rehearse in a prod-identical environment (real fidelity); the #27 lean-egress work is moot — staging keeps NAT.
+- *Gain:* **legitimate security testing.** A prod-faithful staging is a real DAST / penetration-test target (the actual private-subnet/NAT topology, SG/listener/IAM wiring) — not a lean stand-in with a different attack surface. Because it's ephemeral + disposable with no real data, aggressive/fuzzing/destructive scans are safe and prod is never touched. Pairs with build-time SAST (the Sonar gate, ADR-004): SAST at build, DAST/pentest against the running replica.
 - *Gain:* cost stays bounded by destroying staging between releases, matching the weekly cadence; recreate is ~15 min wall-clock per release.
 - *Cost:* staging meters ≈ prod (~$0.18/hr) **while up** — accepted, time-bounded.
-- *Scope note:* this is the **network/compute/HA** axis. **Telemetry topology still differs by env (ADR-016)** — staging = one shared Alloy, prod = sidecar + gateway. "Mirrors prod" here means infrastructure shape, not the collector layout.
+- *Scope note:* this is the **network/compute/HA** axis. Per the ADR-016 amendment, staging's **telemetry topology also mirrors prod** (sidecar + gateway) — the only telemetry difference is the exporter's last hop (staging → in-AWS Watchtower slice, prod → vendor).
