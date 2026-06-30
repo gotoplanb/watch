@@ -91,7 +91,6 @@ phases:
                   ContainerPort: ${CONTAINER_PORT}
         Hooks:
           - BeforeAllowTraffic: "${DEPLOY_HOOK_FUNCTION}"
-          - AfterAllowTraffic: "${DEPLOY_HOOK_FUNCTION}"
         YAML
       - echo "Artifacts:" && cat appspec.yaml
 
