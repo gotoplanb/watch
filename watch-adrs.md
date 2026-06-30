@@ -263,3 +263,59 @@
 - *Gain:* ~$60–90/mo personal/dev cost; the HA/secure profile is a documented, low-friction toggle for occasional testing — best of both worlds. Ephemeral staging means you pay for pre-prod only while a pipeline run needs it.
 - *Cost / trade-off:* lean runs the app in **public subnets with public IPs** and (optionally) **single-AZ** RDS — a conscious reduction of isolation/survival vs ADR-005, accepted for personal/dev. **Not** the posture for the day-job production estate, where `ha` (private + Multi-AZ) applies.
 - *Guardrail:* keep **both code paths exercised** — `tofu validate`/`plan` both profiles so the `ha` path never bit-rots. Security groups stay least-privilege regardless of subnet placement; secrets/state posture is unchanged.
+
+---
+
+## ADR-016 — Telemetry topology: the app is backend-agnostic; OTLP to a local Alloy collector, topology varies per environment
+**Status:** Accepted · *Refines ADR-003* (the collector is the swappable interface for telemetry, exactly as AppConfig is for flags)
+
+**Context.** The application must **never know what telemetry backend exists, in any environment.** An app that names a vendor or a remote endpoint couples it to that backend's identity and availability, and forces a redeploy to switch. Earlier notes ("OTel → existing Watchtower") conflated a local dev convenience with a deployed topology and implied prod depends on Watchtower — it must not (ADR-018).
+
+**Decision.**
+1. **The app emits OTLP to a *local* Alloy collector — identical app config everywhere.** `OTEL_EXPORTER_OTLP_ENDPOINT` → localhost (a sidecar); `OTEL_RESOURCE_ATTRIBUTES=deployment.environment=<env>`; `service.version` = git SHA. **No vendor name, no exporter-type switch, in the app, ever.** *Where* telemetry goes is a **collector-config IaC artifact per environment**, never an app env var. Switching a backend (Datadog → Sumo) is a collector-config change, **no app redeploy**.
+2. **Topology varies; the Alloy *config* is shared.** Local = Alloy as a compose service → local Watchtower/debug, 100%. **Staging** = one **shared Alloy** instance (lean, no sidecars), shipped with the Watchtower stack → in-AWS Watchtower, 100% (it's for testing). **Prod** = Alloy **sidecar per app task** + a **gateway collector** → **managed vendor** (Grafana Cloud / Datadog / Sumo), **tail-based** sampling (keep all errors + slow; sample boring successes).
+3. **The prod gateway owns the three things you don't spray across tasks:** vendor **credentials** (Secrets Manager → gateway, not every task); **redaction/masking before egress** (centralized at the boundary — the masking floor of §4.8 raised to the telemetry layer); **tail-based sampling** (requires seeing the whole trace, which a per-instance sidecar can't — this alone justifies the gateway).
+4. **Sidecar everywhere in prod keeps egress off the app's critical path** — backend down ≠ app blocked; the sidecar buffers. The app never exports straight to a remote endpoint.
+5. **Rehearse prod telemetry without vendor cost in *staging*:** make staging's collector config mirror prod's **processing** exactly (same processors, redaction, tail-sampling policy, resource attrs) and only swap the exporter's **last hop** to Watchtower. The one thing this can't cover — the **vendor-specific export** (auth, ingestion quirks, dashboards) — is validated in a vendor free-tier project; Watchtower can't stand in for it anyway.
+
+**Consequences.**
+- *Gain:* swap a backend = collector change, no redeploy; egress off the critical path; creds/redaction/tail-sampling centralized at one boundary; "the app knows nothing about its environment" enforced.
+- *Cost:* prod runs a sidecar per task (small overhead) **plus** a gateway (one more component to operate); staging's single shared Alloy is a deliberate lean choice, not the reference topology.
+- *Guardrail:* **don't let "staging has one shared Alloy" harden into "prod has one shared Alloy"** — in prod that's a SPOF and can't tail-sample. Keep the Alloy **config** as its own shared module consumed by *both* the staging Watchtower-stack and the prod app-sidecars (different lifecycles: in prod the sidecar ships with the **app**, not with Watchtower).
+
+---
+
+## ADR-017 — Build once, promote by digest (immutable artifact across environments)
+**Status:** Accepted · *Refines ADR-004*
+
+**Context.** Why is it safe to **skip the prod scan**? Not because "staging already scanned it" — that conflates the build plane with a runtime environment. The real reason is **immutable artifact promotion**. A pipeline that **rebuilds per environment** cannot make the guarantee, because prod would run different bytes than the gate approved.
+
+**Decision.**
+1. **Build + scan exactly once**, off a commit. Tag immutably and reference downstream **by digest** (`image@sha256:…`). **Never `:latest`, never rebuild per env.**
+2. Staging deploys digest X; prod deploys the **same** digest X. Prod is covered because it runs **the same bytes** that passed the gate.
+3. **Promotion = the approval gate, not a build job.** staging→prod is "approve digest X for prod" — and the auditable who/what/when record (ties to ADR-004's AWS-adjudicates trail). **No CodeBuild in the prod path;** prod is pure CodeDeploy of a known digest.
+4. This is the guarantee **blue/green** already relies on (blue + green run the same image; instant rollback because the artifact is identical). Cross-environment promotion is that same idea on a longer axis.
+5. **Corollary:** anything differing between staging and prod is **injected at runtime** (config, endpoints, OTLP target, secrets), never baked in. "Immutable promotion" and "the app knows nothing about its environment" (ADR-016) are the same discipline from two angles.
+
+**Consequences.**
+- *Gain:* prod runs exactly what the gate passed; promotion is an auditable approval, not a rebuild; rollback is instant (same artifact); the scan runs once, not per env.
+- *Cost:* requires an artifact registry + a promotion/approval stage, and the pipeline must thread a **digest** (not a tag) through environments.
+- *Guardrail:* the current pipeline (`platform#10`) builds in CodeBuild and deploys straight to prod — it must be **reshaped to build-once + promote-by-digest with no prod CodeBuild**. Open item: confirm one image is promoted, not rebuilt per env.
+
+---
+
+## ADR-018 — The platform/ops plane, and a clean account-isolation seam
+**Status:** Accepted · *DEBT noted on account split*
+
+**Context.** A recurring confusion: "does prod depend on Watchtower?", "is the SonarQube server prod?". Durable in-AWS **Watchtower-as-a-service**, the **SonarQube server**, and **throwaway dogfooding probes / example apps** used *while building* Watch / Watchtower / Conduct are infrastructure for **building the products** — not the production environment **of** any product.
+
+**Decision.**
+1. **Name a `platform` / `ops` / `tooling` plane** distinct from any product's prod. Durable Watchtower-as-a-service, the SonarQube **server** (durable: gate config, history, coverage trends), and dogfooding probes live there. Each product's prod path goes to the **managed vendor** — so "does prod depend on Watchtower?" is **no by construction.**
+2. **Build-time gates vs runtime observability are separate planes.** The SonarQube **scan** is a CodeBuild pipeline step (reads *source*; gates **entry into** staging — it is not a property *of* staging). The SonarQube **server** is durable shared platform infra, **not** lifecycle-coupled to the throwaway staging stack. Local convenience grouping (Alloy + Grafana + Sonar in one compose) ≠ deployed-topology grouping.
+3. Running throwaway probes that export to the in-AWS Watchtower **while developing the platform** is legitimate **platform-development telemetry**, not application-prod telemetry.
+4. **Account isolation (accepted DEBT).** Staging + prod share **one AWS account** today — known, written-down debt, not a settled design (shared IAM blast radius, shared quotas, staging can affect prod). Target: **separate accounts per plane/env** under an Org with cross-account role assumption. The account-split question and "what plane does Watchtower live in" are the **same** question. Keep the Terragrunt/IAM seam (env-level account id + provider assume-role) so the split is a **later config change, not a rewrite** — splitting *after* assuming a shared account is painful.
+
+**Consequences.**
+- *Gain:* "prod depends on Watchtower?" is unambiguously no; the account split becomes configuration, not a refactor; Sonar server/history isn't tied to ephemeral staging.
+- *Cost:* another named plane to model; the multi-account target is deferred (debt), with shared-account blast radius until it lands.
+- *Guardrail:* don't lifecycle-couple platform-plane infra (Watchtower, Sonar server) to product stacks; keep the account seam clean even while single-account, so ADR-005's "leave seams clean" holds for environment isolation too.
