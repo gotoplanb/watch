@@ -50,7 +50,9 @@ phases:
           rm -rf lambda_build && mkdir lambda_build
           # Slim deps only (no OTel/gRPC/gunicorn) so unzipped stays under Lambda's 250MB.
           pip install --quiet -r escalation/lambdas/requirements.txt -t lambda_build
-          cp -r backend/. lambda_build/
+          # Only the app code — NOT all of backend/ (which now holds the fat .venv that
+          # `make coverage` created with the full requirements; copying it busts 250MB).
+          cp -r backend/config backend/incidents lambda_build/
           cp escalation/lambdas/record_token.py escalation/lambdas/commit.py \
              escalation/lambdas/intake_consumer.py escalation/lambdas/_bootstrap.py lambda_build/
           (cd lambda_build && zip -qr ../lambda.zip .)
