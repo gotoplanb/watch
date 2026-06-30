@@ -29,9 +29,15 @@ phases:
         if [ -n "$SONAR_HOST_URL" ] && [ -n "$SONAR_TOKEN" ]; then
           docker run --rm -e SONAR_HOST_URL -e SONAR_TOKEN -v "$(pwd)/backend:/usr/src" sonarsource/sonar-scanner-cli:latest
         else echo "== sonar skipped =="; fi
-      # Build + push ONCE; resolve the immutable digest to pin deploys to.
-      - docker build -t "${ECR_REPO_URL}:${IMAGE_TAG}" backend/
-      - docker push "${ECR_REPO_URL}:${IMAGE_TAG}"
+      # Build + push ONCE per commit. The repo is immutable, so if this commit's tag is
+      # already there (a re-run / retry), reuse it instead of failing — true build-once.
+      - |
+        if aws ecr describe-images --repository-name "$REPO" --image-ids imageTag="$IMAGE_TAG" >/dev/null 2>&1; then
+          echo "image ${IMAGE_TAG} already present — reusing"
+        else
+          docker build -t "${ECR_REPO_URL}:${IMAGE_TAG}" backend/
+          docker push "${ECR_REPO_URL}:${IMAGE_TAG}"
+        fi
       - DIGEST=$(aws ecr describe-images --repository-name "$REPO" --image-ids imageTag="$IMAGE_TAG" --query 'imageDetails[0].imageDigest' --output text)
       - IMAGE_REF="${ECR_REPO_URL}@${DIGEST}"
       - echo "Promoting $IMAGE_REF"
