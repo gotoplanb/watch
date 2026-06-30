@@ -41,6 +41,27 @@ phases:
       # --- Build + push the app image ---
       - docker build -t "$IMAGE_URI" backend/
       - docker push "$IMAGE_URI"
+      # --- Package the Django Lambdas (intake consumer + escalation) and update them ---
+      # Same source bytes as the image; handlers + backend code + deps flattened to the zip
+      # root so `record_token.handler` etc. resolve and `config.settings` imports.
+      - |
+        if [ -n "$NAME_PREFIX" ] && [ -n "$ARTIFACT_BUCKET" ]; then
+          echo "== package lambdas =="
+          rm -rf lambda_build && mkdir lambda_build
+          pip install --quiet -r backend/requirements.txt -t lambda_build
+          cp -r backend/. lambda_build/
+          cp escalation/lambdas/record_token.py escalation/lambdas/commit.py \
+             escalation/lambdas/intake_consumer.py escalation/lambdas/_bootstrap.py lambda_build/
+          (cd lambda_build && zip -qr ../lambda.zip .)
+          aws s3 cp lambda.zip "s3://${ARTIFACT_BUCKET}/lambda/${IMAGE_TAG}.zip"
+          for fn in record-token commit intake-consumer; do
+            aws lambda update-function-code --function-name "${NAME_PREFIX}-${fn}" \
+              --s3-bucket "$ARTIFACT_BUCKET" --s3-key "lambda/${IMAGE_TAG}.zip" \
+              --publish >/dev/null && echo "  updated ${NAME_PREFIX}-${fn}"
+          done
+        else
+          echo "== lambda packaging skipped (NAME_PREFIX/ARTIFACT_BUCKET unset) =="
+        fi
 
   post_build:
     commands:
