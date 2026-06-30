@@ -1,13 +1,11 @@
-# Authoritative CD build (ADR-004 / platform#10). Runs in CodeBuild (PyPI/registry egress
-# available, unlike the local sandbox). The coverage gate is HARD here — it cannot be
-# bypassed with `git commit --no-verify`; a red gate fails the build and blocks the deploy.
-# Sonar runs only when SONAR_HOST_URL/SONAR_TOKEN are configured (the local Watchtower
-# SonarQube isn't reachable from CodeBuild — platform#10 decision: coverage now, Sonar
-# authoritative once a reachable SonarQube/SonarCloud is onboarded).
+# Authoritative build-once / promote-by-digest (ADR-004 / ADR-017 / platform#20). Runs in
+# CodeBuild. Gates (coverage hard; Sonar when configured), builds + pushes the image to the
+# shared ECR ONCE, captures its DIGEST, and emits per-env CodeDeploy artifacts pinned to
+# that digest. The pipeline deploys the SAME digest to staging, then (after approval) prod —
+# no rebuild in the prod path. Lambdas are packaged once and promoted to both envs.
 #
-# Env (set by the CodeBuild project, Terraform modules/pipeline):
-#   ECR_REPO_URL, AWS_REGION, AWS_ACCOUNT_ID, ECS_TASK_FAMILY, CONTAINER_NAME,
-#   CONTAINER_PORT, DEPLOY_HOOK_FUNCTION   (SONAR_HOST_URL/SONAR_TOKEN optional)
+# Env (CodeBuild project, modules/pipeline): ECR_REPO_URL, AWS_ACCOUNT_ID, CONTAINER_NAME,
+# CONTAINER_PORT, STAGING_TASK_FAMILY, PROD_TASK_FAMILY, STAGING_HOOK, PROD_HOOK, LAMBDA_ENVS.
 version: 0.2
 
 phases:
@@ -20,66 +18,51 @@ phases:
   pre_build:
     commands:
       - IMAGE_TAG="${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}"
-      - IMAGE_URI="${ECR_REPO_URL}:${IMAGE_TAG}"
-      - echo "Building ${IMAGE_URI}"
+      - REPO="${ECR_REPO_URL##*/}"
       - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REPO_URL"
 
   build:
     commands:
-      # --- HARD GATE: >=90% unit coverage (fail_under in pyproject.toml) ---
       - echo "== coverage gate =="
       - make coverage
-      # --- Sonar: authoritative only when a reachable server is configured ---
       - |
         if [ -n "$SONAR_HOST_URL" ] && [ -n "$SONAR_TOKEN" ]; then
-          echo "== sonar gate ($SONAR_HOST_URL) =="
-          docker run --rm -e SONAR_HOST_URL -e SONAR_TOKEN -v "$(pwd)/backend:/usr/src" \
-            sonarsource/sonar-scanner-cli:latest
-        else
-          echo "== sonar skipped (SONAR_HOST_URL/SONAR_TOKEN unset) =="
-        fi
-      # --- Build + push the app image ---
-      - docker build -t "$IMAGE_URI" backend/
-      - docker push "$IMAGE_URI"
-      # --- Package the Django Lambdas (intake consumer + escalation) and update them ---
-      # Same source bytes as the image; handlers + backend code + deps flattened to the zip
-      # root so `record_token.handler` etc. resolve and `config.settings` imports.
+          docker run --rm -e SONAR_HOST_URL -e SONAR_TOKEN -v "$(pwd)/backend:/usr/src" sonarsource/sonar-scanner-cli:latest
+        else echo "== sonar skipped =="; fi
+      # Build + push ONCE; resolve the immutable digest to pin deploys to.
+      - docker build -t "${ECR_REPO_URL}:${IMAGE_TAG}" backend/
+      - docker push "${ECR_REPO_URL}:${IMAGE_TAG}"
+      - DIGEST=$(aws ecr describe-images --repository-name "$REPO" --image-ids imageTag="$IMAGE_TAG" --query 'imageDetails[0].imageDigest' --output text)
+      - IMAGE_REF="${ECR_REPO_URL}@${DIGEST}"
+      - echo "Promoting $IMAGE_REF"
+      # Package the Django Lambdas once; promote the same zip to BOTH envs' functions.
+      - rm -rf lambda_build && mkdir lambda_build
+      - pip install --quiet -r escalation/lambdas/requirements.txt -t lambda_build
+      - cp -r backend/config backend/incidents lambda_build/
+      - cp escalation/lambdas/record_token.py escalation/lambdas/commit.py escalation/lambdas/_bootstrap.py lambda_build/
+      - cp escalation/lambdas/intake_consumer.py lambda_build/intake_consumer.py
+      - (cd lambda_build && zip -qr ../lambda.zip .)
+      - aws s3 cp lambda.zip "s3://${ARTIFACT_BUCKET}/lambda/${IMAGE_TAG}.zip"
       - |
-        if [ -n "$NAME_PREFIX" ] && [ -n "$ARTIFACT_BUCKET" ]; then
-          echo "== package lambdas =="
-          rm -rf lambda_build && mkdir lambda_build
-          # Slim deps only (no OTel/gRPC/gunicorn) so unzipped stays under Lambda's 250MB.
-          pip install --quiet -r escalation/lambdas/requirements.txt -t lambda_build
-          # Only the app code — NOT all of backend/ (which now holds the fat .venv that
-          # `make coverage` created with the full requirements; copying it busts 250MB).
-          cp -r backend/config backend/incidents lambda_build/
-          cp escalation/lambdas/record_token.py escalation/lambdas/commit.py \
-             escalation/lambdas/intake_consumer.py escalation/lambdas/_bootstrap.py lambda_build/
-          (cd lambda_build && zip -qr ../lambda.zip .)
-          aws s3 cp lambda.zip "s3://${ARTIFACT_BUCKET}/lambda/${IMAGE_TAG}.zip"
+        for prefix in $LAMBDA_ENVS; do
           for fn in record-token commit intake-consumer; do
-            aws lambda update-function-code --function-name "${NAME_PREFIX}-${fn}" \
-              --s3-bucket "$ARTIFACT_BUCKET" --s3-key "lambda/${IMAGE_TAG}.zip" \
-              --publish >/dev/null && echo "  updated ${NAME_PREFIX}-${fn}"
+            aws lambda update-function-code --function-name "${prefix}-${fn}" \
+              --s3-bucket "$ARTIFACT_BUCKET" --s3-key "lambda/${IMAGE_TAG}.zip" --publish >/dev/null \
+              && echo "  updated ${prefix}-${fn}"
           done
-        else
-          echo "== lambda packaging skipped (NAME_PREFIX/ARTIFACT_BUCKET unset) =="
-        fi
+        done
 
   post_build:
     commands:
-      # Render the CodeDeploy task definition from the live (Terraform-managed) revision,
-      # swapping in the freshly built image — no task-def duplication in this repo.
+      # Render per-env taskdef (image pinned by digest) + appspec (env's migration hook).
       - |
-        aws ecs describe-task-definition --task-definition "$ECS_TASK_FAMILY" \
-          --query 'taskDefinition' --output json \
-        | jq --arg img "$IMAGE_URI" --arg c "$CONTAINER_NAME" '
-            .containerDefinitions = (.containerDefinitions | map(if .name==$c then .image=$img else . end))
-            | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)
-          ' > taskdef.json
-      # Blue/green appspec: CodeDeploy fills <TASK_DEFINITION>; hooks gate traffic shift.
-      - |
-        cat > appspec.yaml <<YAML
+        render() {  # $1=env-name  $2=task-family  $3=hook-fn
+          aws ecs describe-task-definition --task-definition "$2" --query 'taskDefinition' --output json \
+          | jq --arg img "$IMAGE_REF" --arg c "$CONTAINER_NAME" '
+              .containerDefinitions = (.containerDefinitions | map(if .name==$c then .image=$img else . end))
+              | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)
+            ' > "taskdef-$1.json"
+          cat > "appspec-$1.yaml" <<YAML
         version: 0.0
         Resources:
           - TargetService:
@@ -90,11 +73,16 @@ phases:
                   ContainerName: ${CONTAINER_NAME}
                   ContainerPort: ${CONTAINER_PORT}
         Hooks:
-          - BeforeAllowTraffic: "${DEPLOY_HOOK_FUNCTION}"
+          - BeforeAllowTraffic: "$3"
         YAML
-      - echo "Artifacts:" && cat appspec.yaml
+        }
+      - render staging "$STAGING_TASK_FAMILY" "$STAGING_HOOK"
+      - render prod "$PROD_TASK_FAMILY" "$PROD_HOOK"
+      - echo "Artifacts:" && ls taskdef-*.json appspec-*.yaml
 
 artifacts:
   files:
-    - taskdef.json
-    - appspec.yaml
+    - taskdef-staging.json
+    - appspec-staging.yaml
+    - taskdef-prod.json
+    - appspec-prod.yaml
