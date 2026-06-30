@@ -18,7 +18,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && uv pip install --python /app/.venv/bin/python -r requirements.txt
 
 
-FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
+# ECR Public mirror of the Docker official image — avoids Docker Hub anonymous pull
+# rate-limits (429) in CodeBuild. Same bytes as docker.io/library/python.
+FROM public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim-bookworm AS runtime
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \

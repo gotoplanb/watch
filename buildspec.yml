@@ -54,15 +54,17 @@ phases:
 
   post_build:
     commands:
-      # Render per-env taskdef (image pinned by digest) + appspec (env's migration hook).
+      # Render per-env taskdef (image pinned by digest) + appspec (env's hook). One self-
+      # contained block per env — CodeBuild persists vars but NOT functions across commands.
       - |
-        render() {  # $1=env-name  $2=task-family  $3=hook-fn
-          aws ecs describe-task-definition --task-definition "$2" --query 'taskDefinition' --output json \
+        for spec in "staging $STAGING_TASK_FAMILY $STAGING_HOOK" "prod $PROD_TASK_FAMILY $PROD_HOOK"; do
+          set -- $spec; ENVN=$1; FAMILY=$2; HOOK=$3
+          aws ecs describe-task-definition --task-definition "$FAMILY" --query 'taskDefinition' --output json \
           | jq --arg img "$IMAGE_REF" --arg c "$CONTAINER_NAME" '
               .containerDefinitions = (.containerDefinitions | map(if .name==$c then .image=$img else . end))
               | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)
-            ' > "taskdef-$1.json"
-          cat > "appspec-$1.yaml" <<YAML
+            ' > "taskdef-${ENVN}.json"
+          cat > "appspec-${ENVN}.yaml" <<YAML
         version: 0.0
         Resources:
           - TargetService:
@@ -73,11 +75,9 @@ phases:
                   ContainerName: ${CONTAINER_NAME}
                   ContainerPort: ${CONTAINER_PORT}
         Hooks:
-          - BeforeAllowTraffic: "$3"
+          - BeforeAllowTraffic: "${HOOK}"
         YAML
-        }
-      - render staging "$STAGING_TASK_FAMILY" "$STAGING_HOOK"
-      - render prod "$PROD_TASK_FAMILY" "$PROD_HOOK"
+        done
       - echo "Artifacts:" && ls taskdef-*.json appspec-*.yaml
 
 artifacts:
