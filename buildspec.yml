@@ -48,7 +48,8 @@ phases:
         if [ -n "$NAME_PREFIX" ] && [ -n "$ARTIFACT_BUCKET" ]; then
           echo "== package lambdas =="
           rm -rf lambda_build && mkdir lambda_build
-          pip install --quiet -r backend/requirements.txt -t lambda_build
+          # Slim deps only (no OTel/gRPC/gunicorn) so unzipped stays under Lambda's 250MB.
+          pip install --quiet -r escalation/lambdas/requirements.txt -t lambda_build
           cp -r backend/. lambda_build/
           cp escalation/lambdas/record_token.py escalation/lambdas/commit.py \
              escalation/lambdas/intake_consumer.py escalation/lambdas/_bootstrap.py lambda_build/

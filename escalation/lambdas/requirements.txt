@@ -1,0 +1,10 @@
+# Slim deps for the Django Lambda package (intake consumer + escalation handlers).
+# Only what django.setup() + the handlers import — NOT the app's full runtime stack.
+# Excludes OpenTelemetry/gRPC/gunicorn (huge, unused in the Lambda path → keeps the
+# unzipped package under Lambda's 250 MB limit). boto3/botocore are provided by the
+# Lambda runtime, so they're omitted here too.
+Django>=5.0,<5.2
+djangorestframework>=3.15,<3.16
+psycopg[binary]>=3.1,<4
+django-redis>=5.4,<6   # settings CACHES backend class must be importable at setup
+requests>=2.31         # incidents.flags imports it at module load
