@@ -319,3 +319,22 @@
 - *Gain:* "prod depends on Watchtower?" is unambiguously no; the account split becomes configuration, not a refactor; Sonar server/history isn't tied to ephemeral staging.
 - *Cost:* another named plane to model; the multi-account target is deferred (debt), with shared-account blast radius until it lands.
 - *Guardrail:* don't lifecycle-couple platform-plane infra (Watchtower, Sonar server) to product stacks; keep the account seam clean even while single-account, so ADR-005's "leave seams clean" holds for environment isolation too.
+
+---
+
+## ADR-019 — Staging mirrors prod (ha); cost is controlled by ephemerality, not a leaner architecture
+**Status:** Accepted · *Refines ADR-015 (reverses "staging is lean")*
+
+**Context.** ADR-015 made **staging lean** (public subnets, no NAT) to save money, treating it as a cheap throwaway. But staging's whole job — the authoritative **build → scan → blue/green deploy → expand-migration rehearsal** (ADR-004 / ADR-017 / #12) — is only trustworthy when staging is **as close to prod as possible**. A lean staging that differs from prod (no NAT, public-subnet placement, different egress) doesn't actually exercise the prod topology, and it forced lean-specific workarounds prod never needs (no-NAT egress for the VPC escalation/intake Lambdas + the migration hook). **Fidelity beats lean-cost.**
+
+**Decision.**
+1. **Staging runs the `ha` profile — the same topology as prod** (private subnets + NAT, the ADR-005 shape). What passes staging genuinely reflects prod, and there are no lean-only egress hacks.
+2. **Cost is bounded by *time*, not *shape*:** staging is **ephemeral** — `terragrunt destroy`-ed (or scaled to 0 tasks) **between releases** and recreated for a release run. At a ~weekly cadence it meters only during the release window, preserving ADR-015's "< $100/mo personal" goal via ephemerality.
+3. **Smaller, not leaner:** when up, staging may run **fewer tasks + smaller instance sizes** and **single-AZ RDS** (it's disposable) — but the **same topology** (NAT, private subnets) as prod. Shrink the dials, don't change the shape.
+4. This **reverses ADR-015's "staging is lean."** The lean *toggle* still exists for a truly-throwaway personal sandbox, but **staging is `ha`-ephemeral, not lean.**
+
+**Consequences.**
+- *Gain:* build/scan/deploy/migrate rehearse in a prod-identical environment (real fidelity); the #27 lean-egress work is moot — staging keeps NAT.
+- *Gain:* cost stays bounded by destroying staging between releases, matching the weekly cadence; recreate is ~15 min wall-clock per release.
+- *Cost:* staging meters ≈ prod (~$0.18/hr) **while up** — accepted, time-bounded.
+- *Scope note:* this is the **network/compute/HA** axis. **Telemetry topology still differs by env (ADR-016)** — staging = one shared Alloy, prod = sidecar + gateway. "Mirrors prod" here means infrastructure shape, not the collector layout.
