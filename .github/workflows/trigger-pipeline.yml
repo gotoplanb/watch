@@ -1,0 +1,38 @@
+# Start the AWS CodePipeline on a push to main (platform#24). The native CodeConnections
+# push trigger wouldn't deliver events, so we poke the pipeline via OIDC instead. This is
+# trigger-only — CodePipeline still runs build -> DeployStaging -> approval -> DeployProd
+# (the authoritative coverage/Sonar gates live in CodeBuild, ADR-004).
+#
+# To fire on release tags instead of every main push, swap the `on:` block for:
+#   on:
+#     push:
+#       tags: ['v*']
+name: Trigger deploy pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write # request the OIDC token to assume the AWS role
+  contents: read
+
+concurrency:
+  group: trigger-deploy-pipeline
+  cancel-in-progress: false
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::614933206631:role/watch-ci-trigger
+          aws-region: us-east-1
+      - name: Start CodePipeline
+        run: |
+          ID=$(aws codepipeline start-pipeline-execution --name watch --query pipelineExecutionId --output text)
+          echo "Started pipeline execution: $ID"
+          echo "### Started CodePipeline \`watch\` — execution \`$ID\`" >> "$GITHUB_STEP_SUMMARY"
