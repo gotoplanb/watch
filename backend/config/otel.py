@@ -1,9 +1,12 @@
 """
-OpenTelemetry bootstrap (spec §4.8): Django + psycopg + requests -> OTLP -> Collector
--> Watchtower (LGTM). Reuse, don't rebuild.
+OpenTelemetry bootstrap (spec §4.8): Django + psycopg + requests -> OTLP -> a LOCAL
+collector. The app is backend-agnostic (ADR-016): it exports to OTEL_EXPORTER_OTLP_ENDPOINT
+(an Alloy sidecar on localhost in AWS; the grafana/otel-lgtm stack locally) and names no
+vendor. Where telemetry ultimately goes is the collector's config, not this code.
 
-Enabled by OTEL_ENABLED (off for hermetic unit tests; on in docker-compose). Exports
-over OTLP/HTTP to OTEL_EXPORTER_OTLP_ENDPOINT (the local grafana/otel-lgtm stack).
+Enabled by OTEL_ENABLED (off for hermetic unit tests). Resource attributes — including
+deployment.environment and service.version — come from OTEL_RESOURCE_ATTRIBUTES, which the
+SDK merges into the resource below (set per-deploy by the task def, never hardcoded here).
 """
 import logging
 
