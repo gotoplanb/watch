@@ -1,6 +1,6 @@
 [project]
 name = "watch-backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "Watch — incident intake & tiered escalation (Django/DRF, v1 slice)"
 requires-python = ">=3.12"
 
