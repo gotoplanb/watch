@@ -31,6 +31,14 @@ CSRF_TRUSTED_ORIGINS = [o for o in _env("CSRF_TRUSTED_ORIGINS", "").split(",") i
 SESSION_COOKIE_SECURE = _bool("SESSION_COOKIE_SECURE", False)
 CSRF_COOKIE_SECURE = _bool("CSRF_COOKIE_SECURE", False)
 
+# HSTS (#30): tell browsers to stay on HTTPS. Env-gated — 0 disables (local http); the ALB
+# terminates TLS so this emits on request.is_secure() via SECURE_PROXY_SSL_HEADER above.
+# include_subdomains scopes only to watch.'s subdomains (not the apex); preload stays off
+# (hard to reverse — opt in deliberately).
+SECURE_HSTS_SECONDS = int(_env("SECURE_HSTS_SECONDS", "0") or "0")
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", True)
+SECURE_HSTS_PRELOAD = _bool("SECURE_HSTS_PRELOAD", False)
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
