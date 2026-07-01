@@ -39,6 +39,26 @@ SECURE_HSTS_SECONDS = int(_env("SECURE_HSTS_SECONDS", "0") or "0")
 SECURE_HSTS_INCLUDE_SUBDOMAINS = _bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", True)
 SECURE_HSTS_PRELOAD = _bool("SECURE_HSTS_PRELOAD", False)
 
+# Security response headers (#37, surfaced by the #32 DAST scan). Safe defaults — never break
+# the UI: DENY framing, no MIME sniffing, a trimmed referrer, a restrictive Permissions-Policy,
+# and a CSP permissive enough for the /ui's CDN deps (Tailwind Play + Alpine/HTMX from unpkg —
+# they need unsafe-eval + inline styles) while locking down everything else. Overridable via env.
+X_FRAME_OPTIONS = "DENY"
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+PERMISSIONS_POLICY = _env(
+    "PERMISSIONS_POLICY",
+    "geolocation=(), microphone=(), camera=(), payment=(), usb=(), interest-cohort=()",
+)
+CONTENT_SECURITY_POLICY = _env(
+    "CONTENT_SECURITY_POLICY",
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com; "
+    "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "
+    "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
+    "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
+)
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -57,6 +77,8 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",  # X-Frame-Options (#37)
+    "config.security_headers.SecurityHeadersMiddleware",  # CSP + Permissions-Policy (#37)
 ]
 
 ROOT_URLCONF = "config.urls"
