@@ -63,11 +63,22 @@ phases:
       # Render per-env taskdef (image pinned by digest) + appspec (env's hook). One self-
       # contained block per env — CodeBuild persists vars but NOT functions across commands.
       - |
+        SHA=$(echo "${CODEBUILD_RESOLVED_SOURCE_VERSION:-unknown}" | cut -c1-7)
         for spec in "staging $STAGING_TASK_FAMILY $STAGING_HOOK" "prod $PROD_TASK_FAMILY $PROD_HOOK"; do
           set -- $spec; ENVN=$1; FAMILY=$2; HOOK=$3
+          # Swap the app image to the built digest, and set service.version=<git sha> in the
+          # app container's OTEL_RESOURCE_ATTRIBUTES (ADR-016 / platform#18). deployment.environment
+          # stays as baked by terraform.
           aws ecs describe-task-definition --task-definition "$FAMILY" --query 'taskDefinition' --output json \
-          | jq --arg img "$IMAGE_REF" --arg c "$CONTAINER_NAME" '
-              .containerDefinitions = (.containerDefinitions | map(if .name==$c then .image=$img else . end))
+          | jq --arg img "$IMAGE_REF" --arg c "$CONTAINER_NAME" --arg sha "$SHA" '
+              .containerDefinitions = (.containerDefinitions | map(
+                if .name==$c then
+                  .image=$img
+                  | .environment = (.environment | map(
+                      if .name=="OTEL_RESOURCE_ATTRIBUTES"
+                      then .value = (.value | sub("service\\.version=[^,]*"; "service.version=" + $sha))
+                      else . end))
+                else . end))
               | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)
             ' > "taskdef-${ENVN}.json"
           cat > "appspec-${ENVN}.yaml" <<YAML
