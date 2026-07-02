@@ -6,7 +6,7 @@ PY := python3.12
 VENV := backend/.venv
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: help venv test dev infra up down logs seed smoke integration clean
+.PHONY: help venv test e2e dev infra up down logs seed smoke integration clean
 
 # Env for running the backend on the HOST against compose-provided infra. This is the
 # primary local loop here: it needs no image-registry/PyPI egress (only the cached
@@ -59,6 +59,15 @@ dev: venv infra
 
 test: venv
 	cd backend && .venv/bin/pytest
+
+# Post-deploy functional smoke (Playwright). Defaults hit the `make dev` loop; override
+# E2E_BASE / E2E_STATUS / E2E_SECRET to run against staging (the pipeline Smoke stage does).
+E2E_BASE ?= http://localhost:8010
+E2E_STATUS ?= http://localhost:5173
+E2E_SECRET ?= dev-webhook-secret
+e2e:
+	cd e2e && npm install --silent && npx playwright install chromium >/dev/null && \
+	  BASE_URL=$(E2E_BASE) STATUS_URL=$(E2E_STATUS) INTAKE_WEBHOOK_SECRET=$(E2E_SECRET) npx playwright test
 
 # Run hermetic units under coverage; writes backend/coverage.xml (Cobertura) and a
 # terminal summary. Fails if total coverage < 90% (the gate, in pyproject.toml).
