@@ -76,3 +76,8 @@ make integration   # spins the stack incl. Step Functions Local, then runs the
 | 006 Terragrunt over CDK | `infra/` |
 | 007 Lifecycle: status×tier, ack-keeps-clock, one token/tier | `backend/incidents/models.py`, `services.py`, `escalation.py` |
 | 008 Session auth + tier-or-above authz | `backend/incidents/permissions.py`, `views.py` |
+
+## License
+
+Released under the [MIT No Attribution](LICENSE) license (MIT-0) — permissive, OSI-approved, no
+attribution required.

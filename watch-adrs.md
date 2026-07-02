@@ -267,7 +267,7 @@
 ---
 
 ## ADR-016 — Telemetry topology: the app is backend-agnostic; OTLP to a local Alloy collector, topology varies per environment
-**Status:** Accepted · *Refines ADR-003* · *Amended 2026-06-30: staging uses the sidecar+gateway topology too (mirrors prod, per ADR-019); the only per-env difference is the exporter destination; Watchtower runs in AWS as a platform slice (ADR-018), never the laptop.*
+**Status:** Accepted · *Refines ADR-003* · *Amended 2026-06-30: staging uses the sidecar+gateway topology too (mirrors prod, per ADR-019); the only per-env difference is the exporter destination; Watchtower runs in AWS as a platform slice (ADR-018), never the laptop.* · *Amended 2026-07-02: plane **deployed & verified end-to-end on staging** (app → local Alloy sidecar → per-env Alloy gateway → Tempo, viewed as live traces in Grafana). Realized as platform-repo modules `modules/{alloy,gateway,tempo,grafana}` — the shared Alloy renderer (`sidecar`/`gateway` roles) is the "shared config module" guardrail; the Watchtower slice is these modules (rewritten from the ~/watchtower draft), **co-located in the staging VPC and kept warm-minimal** (deviations → ADR-018/019). **Prod's gateway exports to Grafana Cloud** (managed vendor), confirming §2 — no Tempo/Watchtower in product prod. Tail-sampling (§3) is a gated var, currently off pending enablement.*
 
 **Context.** The application must **never know what telemetry backend exists, in any environment.** An app that names a vendor or a remote endpoint couples it to that backend's identity and availability, and forces a redeploy to switch. Earlier notes ("OTel → existing Watchtower") conflated a local dev convenience with a deployed topology and implied prod depends on Watchtower — it must not (ADR-018).
 
@@ -305,7 +305,7 @@
 ---
 
 ## ADR-018 — The platform/ops plane, and a clean account-isolation seam
-**Status:** Accepted · *DEBT noted on account split*
+**Status:** Accepted · *DEBT noted on account split* · *Amended 2026-07-02: the in-AWS Watchtower slice is **deployed** (Tempo + Grafana, platform-repo modules) but **co-located in the staging VPC**, not yet a separate platform account/VPC — a pragmatic warm-minimal start. This is the accepted single-account DEBT (§4) applied to the platform plane too; the Terragrunt/IAM seam is preserved so the split stays a config change, not a rewrite. Product prod still goes to Grafana Cloud (managed vendor), so "prod depends on Watchtower = no by construction" holds.*
 
 **Context.** A recurring confusion: "does prod depend on Watchtower?", "is the SonarQube server prod?". Durable in-AWS **Watchtower-as-a-service**, the **SonarQube server**, and **throwaway dogfooding probes / example apps** used *while building* Watch / Watchtower / Conduct are infrastructure for **building the products** — not the production environment **of** any product.
 
@@ -323,7 +323,7 @@
 ---
 
 ## ADR-019 — Staging mirrors prod (ha); cost is controlled by ephemerality, not a leaner architecture
-**Status:** Accepted · *Refines ADR-015 (reverses "staging is lean")*
+**Status:** Accepted · *Refines ADR-015 (reverses "staging is lean")* · *Amended 2026-07-02: for staging + the co-located observability slice, cost is now controlled by **scale-to-minimal (warm standby), not destroy/recreate**. They serve continuous CI/CD — staging is the DAST + functional-smoke gate target and the slice is its telemetry backend — so tearing them down each release (and eating the DNS negative-cache / re-auth churn) isn't worth it. `desired_count` carries `ignore_changes` so tasks scale down when idle without Terraform fighting it. This refines §2's ephemerality for these two; the `terragrunt destroy` / recreate loop still exists for a clean slate.*
 
 **Context.** ADR-015 made **staging lean** (public subnets, no NAT) to save money, treating it as a cheap throwaway. But staging's whole job — the authoritative **build → scan → blue/green deploy → expand-migration rehearsal** (ADR-004 / ADR-017 / #12) — is only trustworthy when staging is **as close to prod as possible**. A lean staging that differs from prod (no NAT, public-subnet placement, different egress) doesn't actually exercise the prod topology, and it forced lean-specific workarounds prod never needs (no-NAT egress for the VPC escalation/intake Lambdas + the migration hook). **Fidelity beats lean-cost.**
 
