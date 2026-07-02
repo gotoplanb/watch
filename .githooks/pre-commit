@@ -1,37 +1,55 @@
 #!/usr/bin/env bash
-# Watch quality gates (see CLAUDE.md): >=90% unit coverage + green SonarQube.
-# Install with `make install-hooks` (sets core.hooksPath=.githooks).
+# Watch quality gates (see CLAUDE.md) — as close to the staging pipeline gates as practical
+# locally: >=90% unit coverage + green SonarQube (SAST) + a Playwright functional smoke against
+# the local `make dev` stack (mirrors the pipeline's Smoke stage). Install with
+# `make install-hooks` (sets core.hooksPath=.githooks).
 #
 # Bypass when needed:
-#   SKIP_SONAR=1 git commit ...   # run coverage gate only (e.g. SonarQube offline)
+#   SKIP_SONAR=1 git commit ...   # coverage only (SonarQube offline)
+#   SKIP_E2E=1   git commit ...   # skip the e2e smoke (local app not running)
 #   git commit --no-verify ...    # skip all hooks (use sparingly)
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-# Only gate commits that touch backend code.
-if ! git diff --cached --name-only | grep -q '^backend/'; then
-  echo "[pre-commit] no backend/ changes staged — skipping quality gates"
+CHANGED="$(git diff --cached --name-only)"
+backend_changed() { echo "$CHANGED" | grep -q '^backend/'; }
+app_changed() { echo "$CHANGED" | grep -qE '^(backend/|e2e/|frontend/)'; }
+
+if ! app_changed; then
+  echo "[pre-commit] no app changes staged — skipping gates"
   exit 0
 fi
 
-if [ ! -x backend/.venv/bin/pytest ]; then
-  echo "[pre-commit] backend venv missing — run 'make venv' first"
-  exit 1
+# --- Coverage + Sonar (SAST) gate backend/ changes ---
+if backend_changed; then
+  if [ ! -x backend/.venv/bin/pytest ]; then
+    echo "[pre-commit] backend venv missing — run 'make venv' first"
+    exit 1
+  fi
+
+  echo "[pre-commit] unit coverage gate (>=90%)…"
+  ( cd backend && .venv/bin/pytest --cov --cov-report=xml -q )
+
+  if [ "${SKIP_SONAR:-0}" = "1" ]; then
+    echo "[pre-commit] SKIP_SONAR=1 — SonarQube gate skipped"
+  elif ! curl -fsS http://localhost:9000/api/system/status >/dev/null 2>&1; then
+    echo "[pre-commit] SonarQube (:9000) unreachable — Sonar gate skipped (SKIP_SONAR=1 to silence)"
+  else
+    echo "[pre-commit] SonarQube quality gate (waits for result)…"
+    make sonar-scan-only
+  fi
 fi
 
-echo "[pre-commit] unit coverage gate (>=90%)…"
-( cd backend && .venv/bin/pytest --cov --cov-report=xml -q )
-
-if [ "${SKIP_SONAR:-0}" = "1" ]; then
-  echo "[pre-commit] SKIP_SONAR=1 — SonarQube gate skipped"
-  exit 0
+# --- E2E functional smoke (Playwright) against the local stack — the runtime gate, mirroring
+# the pipeline's Smoke stage but against `make dev`. Conditional on the app being up so a commit
+# without the stack running still succeeds (SKIP_E2E=1 to force-skip). ---
+if [ "${SKIP_E2E:-0}" = "1" ]; then
+  echo "[pre-commit] SKIP_E2E=1 — e2e smoke skipped"
+elif ! curl -fsS http://localhost:8010/api/health >/dev/null 2>&1; then
+  echo "[pre-commit] local app (:8010) not running — e2e smoke skipped (run 'make dev'; SKIP_E2E=1 to silence)"
+else
+  echo "[pre-commit] e2e smoke (Playwright vs localhost)…"
+  make e2e
 fi
 
-if ! curl -fsS http://localhost:9000/api/system/status >/dev/null 2>&1; then
-  echo "[pre-commit] SonarQube (:9000) unreachable — Sonar gate skipped (SKIP_SONAR=1 to silence)"
-  exit 0
-fi
-
-echo "[pre-commit] SonarQube quality gate (waits for result)…"
-make sonar-scan-only
-echo "[pre-commit] ✓ quality gates passed"
+echo "[pre-commit] ✓ gates passed"
