@@ -81,6 +81,9 @@ phases:
                 else . end))
               | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)
             ' > "taskdef-${ENVN}.json"
+          # Only emit a BeforeAllowTraffic hook when this env has one. Prod's migration hook is
+          # deferred cross-account (ADR-020) so PROD_HOOK="" -> appspec-prod has no Hooks block.
+          if [ -n "$HOOK" ]; then HOOKS_BLOCK=$(printf 'Hooks:\n  - BeforeAllowTraffic: "%s"' "$HOOK"); else HOOKS_BLOCK=""; fi
           cat > "appspec-${ENVN}.yaml" <<YAML
         version: 0.0
         Resources:
@@ -91,8 +94,7 @@ phases:
                 LoadBalancerInfo:
                   ContainerName: ${CONTAINER_NAME}
                   ContainerPort: ${CONTAINER_PORT}
-        Hooks:
-          - BeforeAllowTraffic: "${HOOK}"
+        ${HOOKS_BLOCK}
         YAML
         done
       - echo "Artifacts:" && ls taskdef-*.json appspec-*.yaml
