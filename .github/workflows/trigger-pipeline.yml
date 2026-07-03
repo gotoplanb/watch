@@ -29,7 +29,9 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::614933206631:role/watch-ci-trigger
+          # The pipeline (and its OIDC trigger role) live in the nonprod build account (ADR-020).
+          # ARN held as a repo secret so the account id stays out of this public repo.
+          role-to-assume: ${{ secrets.AWS_CI_TRIGGER_ROLE_ARN }}
           aws-region: us-east-1
       - name: Start CodePipeline
         run: |
