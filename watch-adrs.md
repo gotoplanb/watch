@@ -340,3 +340,24 @@
 - *Gain:* cost stays bounded by destroying staging between releases, matching the weekly cadence; recreate is ~15 min wall-clock per release.
 - *Cost:* staging meters ≈ prod (~$0.18/hr) **while up** — accepted, time-bounded.
 - *Scope note:* this is the **network/compute/HA** axis. Per the ADR-016 amendment, staging's **telemetry topology also mirrors prod** (sidecar + gateway) — the only telemetry difference is the exporter's last hop (staging → in-AWS Watchtower slice, prod → vendor).
+
+---
+
+## ADR-020 — Multi-account isolation: cross the seam now (prod alone; clean management; cross-account promote)
+**Status:** Accepted · *Resolves the account-split DEBT in ADR-018 · Refines ADR-017 (promote-by-digest across accounts)*
+
+**Context.** ADR-018 kept account isolation as **written-down DEBT**: one account, with a clean env-level "account id + provider assume-role" **seam** so a split would later be config, not a rewrite. But **a seam you never cross is a seam you don't have** — untested cross-account config fails exactly when you split under pressure. And the debt is real *now*: product **prod shares an IAM blast radius, service quotas, and account boundary with a staging that ADR-019 deliberately makes a DAST / fuzz / pentest target.** The estate is currently **disposable and recreated daily**, so crossing the seam is *cheapest today* — no data to migrate, just a re-lay. Decision: **cross it now, for prod**, rather than carry untested debt.
+
+**Decision.**
+1. **An AWS Organization; the existing account (614933206631) creates it and becomes the management account, kept clean** — org + account governance + consolidated billing only, **no workloads**. Root hardened (MFA, no access keys).
+2. **Two member accounts along the plane boundary:** `watch-prod` = the **product-prod plane**; `watch-nonprod` = the **build/CI/dogfood plane** (staging + the platform slice: ECR, pipeline, connection, ci-trigger, Watchtower/Tempo, Sonar). This makes "**prod ⊥ Watchtower** by construction" (ADR-018 §1) *physical*, and quarantines staging's aggressive security testing from prod.
+3. **Each member account owns its own state backend** (its own S3 bucket + lock table) — full isolation, self-contained; nothing product-plane lives in management.
+4. **Cross-account promote-by-digest (the crux — proves ADR-017 across the boundary).** ECR + the pipeline stay in `watch-nonprod`; `watch-prod` pulls the **same image digest** cross-account (ECR repo policy → prod exec role); the pipeline deploys prod via a **cross-account CodeDeploy/ECS role** (artifact-bucket KMS shared cross-account). If a single digest promotes across accounts, ADR-017 is real, not theoretical.
+5. **Terragrunt targets each account** via the env.hcl `account_id` + generated-provider `assume_role`/`allowed_account_ids` seam ADR-018 reserved — now *used*, per env.
+6. **Prod owns its own everything in `watch-prod`:** ACM cert + Cloudflare validation, CloudFront status page, the Grafana-Cloud-token SecureString (`.env`/`get_env` unchanged — same values, applied into prod), its budgets, and its `watch-bootstrap`/`watch-ro` roles. `watch-nonprod` owns the foundation + staging + the obs slice.
+7. **The org + member accounts are themselves Terraform** (`aws_organizations_organization` + `aws_organizations_account`, `prevent_destroy` — never let `destroy` close an account), managed from the management account. Account creation (root email per account via `+`-aliasing, billing) is the **one human/root step**; the cross-account wiring is code.
+
+**Consequences.**
+- *Gain:* prod's blast radius, quotas, and IAM are physically isolated from a DAST-fuzzed staging; "prod depends on Watchtower = no" is enforced by the account boundary; the promote-by-digest + cross-account deploy pattern is **proven, not assumed**; the daily teardown/recreate loop now exercises the multi-account path every cycle.
+- *Cost:* **~$0** — Organizations + member accounts are free, consolidated billing, pay only for resources (free tier is shared org-wide, not multiplied; in-region cross-account transfer is negligible). Real cost is the **cross-account IAM plumbing** (ECR pull policy, cross-account CodeDeploy role, per-account bootstrap) and a **one-time re-lay** of the disposable estate into the member accounts.
+- *Guardrail:* keep the management account clean (no workloads ever); `prevent_destroy` on accounts; secure the management root; the split is **prod-first** — a 3rd account (staging alone) is a later step only if staging+platform coupling bites.
