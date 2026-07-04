@@ -202,6 +202,10 @@ CHECKS_TRACE_RETENTION_SECONDS = int(_env("CHECKS_TRACE_RETENTION_SECONDS", "259
 # --- Outbound event webhooks (ADR-023) ---
 # Deliver synchronously in-process (local/dev); the cloud path records `pending` and enqueues to SQS.
 WEBHOOKS_LOCAL_MODE = _bool("WEBHOOKS_LOCAL_MODE", True)
+# Signing secret for the loopback /api/webhook-echo receiver — a self-contained target for Watch's
+# OWN outbound webhooks so the outbound path is verifiable locally + on staging (the E2E dogfood
+# health check, ADR-022/023). Not for prod partner traffic. Point a subscription's secret at this.
+WEBHOOK_ECHO_SECRET = _env("WEBHOOK_ECHO_SECRET", "")
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

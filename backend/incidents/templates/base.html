@@ -22,7 +22,8 @@
       {% if user.is_authenticated %}
         {% if session_correlation_id %}
         {# Non-secret session id (ADR-022) — safe to share; give to support to check for errors. #}
-        <span x-data="{ copied: false }" class="text-xs text-slate-500">
+        <span x-data="{ copied: false }" class="text-xs text-slate-500"
+              data-session-id="{{ session_correlation_id }}">
           session
           <button type="button" class="font-mono text-slate-400 hover:text-slate-200"
                   @click="navigator.clipboard.writeText('{{ session_correlation_id }}'); copied = true; setTimeout(() => copied = false, 1200)"

@@ -83,6 +83,32 @@ test("smoke: health → status → login → create → escalate → T2", { tag:
   expect(s1.incidents.by_tier.T2, "posture shows a T2").toBeGreaterThanOrEqual(1);
 });
 
+// Session Check dogfood (ADR-022/023): a passing browser session self-reports to the inbound
+// Session Check webhook — proving the outbound(from test)->inbound(check) round-trip AND, since the
+// check emits `check.completed` to any subscription, the outbound webhook path. Runs everywhere.
+test("session check dogfood: report the session for an error-span check", { tag: "@local" }, async ({ page }) => {
+  await page.goto(`${BASE}/api-auth/login/?next=/ui/incidents/`);
+  await page.fill("#id_username", USER);
+  await page.fill("#id_password", PASS);
+  await page
+    .locator("form")
+    .filter({ has: page.locator("#id_username") })
+    .first()
+    .evaluate((f: HTMLFormElement) => f.requestSubmit());
+  await expect(page, "logged in").toHaveURL(/\/ui\/incidents\/?$/);
+
+  // the middleware minted a non-secret session correlation id, exposed in the header to self-report
+  const sessionId = await page.locator("[data-session-id]").first().getAttribute("data-session-id");
+  expect(sessionId, "session correlation id present").toBeTruthy();
+
+  // fire it at the inbound Session Check webhook (source=e2e) — the round-trip health check
+  const resp = await page.request.post(`${BASE}/api/checks/webhook`, {
+    headers: { "X-Watch-Webhook-Secret": SECRET },
+    data: { subject_kind: "session", subject: sessionId, source: "e2e" },
+  });
+  expect(resp.status(), "session check accepted").toBe(201);
+});
+
 // STAGING-ONLY (#30): real SLA-timeout auto-escalation through the tiers, driven by the Step
 // Functions timers + commit Lambda — minutes-to-many-minutes of waiting and AWS-managed behavior
 // we can't (and don't want to) reproduce in `make dev`. Locally we cover MANUAL escalation (above);

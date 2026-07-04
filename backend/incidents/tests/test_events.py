@@ -194,6 +194,25 @@ def test_ui_add_subscription_requires_url_and_secret(client):
 
 
 @pytest.mark.django_db
+def test_webhook_echo_verifies_signature(client, settings):
+    settings.WEBHOOK_ECHO_SECRET = "echosec"
+    body = b'{"event":"ping"}'
+    good = "sha256=" + hmac.new(b"echosec", body, hashlib.sha256).hexdigest()
+    ok = client.post("/api/webhook-echo", data=body, content_type="application/json",
+                     HTTP_X_WATCH_SIGNATURE=good, HTTP_X_WATCH_EVENT="ping")
+    assert ok.status_code == 200 and ok.json()["received"] == "ping"
+    bad = client.post("/api/webhook-echo", data=body, content_type="application/json",
+                      HTTP_X_WATCH_SIGNATURE="sha256=deadbeef")
+    assert bad.status_code == 401
+
+
+@pytest.mark.django_db
+def test_webhook_echo_rejects_without_secret(client, settings):
+    settings.WEBHOOK_ECHO_SECRET = ""
+    assert client.post("/api/webhook-echo", data=b"{}", content_type="application/json").status_code == 401
+
+
+@pytest.mark.django_db
 def test_model_strs():
     s = _sub()
     assert "webhook ->" in str(s)

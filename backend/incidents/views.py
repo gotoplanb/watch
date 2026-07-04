@@ -15,6 +15,7 @@ token is consumed; here the app also applies it so the local loop works without 
 Lambda. Because services.* are idempotent ("act if still applicable", ADR-001),
 both calling it is safe — the second is a no-op.
 """
+import hashlib
 import hmac
 
 from django.conf import settings
@@ -166,3 +167,23 @@ class SessionCheckWebhookView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class WebhookEchoView(APIView):
+    """Loopback receiver for Watch's OWN outbound webhooks (ADR-023) — a self-contained, signature-
+    verifying target so the outbound path is testable locally + on staging (the E2E dogfood). Verifies
+    X-Watch-Signature against WEBHOOK_ECHO_SECRET; 200 if valid, 401 if not. Not a partner endpoint."""
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        secret = settings.WEBHOOK_ECHO_SECRET
+        signature = request.headers.get("X-Watch-Signature", "")
+        expected = (
+            "sha256=" + hmac.new(secret.encode(), request.body, hashlib.sha256).hexdigest()
+            if secret else ""
+        )
+        if not secret or not hmac.compare_digest(signature, expected):
+            return Response({"detail": "bad signature"}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({"received": request.headers.get("X-Watch-Event", "")})
