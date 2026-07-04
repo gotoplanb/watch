@@ -17,6 +17,7 @@ import requests
 from django.conf import settings
 from django.utils import timezone
 
+from . import queue
 from .models import DeliveryStatus, WebhookDelivery, WebhookSubscription
 
 logger = logging.getLogger(__name__)
@@ -52,8 +53,17 @@ def _deliver(sub: WebhookSubscription, envelope: dict) -> WebhookDelivery:
         event_id=envelope["id"],
         payload=envelope,
     )
-    if settings.WEBHOOKS_LOCAL_MODE:  # cloud path leaves it `pending` for the SQS worker
+    if settings.WEBHOOKS_LOCAL_MODE:
         _post(delivery, sub, envelope)
+    else:  # cloud path: leave it `pending` and enqueue for the SQS worker (ADR-025)
+        queue.enqueue("delivery", delivery.id)
+    return delivery
+
+
+def redeliver(delivery: WebhookDelivery) -> WebhookDelivery:
+    """Worker entry (ADR-025): POST a `pending`/`failed` delivery from its stored envelope. Keyed
+    on the durable row, so at-least-once redelivery re-POSTs the same signed body idempotently."""
+    _post(delivery, delivery.subscription, delivery.payload)
     return delivery
 
 

@@ -213,6 +213,15 @@ WEBHOOKS_LOCAL_MODE = _bool("WEBHOOKS_LOCAL_MODE", True)
 # health check, ADR-022/023). Not for prod partner traffic. Point a subscription's secret at this.
 WEBHOOK_ECHO_SECRET = _env("WEBHOOK_ECHO_SECRET", "")
 
+# --- Async job queue + worker (ADR-025) ---
+# Where the domain hands async work: local (no-op; work runs inline) | sqs (send to WATCH_QUEUE_URL).
+QUEUE_PROVIDER = _env("QUEUE_PROVIDER", "local")
+WATCH_QUEUE_URL = _env("WATCH_QUEUE_URL", "")
+# run_sqs_worker long-poll + visibility knobs (seconds) and batch size.
+WORKER_WAIT_SECONDS = int(_env("WORKER_WAIT_SECONDS", "20") or "20")  # SQS long-poll
+WORKER_VISIBILITY_SECONDS = int(_env("WORKER_VISIBILITY_SECONDS", "60") or "60")
+WORKER_BATCH_SIZE = int(_env("WORKER_BATCH_SIZE", "10") or "10")
+
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

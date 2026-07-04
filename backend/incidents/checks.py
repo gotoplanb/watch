@@ -12,7 +12,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from . import events, trace_store
+from . import events, queue, trace_store
 from .models import CheckStatus, CheckSubjectKind, ErrorSpan, SessionCheck
 from .session_tagging import hash_user_id
 
@@ -104,4 +104,6 @@ def create_and_run(**kwargs) -> SessionCheck:
     if settings.CHECKS_LOCAL_MODE:
         run_session_check(check)
         check.refresh_from_db()
+    else:
+        queue.enqueue("check", check.id)  # cloud path: leave it queued for the SQS worker (ADR-025)
     return check

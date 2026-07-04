@@ -454,3 +454,23 @@
 - *Cost:* an SSE holds one worker/connection per viewer — fine at the status page's low viewer counts; the recycle bound + keepalives cap the exposure. Django sync workers limit concurrency (a documented caveat; an async worker model is the scale path).
 - *Cost:* `time.sleep`-driven server-side polling is coarse (v1); true push (Valkey pub/sub on transition writes) is the later refinement.
 - *Guardrail:* the stream is bounded (recycles) + testable (generator parameterized by iterations); public read-only aggregate counts only (ADR-005); new code held to ≥90% coverage + green Sonar.
+
+---
+
+## ADR-025 — Realize the async cloud path: SQS + an ECS worker (same image, different command)
+**Status:** Accepted · *Realizes #32; realizes the deferral in ADR-022 (Session Check) and ADR-023 (event webhook); mirrors ADR-010 discipline*
+
+**Context.** ADR-022 and ADR-023 both run their work synchronously in the request under `CHECKS_LOCAL_MODE`/`WEBHOOKS_LOCAL_MODE` (default on) and *defer the cloud path to "an SQS worker"*. In cloud mode the durable row is already created — `SessionCheck=queued`, `WebhookDelivery=pending` — but nothing consumes it, so the work strands. We want the real async path: enqueue on write, a worker drains it, retries survive a crash, poison messages land in a DLQ. Two knobs already gate the split; we need the queue + the consumer behind them.
+
+**Decision.**
+1. **A `queue` seam** (`incidents/queue.py`), same provider discipline as `flags`/`trace_store`: `enqueue(kind, id)` dispatches to a provider — `local` (no-op; local mode never enqueues) or `sqs` (`boto3` `send_message` of `{"kind","id"}` to `WATCH_QUEUE_URL`). `set_provider_for_tests` for hermetic both-branch tests. The domain never imports boto3 directly (ADR-003 spirit).
+2. **Enqueue on write, in cloud mode only.** `checks.create_and_run` and `events._deliver` already branch on their `*_LOCAL_MODE`; the cloud branch now calls `queue.enqueue("check", check.id)` / `queue.enqueue("delivery", delivery.id)` after the row commits. Emission stays guarded — enqueue failure is logged, never raised into the domain.
+3. **The worker is the same image, a different command** — `manage.py run_sqs_worker` (build-once/promote-by-digest; no second artifact). It long-polls SQS, and for each message dispatches by `kind` to the **one services implementation** (ADR-010): `check` → `checks.run_session_check(SessionCheck.objects.get(id))`; `delivery` → `events.redeliver(WebhookDelivery.objects.get(id))`. Success → `DeleteMessage`; an exception → the message returns after the visibility timeout; after `maxReceiveCount` the queue redrives it to a **DLQ**. Idempotent by construction (`run_session_check` clears+recomputes; delivery keys on `event_id`), so at-least-once redelivery is safe.
+4. **Infra (platform):** an SQS queue + DLQ per env, a **worker ECS service** (same task-def family, `command` overridden, **no ALB/target group**, `desired_count` low). Task-role IAM is least-privilege and split: the **app** role gets `sqs:SendMessage` on the queue; the **worker** role gets `sqs:ReceiveMessage`/`DeleteMessage`/`GetQueueAttributes`. New Terragrunt stack `app/queue` (+ `app/worker`), added to `teardown.sh` `ENV_STACKS` dependents-first in the same change (no billable orphan).
+5. **Flip staging to cloud mode** to exercise it for real: `CHECKS_LOCAL_MODE=0`, `WEBHOOKS_LOCAL_MODE=0`, `TRACE_STORE_PROVIDER=tempo`, `WATCH_QUEUE_URL=…`. Prod follows once staging is proven.
+
+**Consequences.**
+- *Gain:* the request returns immediately; slow trace queries and partner POSTs move off the hot path; a worker crash loses nothing (the row + the SQS message both survive); poison messages isolate in the DLQ instead of wedging the queue.
+- *Gain:* one worker drains **both** kinds — Session Check and webhook delivery share the queue + consumer; the same image runs API and worker, so a promoted digest updates both.
+- *Cost:* a standing worker service (min 1 task) + a queue to operate; at-least-once means consumers must be idempotent (they are). Retry/backoff is SQS-native (visibility timeout + redrive), not app-tuned — a documented v1 caveat.
+- *Guardrail:* least-privilege split roles (send vs receive), DLQ bounds blast radius, the seam keeps boto3 out of the domain, both provider branches unit-tested; new code held to ≥90% coverage + green Sonar.
