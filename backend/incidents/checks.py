@@ -12,7 +12,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from . import trace_store
+from . import events, trace_store
 from .models import CheckStatus, CheckSubjectKind, ErrorSpan, SessionCheck
 from .session_tagging import hash_user_id
 
@@ -91,6 +91,10 @@ def _finish(check: SessionCheck, status: str, verdict: str) -> SessionCheck:
     check.status = status
     check.verdict = verdict
     check.save(update_fields=["status", "verdict", "updated_at"])
+    events.emit("check.completed", {
+        "check_id": str(check.id), "subject_kind": check.subject_kind,
+        "status": status, "verdict": verdict,
+    })
     return check
 
 

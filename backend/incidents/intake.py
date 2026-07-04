@@ -13,7 +13,7 @@ import json
 
 from django.conf import settings
 
-from . import services
+from . import events, services
 from .models import Incident, Status, Tier
 
 
@@ -58,6 +58,12 @@ def create_incident_idempotent(
     if live is None:  # pragma: no cover - defensive: row resolved between insert and read
         # No open row with this key (e.g. it was resolved between insert and read) —
         # our insert is the authoritative row; read it back by id.
-        return Incident.objects.get(pk=candidate_id), True
+        incident, created = Incident.objects.get(pk=candidate_id), True
+    else:
+        incident, created = live, (live.id == candidate_id)
 
-    return live, (live.id == candidate_id)
+    if created:
+        events.emit("incident.created", {
+            "incident_id": str(incident.id), "title": incident.title, "source": incident.source,
+        })
+    return incident, created

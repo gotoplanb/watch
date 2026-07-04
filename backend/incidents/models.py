@@ -261,3 +261,56 @@ class ErrorSpan(models.Model):
 
     def __str__(self):
         return f"error span {self.name or self.span_id} ({self.trace_id[:12]})"
+
+
+class WebhookSubscription(models.Model):
+    """A registered receiver of Watch's outbound events (ADR-023). `event_types` empty = all."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    url = models.URLField(max_length=512)
+    secret = models.CharField(max_length=128)  # per-receiver HMAC signing key
+    event_types = models.JSONField(default=list, blank=True)  # [] = all events
+    active = models.BooleanField(default=True)
+    description = models.CharField(max_length=256, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def matches(self, event_type: str) -> bool:
+        return not self.event_types or event_type in self.event_types
+
+    def __str__(self):
+        return f"webhook -> {self.url}"
+
+
+class DeliveryStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    DELIVERED = "delivered", "Delivered"
+    FAILED = "failed", "Failed"
+
+
+class WebhookDelivery(models.Model):
+    """One delivery attempt of an event to a subscription (ADR-023) — the outbound audit trail,
+    mirror of the inbound intake record."""
+
+    id = models.BigAutoField(primary_key=True)
+    subscription = models.ForeignKey(
+        WebhookSubscription, related_name="deliveries", on_delete=models.CASCADE
+    )
+    event_type = models.CharField(max_length=64)
+    event_id = models.UUIDField()
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=16, choices=DeliveryStatus.choices, default=DeliveryStatus.PENDING)
+    status_code = models.IntegerField(null=True, blank=True)
+    attempts = models.IntegerField(default=0)
+    error = models.CharField(max_length=512, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["event_type"]), models.Index(fields=["status"])]
+
+    def __str__(self):
+        return f"delivery {self.event_type} -> {self.subscription_id} [{self.status}]"

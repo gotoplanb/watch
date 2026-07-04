@@ -18,4 +18,6 @@ urlpatterns = [
     path("checks/", ui_views.check_list, name="checks"),
     path("checks/run/", ui_views.run_check, name="run_check"),
     path("checks/<uuid:pk>/", ui_views.check_detail, name="check_detail"),
+    path("webhooks/", ui_views.webhook_list, name="webhooks"),
+    path("webhooks/add/", ui_views.add_subscription, name="add_subscription"),
 ]

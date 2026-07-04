@@ -24,6 +24,8 @@ from .models import (
     SessionCheck,
     Status,
     Tier,
+    WebhookDelivery,
+    WebhookSubscription,
     next_tier,
 )
 from .permissions import can_act_on
@@ -209,3 +211,28 @@ def check_detail(request, pk):
     check = get_object_or_404(SessionCheck, pk=pk)
     return render(request, "incidents/check_detail.html",
                   {"check": check, "spans": check.error_spans.all()})
+
+
+# --- Outbound event webhooks (ADR-023): register receivers + delivery log ---
+
+@login_required
+@require_GET
+def webhook_list(request):
+    return render(request, "incidents/webhooks.html", {
+        "subscriptions": WebhookSubscription.objects.all()[:50],
+        "deliveries": WebhookDelivery.objects.select_related("subscription")[:50],
+    })
+
+
+@login_required
+@require_POST
+def add_subscription(request):
+    url = (request.POST.get("url") or "").strip()
+    secret = (request.POST.get("secret") or "").strip()
+    if url and secret:
+        event_types = [e.strip() for e in (request.POST.get("event_types") or "").split(",") if e.strip()]
+        WebhookSubscription.objects.create(
+            url=url, secret=secret, event_types=event_types,
+            description=(request.POST.get("description") or "").strip(),
+        )
+    return redirect("ui:webhooks")

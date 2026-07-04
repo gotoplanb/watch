@@ -415,3 +415,23 @@
 - *Cost:* the span-tagging middleware + a stable HMAC key are a hard prerequisite; high-cardinality `session.id`/`session.user` must be indexed for TraceQL search.
 - *Cost:* v1 defers the SQS/worker + the vendor (Grafana Cloud) trace store — the local synchronous path proves the domain first.
 - *Guardrail:* only hashes stored (no PII); webhook is M2M shared-secret (not a user session, ADR-008); new code held to ≥90% coverage + green Sonar; the outbound E2E webhook never blocks the test.
+
+---
+
+## ADR-023 — Outbound event webhook: HMAC-signed server-to-server event delivery
+**Status:** Accepted · *Realizes #29; the outbound counterpart of intake (ADR-009); unblocks the Session Check cloud path + E2E dogfood (ADR-022)*
+
+**Context.** Watch needs to **push** domain events to other systems — the reusable primitive behind the Session Check E2E dogfood, ChatOps, external dashboards, and future integrations. It is the outbound counterpart to the inbound intake webhook (ADR-009): same M2M discipline, opposite direction. A browser can't be a target (that's SSE, #28) — this is server↔server.
+
+**Decision.**
+1. **`WebhookSubscription`** (url, secret, `event_types` filter — empty = all, active) registers a receiver. **`WebhookDelivery`** (subscription, event_type, event_id, payload, status {pending|delivered|failed}, status_code, attempts, error) is the per-attempt audit — the outbound mirror of the intake trail.
+2. **`events.emit(event_type, payload)`** is the single fan-out: it builds a canonical envelope `{event, id, at, data}`, creates a `WebhookDelivery` for each matching active subscription, and — in **local mode** (`WEBHOOKS_LOCAL_MODE`, default on) — POSTs synchronously; the cloud path records `pending` and enqueues to SQS for a worker (deferred, like ADR-022). Emission is **fully guarded — it never raises into the domain**, so a bad subscriber can never roll back an escalation.
+3. **Signing.** Each POST carries `X-Watch-Signature: sha256=HMAC(secret, raw_body)` + `X-Watch-Event` — receivers verify authenticity + integrity (the GitHub/Stripe pattern), the outbound analogue of intake's shared secret.
+4. **Emitted from `services`** (ADR-010 "one decision implementation"), so the same events fire whether a human or the auto-escalation Lambda drove the change: `incident.created`, `incident.escalated`, `incident.resolved`, `check.completed`. `event_id` gives receivers at-least-once dedupe (ADR-009 discipline).
+5. **Surface.** Admin + a thin `/ui/webhooks` (subscriptions + recent deliveries) to register receivers and see the delivery log.
+
+**Consequences.**
+- *Gain:* one push primitive serves the Session Check dogfood/health-check, ChatOps, and integrations; delivery is auditable per attempt; signing gives receivers real verification.
+- *Gain:* emitting from `services` means auto-escalation events fire too, not just human-driven ones.
+- *Cost:* local-mode delivery POSTs synchronously in the domain path (a documented dev caveat; cloud enqueues). v1 defers the SQS worker, retry/backoff, and a delivery-replay UI.
+- *Guardrail:* emission never raises into the domain (guarded) so it can't roll back state; secrets are per-subscription and never logged; new code held to ≥90% coverage + green Sonar.

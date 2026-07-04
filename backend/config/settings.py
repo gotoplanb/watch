@@ -199,6 +199,10 @@ CHECKS_DEFAULT_LOOKBACK_SECONDS = int(_env("CHECKS_DEFAULT_LOOKBACK_SECONDS", "3
 # Trace retention — a window fully older than this returns `aged_out` (never a false clean).
 CHECKS_TRACE_RETENTION_SECONDS = int(_env("CHECKS_TRACE_RETENTION_SECONDS", "2592000") or "2592000")
 
+# --- Outbound event webhooks (ADR-023) ---
+# Deliver synchronously in-process (local/dev); the cloud path records `pending` and enqueues to SQS.
+WEBHOOKS_LOCAL_MODE = _bool("WEBHOOKS_LOCAL_MODE", True)
+
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

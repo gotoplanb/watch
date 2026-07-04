@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Webhooks · Watch{% endblock %}
+{% block content %}
+<h1 class="text-lg font-semibold text-slate-100">Event Webhooks</h1>
+<p class="text-sm text-slate-500 mt-1">Push Watch events to other systems, HMAC-signed (ADR-023). Each delivery carries <span class="font-mono">X-Watch-Signature: sha256=…</span>.</p>
+
+<form method="post" action="{% url 'ui:add_subscription' %}" class="mt-4 grid gap-2 sm:grid-cols-2 max-w-3xl">
+  {% csrf_token %}
+  <input name="url" required autocomplete="off" placeholder="https://receiver.example/webhook"
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+  <input name="secret" required autocomplete="off" placeholder="signing secret"
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+  <input name="event_types" autocomplete="off" placeholder="event filter, comma-separated (blank = all)"
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+  <input name="description" autocomplete="off" placeholder="description (optional)"
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+  <button class="sm:col-span-2 justify-self-start px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm">Add subscription</button>
+</form>
+
+<h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Subscriptions</h2>
+<ul class="space-y-2">
+  {% for s in subscriptions %}
+  <li class="bg-slate-900 border border-slate-800 rounded p-3 text-sm flex items-center justify-between gap-4">
+    <span class="font-mono text-slate-300 truncate">{{ s.url }}</span>
+    <div class="flex items-center gap-2 shrink-0">
+      <span class="text-slate-500 text-xs">{% if s.event_types %}{{ s.event_types|join:", " }}{% else %}all events{% endif %}</span>
+      {% if s.active %}
+        <span class="px-2 py-0.5 rounded text-xs bg-emerald-500/15 text-emerald-300">active</span>
+      {% else %}
+        <span class="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">off</span>
+      {% endif %}
+    </div>
+  </li>
+  {% empty %}
+  <li class="text-sm text-slate-500">No subscriptions yet.</li>
+  {% endfor %}
+</ul>
+
+<h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Recent deliveries</h2>
+<ul class="space-y-2">
+  {% for d in deliveries %}
+  <li class="bg-slate-900 border border-slate-800 rounded p-3 text-sm flex items-center justify-between gap-4">
+    <div class="truncate">
+      <span class="text-slate-300">{{ d.event_type }}</span>
+      <span class="font-mono text-xs text-slate-500"> → {{ d.subscription.url }}</span>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      {% if d.status == "delivered" %}
+        <span class="px-2 py-0.5 rounded text-xs bg-emerald-500/15 text-emerald-300">{{ d.status_code }}</span>
+      {% elif d.status == "failed" %}
+        <span class="px-2 py-0.5 rounded text-xs bg-rose-500/15 text-rose-300">failed{% if d.status_code %} · {{ d.status_code }}{% endif %}</span>
+      {% else %}
+        <span class="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">pending</span>
+      {% endif %}
+      <span class="text-slate-500 text-xs">{{ d.created_at|date:"M j, H:i:s" }}</span>
+    </div>
+  </li>
+  {% empty %}
+  <li class="text-sm text-slate-500">No deliveries yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

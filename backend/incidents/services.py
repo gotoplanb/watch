@@ -13,6 +13,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from . import events
 from .models import (
     Annotation,
     EventType,
@@ -123,6 +124,10 @@ def escalate(incident_id, actor: str, reason: str = "") -> Incident:
             "assignee": assignee.username if assignee else None,
         },
     )
+    events.emit("incident.escalated", {
+        "incident_id": str(incident.id), "title": incident.title,
+        "from_tier": from_tier, "to_tier": target.value, "actor": actor, "auto": auto,
+    })
     return incident
 
 
@@ -169,6 +174,10 @@ def resolve(incident_id, actor: str, reason: str = "") -> Incident:
         actor=actor,
         reason=reason or "resolved",
     )
+    events.emit("incident.resolved", {
+        "incident_id": str(incident.id), "title": incident.title,
+        "tier": incident.current_tier, "actor": actor,
+    })
     return incident
 
 

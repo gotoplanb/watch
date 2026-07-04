@@ -8,6 +8,8 @@ from .models import (
     SessionCheck,
     TimelineEvent,
     Transition,
+    WebhookDelivery,
+    WebhookSubscription,
 )
 
 
@@ -65,3 +67,17 @@ class SessionCheckAdmin(admin.ModelAdmin):
     list_filter = ["subject_kind", "status", "source"]
     search_fields = ["subject_hash"]
     inlines = [ErrorSpanInline]
+
+
+@admin.register(WebhookSubscription)
+class WebhookSubscriptionAdmin(admin.ModelAdmin):
+    list_display = ["id", "url", "active", "description", "created_at"]
+    list_filter = ["active"]
+    search_fields = ["url", "description"]
+
+
+@admin.register(WebhookDelivery)
+class WebhookDeliveryAdmin(admin.ModelAdmin):
+    list_display = ["event_type", "subscription", "status", "status_code", "attempts", "created_at"]
+    list_filter = ["status", "event_type"]
+    readonly_fields = [f.name for f in WebhookDelivery._meta.fields]
