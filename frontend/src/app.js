@@ -1,7 +1,8 @@
 // Watch status page (ADR-011) — build-less React via ESM CDN, Tailwind via Play CDN
-// (dark theme, matching the Django UI). Read-only posture: health + open-incident
-// counts by tier, polled from /api/status. Honest degradation (ADR-005): a loud banner
-// + ServiceNow fallback when the backend is unreachable; amber when a dependency degrades.
+// (dark theme, matching the Django UI). Read-only posture: health + open-incident counts by tier,
+// pushed live over SSE from /api/status/stream (ADR-024), with a polling fallback to /api/status
+// where EventSource is unavailable. Honest degradation (ADR-005): a loud banner + ServiceNow
+// fallback when the backend is unreachable; amber when a dependency degrades.
 import React, { useEffect, useState } from "https://esm.sh/react@18.3.1";
 import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import htm from "https://esm.sh/htm@3.1.1";
@@ -50,13 +51,33 @@ function StatusPage() {
 
   useEffect(() => {
     let alive = true;
-    const tick = async () => {
-      const r = await fetchStatus();
-      if (alive) setS({ ...r, loading: false });
+    let es = null;
+    let pollId = null;
+    const apply = (r) => { if (alive) setS((prev) => ({ ...prev, ...r, loading: false })); };
+
+    const startPolling = () => {
+      if (pollId) return;
+      const tick = async () => apply(await fetchStatus());
+      tick();
+      pollId = setInterval(tick, POLL_MS);
     };
-    tick();
-    const id = setInterval(tick, POLL_MS);
-    return () => { alive = false; clearInterval(id); };
+
+    // Primary: one long-lived SSE connection; EventSource auto-reconnects on drop (ADR-024).
+    if (typeof EventSource === "undefined") {
+      startPolling();
+    } else {
+      es = new EventSource(`${API}/api/status/stream`);
+      es.addEventListener("status", (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          apply({ reachable: true, ok: data.status !== "degraded", data });
+        } catch { /* ignore malformed frame */ }
+      });
+      // On drop the browser retries automatically; flag stale meanwhile (keep last-known posture).
+      es.onerror = () => apply({ reachable: false, ok: false });
+    }
+
+    return () => { alive = false; if (es) es.close(); if (pollId) clearInterval(pollId); };
   }, []);
 
   const inc = s.data?.incidents;

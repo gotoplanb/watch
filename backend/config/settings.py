@@ -174,6 +174,12 @@ INTAKE_WEBHOOK_SECRET = _env("INTAKE_WEBHOOK_SECRET", "")
 # for the local status-page SPA; set to the CloudFront/status domain in prod.
 STATUS_PAGE_CORS_ORIGIN = _env("STATUS_PAGE_CORS_ORIGIN", "*")
 
+# --- Status SSE feed (ADR-024) ---
+# The SSE stream re-checks posture every POLL seconds and recycles after MAX_SECONDS (the
+# EventSource auto-reconnects) so no connection is held indefinitely.
+STATUS_STREAM_POLL_SECONDS = int(_env("STATUS_STREAM_POLL_SECONDS", "3") or "3")
+STATUS_STREAM_MAX_SECONDS = int(_env("STATUS_STREAM_MAX_SECONDS", "300") or "300")
+
 # Volatile payload fields stripped before hashing the dedupe key (ADR-009).
 # Per-source config; this is the v1 default set.
 INTAKE_VOLATILE_FIELDS = ["timestamp", "firedAt", "deliveryId", "messageId", "sequence"]

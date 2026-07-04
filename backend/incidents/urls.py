@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .health import HealthView, StatusView
+from .health import HealthView, StatusView, status_stream_view
 from .views import (
     IncidentViewSet,
     IntakeWebhookView,
@@ -19,4 +19,5 @@ urlpatterns = [
     path("webhook-echo", WebhookEchoView.as_view(), name="webhook-echo"),
     path("health", HealthView.as_view(), name="health"),
     path("status", StatusView.as_view(), name="status"),
+    path("status/stream", status_stream_view, name="status-stream"),
 ]

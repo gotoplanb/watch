@@ -435,3 +435,22 @@
 - *Gain:* emitting from `services` means auto-escalation events fire too, not just human-driven ones.
 - *Cost:* local-mode delivery POSTs synchronously in the domain path (a documented dev caveat; cloud enqueues). v1 defers the SQS worker, retry/backoff, and a delivery-replay UI.
 - *Guardrail:* emission never raises into the domain (guarded) so it can't roll back state; secrets are per-subscription and never logged; new code held to ≥90% coverage + green Sonar.
+
+---
+
+## ADR-024 — Status page live updates via SSE (server→browser push)
+**Status:** Accepted · *Realizes #28; refines ADR-005/011; the server→browser complement of the server↔server webhook (ADR-023)*
+
+**Context.** The status SPA polls `/api/status` every 10s — wasteful and laggy. We want near-real-time posture. A static SPA on CloudFront can't be a webhook target (that's server↔server, ADR-023); pushing to the **browser** means a client-held connection to the **API origin**. Of SSE / WebSocket / smarter-polling, **SSE** fits a one-way read-only feed with the least infrastructure.
+
+**Decision.**
+1. **`GET /api/status/stream`** returns `text/event-stream`: it emits the current posture immediately, then re-checks each `STATUS_STREAM_POLL_SECONDS` and sends a `status` event on change (a `:keepalive` comment otherwise). It **recycles after `STATUS_STREAM_MAX_SECONDS`** (the `EventSource` auto-reconnects) so no worker is pinned forever. `Cache-Control: no-cache` + `X-Accel-Buffering: no` so CloudFront/proxies don't buffer the stream.
+2. **Posture is factored** into `health.status_posture()`, shared by the `/api/status` snapshot and the stream — one source of truth.
+3. **Point `EventSource` at the API origin** (ALB / `watch.<domain>`), never CloudFront (which buffers streams) — the SPA already fetches `/api/status` cross-origin, so it's the same CORS pattern (`STATUS_PAGE_CORS_ORIGIN`).
+4. **The SPA prefers SSE**, falling back to polling only where `EventSource` is unavailable; `EventSource` auto-reconnects on drop. **Honest degradation (ADR-005) preserved:** on disconnect the page keeps the last-known posture and flags "unreachable"/stale until it reconnects.
+
+**Consequences.**
+- *Gain:* near-real-time posture over **one** long-lived connection instead of a poll every 10s; the change is contained (one endpoint + a factored posture fn + an SPA effect).
+- *Cost:* an SSE holds one worker/connection per viewer — fine at the status page's low viewer counts; the recycle bound + keepalives cap the exposure. Django sync workers limit concurrency (a documented caveat; an async worker model is the scale path).
+- *Cost:* `time.sleep`-driven server-side polling is coarse (v1); true push (Valkey pub/sub on transition writes) is the later refinement.
+- *Guardrail:* the stream is bounded (recycles) + testable (generator parameterized by iterations); public read-only aggregate counts only (ADR-005); new code held to ≥90% coverage + green Sonar.
