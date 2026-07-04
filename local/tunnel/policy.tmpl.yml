@@ -1,0 +1,12 @@
+# ngrok edge traffic policy for the Watch dev tunnel. tunnel.sh renders this to policy.local.yml
+# (gitignored, mode 600) with credentials from .env, and passes it to the agent. Basic-auth runs at
+# ngrok's edge BEFORE any request reaches the local server, so unauthenticated scanners get 401 and
+# never touch the app. HTTP only.
+on_http_request:
+  - name: basic-auth
+    actions:
+      - type: basic-auth
+        config:
+          realm: "Watch dev tunnel"
+          credentials:
+            - "__TUNNEL_USER__:__TUNNEL_PASS__"

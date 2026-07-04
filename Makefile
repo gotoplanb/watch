@@ -6,7 +6,7 @@ PY := python3.12
 VENV := backend/.venv
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: help venv test e2e dev infra up down logs seed smoke integration clean
+.PHONY: help venv test e2e dev infra up down logs seed smoke integration clean tunnel-domain tunnel-up tunnel-down tunnel-status
 
 # Env for running the backend on the HOST against compose-provided infra. This is the
 # primary local loop here: it needs no image-registry/PyPI egress (only the cached
@@ -134,3 +134,13 @@ down:
 
 clean: down
 	rm -rf $(VENV)
+
+# --- dev tunnel (ngrok): on-demand basic-auth'd public ingress to :8010 (local/tunnel) ---
+tunnel-domain: ## Reserve the ngrok dev-tunnel domain (Terraform; needs NGROK_API_KEY in .env)
+	cd local/tunnel && tofu init -input=false && tofu apply -auto-approve
+tunnel-up: ## Start the on-demand ngrok tunnel to :8010 (basic-auth); prints the URL
+	local/tunnel/tunnel.sh up
+tunnel-down: ## Stop the ngrok tunnel
+	local/tunnel/tunnel.sh down
+tunnel-status: ## Show whether the ngrok tunnel is up
+	local/tunnel/tunnel.sh status

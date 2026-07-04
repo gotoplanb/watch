@@ -25,6 +25,11 @@ frontend/dist/
 *.tfstate.*
 .terragrunt-cache/
 
+# ngrok dev tunnel (local/tunnel) — rendered creds + runtime files (tfstate covered above)
+local/tunnel/policy.local.yml
+local/tunnel/.tunnel.pid
+local/tunnel/.tunnel.log
+
 # OS / editor
 .DS_Store
 .idea/
