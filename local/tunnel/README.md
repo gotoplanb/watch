@@ -10,8 +10,10 @@ HTTP only; no SSH/TCP.
 
 ## One-time setup
 1. In the repo `.env` (gitignored) set: `NGROK_API_KEY` (Terraform), `NGROK_AUTHTOKEN` (agent),
-   `TUNNEL_DOMAIN` (or accept the `variables.tf` default), `TUNNEL_BASIC_AUTH_USER`,
-   `TUNNEL_BASIC_AUTH_PASS`. See `.env.example`.
+   `TUNNEL_DOMAIN` (**your own** reserved host — ngrok domains are globally unique per account; it's
+   the single source of truth for both the agent and Terraform), `TUNNEL_BASIC_AUTH_USER`,
+   `TUNNEL_BASIC_AUTH_PASS`. See `.env.example`. There is no baked-in default, so multiple
+   developers each use their own domain.
 2. Reserve the domain: `make tunnel-domain` (runs `tofu apply` here).
 
 ## Daily use

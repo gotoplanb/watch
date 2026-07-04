@@ -4,13 +4,14 @@
 # Self-contained: runs its OWN ngrok agent process (not the global LaunchAgent in
 # ~/dev-infrastructure), so it is safe to toggle from here and won't disturb the other tunnels.
 #
+#   tunnel.sh domain  reserve the domain in ngrok (Terraform) from .env TUNNEL_DOMAIN
 #   tunnel.sh up      start the tunnel in the background, print the URL
 #   tunnel.sh down    stop it (and remove the rendered creds)
 #   tunnel.sh status  is it up? show the public URL
 #
-# Requires in .env: NGROK_AUTHTOKEN, TUNNEL_BASIC_AUTH_USER, TUNNEL_BASIC_AUTH_PASS, and either
-# TUNNEL_DOMAIN or a reserved domain in ./terraform state (`make tunnel-domain`). NGROK_API_KEY is
-# only needed for the Terraform step, not the agent.
+# Requires in .env: TUNNEL_DOMAIN (the reserved host — the single source of truth for both the
+# agent and Terraform), NGROK_AUTHTOKEN, TUNNEL_BASIC_AUTH_USER, TUNNEL_BASIC_AUTH_PASS. The
+# `domain` step additionally needs NGROK_API_KEY (Terraform); the agent does not.
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,6 +31,14 @@ resolve_domain() {
 }
 
 case "${1:-}" in
+  domain)
+    command -v tofu >/dev/null || { echo "tofu not installed" >&2; exit 1; }
+    : "${NGROK_API_KEY:?set NGROK_API_KEY in .env (Terraform reads it)}"
+    : "${TUNNEL_DOMAIN:?set TUNNEL_DOMAIN in .env}"
+    # TUNNEL_DOMAIN (.env) is the single source of truth -> feed it to the TF variable.
+    export TF_VAR_domain="$TUNNEL_DOMAIN"
+    ( cd "$DIR" && tofu init -input=false && tofu apply -auto-approve )
+    ;;
   up)
     if running; then echo "already up: https://$(resolve_domain)  (pid $(cat "$PIDFILE"))"; exit 0; fi
     command -v ngrok >/dev/null || { echo "ngrok not installed (brew install ngrok/ngrok/ngrok)" >&2; exit 1; }
@@ -64,5 +73,5 @@ case "${1:-}" in
     if running; then echo "UP    https://$(resolve_domain)  (pid $(cat "$PIDFILE"))"; else echo "DOWN"; fi
     ;;
   *)
-    echo "usage: tunnel.sh {up|down|status}" >&2; exit 2 ;;
+    echo "usage: tunnel.sh {domain|up|down|status}" >&2; exit 2 ;;
 esac

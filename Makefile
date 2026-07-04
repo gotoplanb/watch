@@ -136,8 +136,8 @@ clean: down
 	rm -rf $(VENV)
 
 # --- dev tunnel (ngrok): on-demand basic-auth'd public ingress to :8010 (local/tunnel) ---
-tunnel-domain: ## Reserve the ngrok dev-tunnel domain (Terraform; needs NGROK_API_KEY in .env)
-	cd local/tunnel && tofu init -input=false && tofu apply -auto-approve
+tunnel-domain: ## Reserve the ngrok dev-tunnel domain from .env TUNNEL_DOMAIN (Terraform; needs NGROK_API_KEY)
+	local/tunnel/tunnel.sh domain
 tunnel-up: ## Start the on-demand ngrok tunnel to :8010 (basic-auth); prints the URL
 	local/tunnel/tunnel.sh up
 tunnel-down: ## Stop the ngrok tunnel
