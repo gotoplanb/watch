@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Comment, Incident, OnCallShift, Transition
+from .models import Annotation, Incident, OnCallShift, TimelineEvent, Transition
 
 
 class TransitionInline(admin.TabularInline):
@@ -24,10 +24,18 @@ class TransitionAdmin(admin.ModelAdmin):
     list_filter = ["to_status", "to_tier", "actor"]
 
 
-@admin.register(Comment)
-class CommentAdmin(admin.ModelAdmin):
-    list_display = ["incident", "author", "created_at"]
-    search_fields = ["incident__id", "body"]
+@admin.register(TimelineEvent)
+class TimelineEventAdmin(admin.ModelAdmin):
+    list_display = ["incident", "type", "actor", "occurred_at"]
+    list_filter = ["type"]
+    search_fields = ["incident__id", "actor", "body"]
+
+
+@admin.register(Annotation)
+class AnnotationAdmin(admin.ModelAdmin):
+    list_display = ["content_type", "object_id", "tag", "author", "created_at"]
+    list_filter = ["tag", "content_type"]
+    search_fields = ["body"]
 
 
 @admin.register(OnCallShift)

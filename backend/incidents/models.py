@@ -10,7 +10,10 @@ RESOLVED is reachable from any tier.
 import uuid
 
 from django.conf import settings
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from django.utils import timezone
 
 
 class Status(models.TextChoices):
@@ -101,6 +104,10 @@ class Transition(models.Model):
     reason = models.CharField(max_length=512, blank=True, default="")
     at = models.DateTimeField(auto_now_add=True)
 
+    # Annotations (ADR-021) can target a Transition too — mark up an authoritative state change
+    # for RCA without mutating it. GenericRelation is read-only sugar over the Annotation GFK.
+    annotations = GenericRelation("Annotation", related_query_name="transition")
+
     class Meta:
         ordering = ["at", "id"]
 
@@ -108,25 +115,67 @@ class Transition(models.Model):
         return f"{self.incident_id}: {self.from_tier}->{self.to_tier} by {self.actor}"
 
 
-class Comment(models.Model):
-    """Investigator note on an incident (internal — this tool runs alongside
-    ServiceNow as the working surface). Renders in the incident timeline next to
-    Transitions, ordered by time."""
+class EventType(models.TextChoices):
+    NOTE = "note", "Note"        # human message (actor = username)
+    SYSTEM = "system", "System"  # escalation-engine narrative
+    AI = "ai", "AI triage"       # AI-assisted triage finding (§8, #17)
+
+
+class TimelineEvent(models.Model):
+    """A non-transition entry on an incident's timeline (ADR-021, replaces the flat Comment).
+    `note` = human message; `system` = escalation-engine narrative (auto-escalation / SLA / paging);
+    `ai` = AI-assisted triage finding. Merged with Transitions into the incident timeline and
+    annotatable like any event. `data` holds structured detail (e.g. from/to tier, sla_seconds)."""
 
     id = models.BigAutoField(primary_key=True)
-    incident = models.ForeignKey(Incident, related_name="comments", on_delete=models.CASCADE)
+    incident = models.ForeignKey(Incident, related_name="events", on_delete=models.CASCADE)
+    type = models.CharField(max_length=8, choices=EventType.choices, default=EventType.NOTE)
+    actor = models.CharField(max_length=128, blank=True, default="")  # username / system:… / argus
+    body = models.TextField(blank=True, default="")
+    data = models.JSONField(default=dict, blank=True)
+    occurred_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    annotations = GenericRelation("Annotation", related_query_name="timeline_event")
+
+    class Meta:
+        ordering = ["occurred_at", "id"]
+
+    def __str__(self):
+        return f"{self.incident_id}: {self.type} by {self.actor or 'system'}"
+
+
+class AnnotationTag(models.TextChoices):
+    NOTE = "note", "Note"
+    UNEXPECTED = "unexpected", "Unexpected"
+    ROOT_CAUSE = "root-cause", "Root cause"
+    CONTRIBUTING = "contributing", "Contributing"
+
+
+class Annotation(models.Model):
+    """A human note/tag attached to ANY timeline event — a Transition or a TimelineEvent (ADR-021).
+    Orthogonal to the event's own authorship: an authoritative Transition can be marked up for RCA
+    ("this shouldn't have happened" / "root cause here") without touching the escalation write-path.
+    Targets its event via a GenericForeignKey."""
+
+    id = models.BigAutoField(primary_key=True)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveBigIntegerField()
+    target = GenericForeignKey("content_type", "object_id")
+
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL
     )
-    body = models.TextField()
+    body = models.TextField(blank=True, default="")
+    tag = models.CharField(max_length=16, choices=AnnotationTag.choices, default=AnnotationTag.NOTE)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["created_at", "id"]
+        indexes = [models.Index(fields=["content_type", "object_id"])]
 
     def __str__(self):
-        who = self.author.username if self.author else "unknown"
-        return f"{self.incident_id}: comment by {who}"
+        return f"annotation[{self.tag}] by {self.author.username if self.author else 'unknown'}"
 
 
 class OnCallShift(models.Model):

@@ -7,34 +7,40 @@ partial so the page updates without a full reload.
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.http import HttpResponseForbidden
+from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_GET, require_POST
 
 from . import escalation, services
-from .models import Comment, Incident, OnCallShift, Status, Tier, next_tier
+from .models import AnnotationTag, Incident, OnCallShift, Status, Tier, next_tier
 from .permissions import can_act_on
 
+# The swappable incident panel (ADR-011) returned by every mutating endpoint.
+_BODY_PARTIAL = "incidents/_body.html"
 
-def _timeline(incident):
-    """Transitions + comments merged into one chronologically-ordered feed."""
-    events = [{"kind": "transition", "at": t.at, "obj": t} for t in incident.transitions.all()]
-    events += [
-        {"kind": "comment", "at": c.created_at, "obj": c}
-        for c in incident.comments.select_related("author").all()
-    ]
-    events.sort(key=lambda e: e["at"])
-    return events
+
+def _resolve_target(incident, target):
+    """Map a 'transition:<id>' / 'event:<id>' string to the object, scoped to THIS incident
+    (so a user can only annotate events on the incident they're viewing)."""
+    kind, _, sid = (target or "").partition(":")
+    if not sid.isdigit():
+        return None
+    if kind == "transition":
+        return incident.transitions.filter(pk=int(sid)).first()
+    if kind == "event":
+        return incident.events.filter(pk=int(sid)).first()
+    return None
 
 
 def _detail_ctx(request, incident):
     return {
         "incident": incident,
-        "timeline": _timeline(incident),
+        "timeline": services.timeline(incident),
         "can_act": can_act_on(request.user, incident),
         "next_tier": next_tier(incident.current_tier),
+        "annotation_tags": AnnotationTag.choices,
     }
 
 
@@ -68,12 +74,40 @@ def incident_detail(request, pk):
 
 @login_required
 @require_POST
-def add_comment(request, pk):
+def add_note(request, pk):
+    """Post a human note onto the incident timeline (a TimelineEvent of type `note`). Commentary,
+    not a state change — available to any authenticated user (like the old add_comment)."""
     incident = get_object_or_404(Incident, pk=pk)
     body = (request.POST.get("body") or "").strip()
     if body:
-        Comment.objects.create(incident=incident, author=request.user, body=body)
-    return render(request, "incidents/_body.html", _detail_ctx(request, incident))
+        services.add_note(incident, actor=request.user.username, body=body)
+    return render(request, _BODY_PARTIAL, _detail_ctx(request, incident))
+
+
+@login_required
+@require_POST
+def annotate(request, pk):
+    """Attach an annotation (note/tag) to ANY timeline event on this incident — a Transition or a
+    TimelineEvent (ADR-021). Used to mark up the history for RCA ('this shouldn't have happened')."""
+    incident = get_object_or_404(Incident, pk=pk)
+    obj = _resolve_target(incident, request.POST.get("target"))
+    body = (request.POST.get("body") or "").strip()
+    tag = request.POST.get("tag") or AnnotationTag.NOTE
+    if obj is not None and tag in AnnotationTag.values and (body or tag != AnnotationTag.NOTE):
+        services.annotate_event(obj, author=request.user, body=body, tag=tag)
+    return render(request, _BODY_PARTIAL, _detail_ctx(request, incident))
+
+
+@login_required
+@require_GET
+def rca(request, pk):
+    """Download the incident's full annotated timeline assembled as an RCA Markdown document
+    (ADR-021) — the clean input to a root-cause writeup. AI-drafted RCA is a flagged follow-up."""
+    incident = get_object_or_404(Incident, pk=pk)
+    md = services.rca_markdown(incident)
+    resp = HttpResponse(md, content_type="text/markdown; charset=utf-8")
+    resp["Content-Disposition"] = f'attachment; filename="rca-{incident.id}.md"'
+    return resp
 
 
 @login_required
@@ -96,7 +130,7 @@ def act(request, pk, action):
             services.resolve(incident.id, actor=actor)
 
     incident.refresh_from_db()
-    return render(request, "incidents/_body.html", _detail_ctx(request, incident))
+    return render(request, _BODY_PARTIAL, _detail_ctx(request, incident))
 
 
 # --- On-call schedule (ADR-012) ---

@@ -9,7 +9,7 @@ from django.utils.deprecation import MiddlewareMixin
 
 
 class SecurityHeadersMiddleware(MiddlewareMixin):
-    def process_response(self, request, response):
+    def process_response(self, _request, response):  # request unused; headers depend only on settings
         csp = getattr(settings, "CONTENT_SECURITY_POLICY", "")
         if csp and "Content-Security-Policy" not in response:
             response["Content-Security-Policy"] = csp

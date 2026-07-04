@@ -368,3 +368,25 @@
 - **Member-account console access needs an IAM identity.** The **root user cannot switch roles**, so you can't reach a member account's console as management-root. Create an IAM admin user in management (or use IAM Identity Center), then switch-role into `OrganizationAccountAccessRole` (`https://signin.aws.amazon.com/switchrole?account=<member>&roleName=OrganizationAccountAccessRole`). CLI cross-account uses the same role via `scripts/lib/xacct.sh` (assume from base management creds — reset base creds before each hop; the assumed creds can't read the management state bucket, so run `terragrunt output` first, assume after).
 - **IAM role-name collisions across composed modules.** `modules/prod-deploy` composes `codedeploy` (service role) + `xacct-deploy-role` (the cross-account assume role); both derived `watch-prod-deploy` and one 409'd. The cross-account role keeps the predictable name `watch-prod-deploy` (the pipeline references its ARN); the CodeDeploy **service** role is now `…-codedeploy`.
 - **Refinement — decouple the API hostname from the status/CloudFront record.** `prod/dns` (the `watch.<domain>` → ALB record, depends only on `app`) is split from `prod/dns-status` (the `status.<domain>` → CloudFront record, depends on `frontend`), each record `count`-gated in `modules/dns-records` on its target being set (`moved` blocks adopt the pre-split staging state, no churn). So a CloudFront outage/hold blocks **only** the status page, never the API by name — validated: `watch.davestanton.com` served 200 with a valid cert while `status.davestanton.com` stayed parked on the held CloudFront. A new stack ⇒ `teardown.sh` updated (dependents-first).
+
+---
+
+## ADR-021 — Incident timeline: unified event stream + annotations, feeding RCA
+**Status:** Accepted · *Refines ADR-011 (Comment); relates to ADR-007/010 (Transition), §8 AI triage*
+
+**Context.** The incident detail view is where an escalation's whole story should live — human notes, escalation-engine narrative (auto-escalation / SLA / paging), and AI-assisted triage (§8, #17) — and it is the natural input to a root-cause writeup. Today `Transition` records state changes (authoritative, commit-Lambda-written, ADR-007/010) and a flat `Comment` records human notes; `_timeline` merges them. But `Comment` can't represent automated/AI entries (its `author` is a `User` FK, so a system note renders "unknown"), and nothing lets you **annotate a past event** ("this escalation shouldn't have fired", "root cause starts here") for RCA.
+
+**Decision.**
+1. **`Transition` stays unchanged** — the authoritative, provable, sole-Lambda-written state-change audit (ADR-007/010). This change does not weaken it.
+2. **`TimelineEvent`** replaces `Comment`: `incident`, `type ∈ {note, system, ai}`, `actor` (username / `system:…` / `argus`), `body`, `data` (JSON), `occurred_at`. `note` = human message; `system` = escalation-engine narrative; `ai` = AI-assisted triage findings. Existing `Comment`s migrate to `TimelineEvent(type=note)`; `Comment` is dropped.
+3. **`Annotation`** — a human note/tag attached to **any** event via a **`GenericForeignKey`** (targets a `Transition` *or* a `TimelineEvent`): `author`, `body`, `tag ∈ {note, unexpected, root-cause, contributing}`, `created_at`. Annotating is orthogonal to the event's own authorship, so any event — including an authoritative `Transition` — can be marked up for RCA **without touching the escalation write-path**.
+4. **Timeline** = merge(`Transition`s, `TimelineEvent`s) ordered by `occurred_at`, each carrying its annotations; rendered on `/ui/` (extends `_timeline`). Adding a note, and tagging any event, are HTMX actions on the `#incident-body` partial.
+5. **Emission:** auto-escalation writes a `TimelineEvent(type=system)` (SLA/paging narrative) alongside its `Transition`; a service (+ API) posts `TimelineEvent(type=ai)` — the hook for AI-assisted triage (#17).
+6. **RCA:** an assembly renders the full annotated timeline to structured **Markdown** (download/copy on the detail page) — the clean, reviewable RCA input. An **AI-drafted RCA** (Anthropic API, behind `flags.is_enabled`, ADR-003) is the immediate follow-up, consuming the same assembly.
+
+**Consequences.**
+- *Gain:* one incident-history surface for human/engine/AI entries; any event is annotatable for RCA; the RCA input falls out of the timeline for free.
+- *Gain:* `Transition` keeps its integrity as the provable audit — annotations layer on via GFK, never mutating it or the sole-writer path.
+- *Cost:* `GenericForeignKey` gives up DB-level FK integrity for annotation targets and adds a contenttypes lookup. Accepted for a low-volume, human-paced timeline (ADR-001) — annotation reads are per-incident and small.
+- *Cost:* two concepts (`TimelineEvent` + `Annotation`) vs one flat `Comment`. Accepted — they answer different questions (*what happened* vs *commentary on what happened*).
+- *Guardrail:* UI/API writes go through `incidents.services` + tier-or-above permissions (ADR-001/008); the AI-drafted RCA follow-up is flag-gated with both branches tested (ADR-003); new code is held to ≥90% coverage + green Sonar.

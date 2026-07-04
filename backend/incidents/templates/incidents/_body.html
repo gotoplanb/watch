@@ -58,31 +58,62 @@ The root keeps id="incident-body" so subsequent swaps still find it.
     {% endif %}
   </div>
 
-  <form class="mt-4 flex gap-2"
-        hx-post="{% url 'ui:add_comment' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
-        x-data="{ body: '' }">
-    <input name="body" x-model="body" autocomplete="off" placeholder="Add a note…"
-           class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 placeholder-slate-500">
-    <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm disabled:opacity-40"
-            :disabled="!body.trim()">Comment</button>
-  </form>
+  <div class="mt-4 flex items-center gap-2">
+    <form class="flex-1 flex gap-2"
+          hx-post="{% url 'ui:add_note' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
+          x-data="{ body: '' }">
+      <input name="body" x-model="body" autocomplete="off" placeholder="Add a note…"
+             class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 placeholder-slate-500">
+      <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm disabled:opacity-40"
+              :disabled="!body.trim()">Add note</button>
+    </form>
+    <a href="{% url 'ui:rca' incident.id %}"
+       class="px-3 py-2 rounded border border-slate-700 text-slate-300 hover:bg-slate-800 text-sm whitespace-nowrap">
+      Export RCA
+    </a>
+  </div>
 
   <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Timeline</h2>
   <ol class="space-y-2">
     {% for e in timeline %}
-      {% if e.kind == 'comment' %}
-      <li class="bg-slate-900 border border-slate-800 rounded p-3 text-sm">
-        <span class="font-medium text-slate-200">{{ e.obj.author.username|default:'unknown' }}</span>
+    <li x-data="{ annotate: false }"
+        class="text-sm rounded {% if e.kind == 'event' %}bg-slate-900 border border-slate-800 p-3{% else %}border-l-2 border-slate-700 pl-3 py-2{% endif %}">
+      {% if e.kind == 'event' %}
+        {% if e.obj.type == 'ai' %}
+          <span class="px-1.5 py-0.5 rounded text-xs bg-purple-500/15 text-purple-300">AI · {{ e.obj.actor|default:'argus' }}</span>
+        {% elif e.obj.type == 'system' %}
+          <span class="px-1.5 py-0.5 rounded text-xs bg-sky-500/15 text-sky-300">system</span>
+        {% else %}
+          <span class="font-medium text-slate-200">{{ e.obj.actor|default:'unknown' }}</span>
+        {% endif %}
         <span class="text-slate-500 text-xs"> · {{ e.at|date:"M j, H:i" }}</span>
         <p class="mt-1 whitespace-pre-wrap text-slate-300">{{ e.obj.body }}</p>
-      </li>
       {% else %}
-      <li class="text-sm px-3 py-2 border-l-2 border-slate-700">
         <span class="text-slate-300">{{ e.obj.from_tier }} → {{ e.obj.to_tier }}{% if e.obj.to_status == 'RESOLVED' %} · resolved{% endif %}</span>
         <span class="text-slate-500 text-xs"> · {{ e.obj.actor }} · {{ e.at|date:"M j, H:i" }}</span>
         {% if e.obj.reason %}<span class="text-slate-500 text-xs"> — {{ e.obj.reason }}</span>{% endif %}
-      </li>
       {% endif %}
+
+      {% for a in e.obj.annotations.all %}
+      <div class="mt-1.5 ml-3 text-xs border-l border-slate-700 pl-2">
+        <span class="px-1 py-0.5 rounded bg-slate-700/60 text-slate-200">{{ a.get_tag_display }}</span>
+        <span class="text-slate-400">{{ a.author.username|default:'unknown' }}</span>
+        {% if a.body %}<span class="text-slate-300"> — {{ a.body }}</span>{% endif %}
+      </div>
+      {% endfor %}
+
+      <button type="button" class="mt-1.5 text-xs text-slate-500 hover:text-slate-300" @click="annotate = !annotate">+ annotate</button>
+      <form x-show="annotate" class="mt-1.5 flex flex-wrap gap-2"
+            hx-post="{% url 'ui:annotate' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML">
+        <input type="hidden" name="target" value="{{ e.target }}">
+        <select name="tag" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
+          {% for val, label in annotation_tags %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+        </select>
+        <input name="body" autocomplete="off" placeholder="annotation…"
+               class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 placeholder-slate-500">
+        <button type="submit" class="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs">Save</button>
+      </form>
+    </li>
     {% empty %}
     <li class="text-sm text-slate-500">No activity yet.</li>
     {% endfor %}
