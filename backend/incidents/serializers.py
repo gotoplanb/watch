@@ -39,3 +39,18 @@ class IntakeSerializer(serializers.Serializer):
     title = serializers.CharField()
     source_event_id = serializers.CharField(required=False, allow_blank=True, default="")
     payload = serializers.JSONField(required=False, default=dict)
+
+
+class SessionCheckSerializer(serializers.Serializer):
+    """Inbound Session Check request (ADR-022). `subject` is the non-secret session correlation id
+    (kind=session) or the plaintext user/customer id (kind=user, HMAC'd server-side)."""
+
+    subject_kind = serializers.ChoiceField(choices=[("session", "session"), ("user", "user")])
+    subject = serializers.CharField()
+    window_from = serializers.DateTimeField(required=False, allow_null=True, default=None)
+    window_to = serializers.DateTimeField(required=False, allow_null=True, default=None)
+    source = serializers.ChoiceField(
+        choices=[("partner", "partner"), ("e2e", "e2e"), ("manual", "manual")],
+        required=False,
+        default="partner",
+    )

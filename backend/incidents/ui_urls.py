@@ -15,4 +15,7 @@ urlpatterns = [
     path("incidents/<uuid:pk>/resolve/", ui_views.act, {"action": "resolve"}, name="resolve"),
     path("schedule/", ui_views.schedule, name="schedule"),
     path("schedule/shift/", ui_views.add_shift, name="add_shift"),
+    path("checks/", ui_views.check_list, name="checks"),
+    path("checks/run/", ui_views.run_check, name="run_check"),
+    path("checks/<uuid:pk>/", ui_views.check_detail, name="check_detail"),
 ]

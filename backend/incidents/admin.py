@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import Annotation, Incident, OnCallShift, TimelineEvent, Transition
+from .models import (
+    Annotation,
+    ErrorSpan,
+    Incident,
+    OnCallShift,
+    SessionCheck,
+    TimelineEvent,
+    Transition,
+)
 
 
 class TransitionInline(admin.TabularInline):
@@ -42,3 +50,18 @@ class AnnotationAdmin(admin.ModelAdmin):
 class OnCallShiftAdmin(admin.ModelAdmin):
     list_display = ["tier", "user", "starts_at", "ends_at"]
     list_filter = ["tier", "user"]
+
+
+class ErrorSpanInline(admin.TabularInline):
+    model = ErrorSpan
+    extra = 0
+    readonly_fields = [f.name for f in ErrorSpan._meta.fields]
+    can_delete = False
+
+
+@admin.register(SessionCheck)
+class SessionCheckAdmin(admin.ModelAdmin):
+    list_display = ["id", "subject_kind", "status", "verdict", "source", "created_at"]
+    list_filter = ["subject_kind", "status", "source"]
+    search_fields = ["subject_hash"]
+    inlines = [ErrorSpanInline]

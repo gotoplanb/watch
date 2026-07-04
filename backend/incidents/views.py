@@ -24,11 +24,16 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import escalation, services
+from . import checks, escalation, services
 from .intake import create_incident_idempotent
 from .models import Incident, Status
 from .permissions import CanActOnIncident
-from .serializers import ActionSerializer, IncidentSerializer, IntakeSerializer
+from .serializers import (
+    ActionSerializer,
+    IncidentSerializer,
+    IntakeSerializer,
+    SessionCheckSerializer,
+)
 
 
 class IncidentViewSet(viewsets.ReadOnlyModelViewSet):
@@ -123,4 +128,41 @@ class IntakeWebhookView(APIView):
         return Response(
             {"id": str(incident.id), "created": created, "status": incident.status},
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class SessionCheckWebhookView(APIView):
+    """Inbound Session Check (ADR-022). M2M shared-secret auth (like intake, ADR-008), separate from
+    human sessions. Creates a SessionCheck and, in local mode, runs it synchronously; the cloud path
+    enqueues to SQS and a worker calls the same `checks` service."""
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        secret = request.headers.get("X-Watch-Webhook-Secret", "")
+        if not settings.CHECKS_WEBHOOK_SECRET or not hmac.compare_digest(
+            secret, settings.CHECKS_WEBHOOK_SECRET
+        ):
+            return Response({"detail": "Invalid webhook secret."},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        s = SessionCheckSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        d = s.validated_data
+        check = checks.create_and_run(
+            subject_kind=d["subject_kind"],
+            subject_raw=d["subject"],
+            window_from=d["window_from"],
+            window_to=d["window_to"],
+            source=d["source"],
+        )
+        return Response(
+            {
+                "id": str(check.id),
+                "status": check.status,
+                "verdict": check.verdict,
+                "error_spans": check.error_spans.count(),
+            },
+            status=status.HTTP_201_CREATED,
         )

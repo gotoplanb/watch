@@ -200,3 +200,64 @@ class OnCallShift(models.Model):
 
     def __str__(self):
         return f"{self.tier} {self.user}: {self.starts_at:%b %d %H:%M}–{self.ends_at:%b %d %H:%M}"
+
+
+class CheckSubjectKind(models.TextChoices):
+    SESSION = "session", "Session"  # subject_hash = the non-secret session correlation id
+    USER = "user", "User"           # subject_hash = HMAC(SESSION_USER_HMAC_KEY, user/customer id)
+
+
+class CheckStatus(models.TextChoices):
+    QUEUED = "queued", "Queued"
+    RUNNING = "running", "Running"
+    DONE = "done", "Done"
+    INDETERMINATE = "indeterminate", "Indeterminate"
+
+
+class CheckSource(models.TextChoices):
+    PARTNER = "partner", "Partner"
+    E2E = "e2e", "E2E"
+    MANUAL = "manual", "Manual"
+
+
+class SessionCheck(models.Model):
+    """On-demand error-span lookup for a session or user (ADR-022) — the inverse of an incident
+    ("go look for problems", not "a human declared one"). Stores only hashes; no plaintext PII."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    subject_kind = models.CharField(max_length=8, choices=CheckSubjectKind.choices)
+    subject_hash = models.CharField(max_length=128)  # session correlation id, or HMAC of a user id
+    window_from = models.DateTimeField(null=True, blank=True)
+    window_to = models.DateTimeField(null=True, blank=True)
+    source = models.CharField(max_length=8, choices=CheckSource.choices, default=CheckSource.MANUAL)
+    status = models.CharField(max_length=16, choices=CheckStatus.choices, default=CheckStatus.QUEUED)
+    verdict = models.CharField(max_length=128, blank=True, default="")  # clean | errors_found:N | aged_out
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["subject_kind", "subject_hash"])]
+
+    def __str__(self):
+        return f"check {self.subject_kind}:{self.subject_hash[:12]} [{self.status}]"
+
+
+class ErrorSpan(models.Model):
+    """An error span a SessionCheck found in the trace backend (ADR-022)."""
+
+    id = models.BigAutoField(primary_key=True)
+    session_check = models.ForeignKey(SessionCheck, related_name="error_spans", on_delete=models.CASCADE)
+    trace_id = models.CharField(max_length=64)
+    span_id = models.CharField(max_length=32, blank=True, default="")
+    name = models.CharField(max_length=256, blank=True, default="")
+    service = models.CharField(max_length=128, blank=True, default="")
+    status = models.CharField(max_length=32, blank=True, default="")
+    http_status = models.IntegerField(null=True, blank=True)
+    ts = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["ts", "id"]
+
+    def __str__(self):
+        return f"error span {self.name or self.span_id} ({self.trace_id[:12]})"

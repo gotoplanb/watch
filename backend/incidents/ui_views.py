@@ -8,13 +8,24 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.http import HttpResponse, HttpResponseForbidden
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_GET, require_POST
 
+from . import checks as checks_svc
 from . import escalation, services
-from .models import AnnotationTag, Incident, OnCallShift, Status, Tier, next_tier
+from .models import (
+    AnnotationTag,
+    CheckSource,
+    CheckSubjectKind,
+    Incident,
+    OnCallShift,
+    SessionCheck,
+    Status,
+    Tier,
+    next_tier,
+)
 from .permissions import can_act_on
 
 # The swappable incident panel (ADR-011) returned by every mutating endpoint.
@@ -168,3 +179,33 @@ def add_shift(request):
             and User.objects.filter(pk=user_id).exists()):
         OnCallShift.objects.create(tier=tier, user_id=int(user_id), starts_at=starts, ends_at=ends)
     return render(request, "incidents/_schedule_body.html", _schedule_ctx())
+
+
+# --- Session Checks (ADR-022): error-span lookup for a session/user ---
+
+@login_required
+@require_GET
+def check_list(request):
+    return render(request, "incidents/checks.html", {
+        "checks": SessionCheck.objects.all()[:100],
+        "kinds": CheckSubjectKind.choices,
+    })
+
+
+@login_required
+@require_POST
+def run_check(request):
+    """Trigger a check from the UI (source=manual). subject = session correlation id or a user id."""
+    kind = request.POST.get("subject_kind")
+    subject = (request.POST.get("subject") or "").strip()
+    if kind in CheckSubjectKind.values and subject:
+        checks_svc.create_and_run(subject_kind=kind, subject_raw=subject, source=CheckSource.MANUAL)
+    return redirect("ui:checks")
+
+
+@login_required
+@require_GET
+def check_detail(request, pk):
+    check = get_object_or_404(SessionCheck, pk=pk)
+    return render(request, "incidents/check_detail.html",
+                  {"check": check, "spans": check.error_spans.all()})

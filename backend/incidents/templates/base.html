@@ -15,11 +15,22 @@
     <div class="flex items-center gap-5">
       <a href="{% url 'ui:incident_list' %}" class="font-semibold tracking-tight">Watch · Incidents</a>
       <a href="{% url 'ui:schedule' %}" class="text-sm text-slate-400 hover:text-slate-100">Schedule</a>
+      <a href="{% url 'ui:checks' %}" class="text-sm text-slate-400 hover:text-slate-100">Checks</a>
     </div>
-    <div class="text-sm text-slate-400">
+    <div class="flex items-center gap-4 text-sm text-slate-400">
       {% if user.is_authenticated %}
+        {% if session_correlation_id %}
+        {# Non-secret session id (ADR-022) — safe to share; give to support to check for errors. #}
+        <span x-data="{ copied: false }" class="text-xs text-slate-500">
+          session
+          <button type="button" class="font-mono text-slate-400 hover:text-slate-200"
+                  @click="navigator.clipboard.writeText('{{ session_correlation_id }}'); copied = true; setTimeout(() => copied = false, 1200)"
+                  :title="copied ? 'copied!' : 'click to copy your session id'">{{ session_correlation_id|slice:":8" }}…</button>
+          <span x-show="copied" class="text-emerald-400">copied</span>
+        </span>
+        {% endif %}
         {{ user.username }}
-        <a class="ml-3 text-indigo-400 hover:text-indigo-300" href="{% url 'rest_framework:logout' %}?next={% url 'ui:incident_list' %}">log out</a>
+        <a class="text-indigo-400 hover:text-indigo-300" href="{% url 'rest_framework:logout' %}?next={% url 'ui:incident_list' %}">log out</a>
       {% else %}
         <a class="text-indigo-400 hover:text-indigo-300" href="{% url 'rest_framework:login' %}">log in</a>
       {% endif %}

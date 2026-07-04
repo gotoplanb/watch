@@ -76,6 +76,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "incidents.session_tagging.SessionTaggingMiddleware",  # session.id + session.user on spans (ADR-022)
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",  # X-Frame-Options (#37)
     "config.security_headers.SecurityHeadersMiddleware",  # CSP + Permissions-Policy (#37)
@@ -95,6 +96,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "incidents.session_tagging.session_id",  # session correlation id in /ui/ (ADR-022)
             ],
         },
     },
@@ -180,6 +182,22 @@ INTAKE_VOLATILE_FIELDS = ["timestamp", "firedAt", "deliveryId", "messageId", "se
 OTEL_ENABLED = _bool("OTEL_ENABLED", False)
 OTEL_SERVICE_NAME = _env("OTEL_SERVICE_NAME", "watch-backend")
 OTEL_EXPORTER_OTLP_ENDPOINT = _env("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+
+# --- Session Check (ADR-022) ---
+# Stable, non-rotated per-env secret keying HMAC(user id) -> session.user span attr. Rotating it
+# orphans already-emitted spans. Empty => user-subject lookups disabled (session-id still works).
+SESSION_USER_HMAC_KEY = _env("SESSION_USER_HMAC_KEY", "")
+# M2M shared secret for the inbound Session Check webhook (like the intake secret, ADR-008).
+CHECKS_WEBHOOK_SECRET = _env("CHECKS_WEBHOOK_SECRET", "")
+# Run the check synchronously in-process (local/dev); the cloud path enqueues to SQS + a worker.
+CHECKS_LOCAL_MODE = _bool("CHECKS_LOCAL_MODE", True)
+# Trace backend the worker queries for error spans: none | tempo (vendor/Grafana Cloud deferred).
+TRACE_STORE_PROVIDER = _env("TRACE_STORE_PROVIDER", "none")
+TEMPO_QUERY_URL = _env("TEMPO_QUERY_URL", "http://localhost:3200")  # Tempo query-frontend base
+# Default lookback when a check omits an explicit window (seconds).
+CHECKS_DEFAULT_LOOKBACK_SECONDS = int(_env("CHECKS_DEFAULT_LOOKBACK_SECONDS", "3600") or "3600")
+# Trace retention — a window fully older than this returns `aged_out` (never a false clean).
+CHECKS_TRACE_RETENTION_SECONDS = int(_env("CHECKS_TRACE_RETENTION_SECONDS", "2592000") or "2592000")
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

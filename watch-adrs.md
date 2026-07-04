@@ -390,3 +390,28 @@
 - *Cost:* `GenericForeignKey` gives up DB-level FK integrity for annotation targets and adds a contenttypes lookup. Accepted for a low-volume, human-paced timeline (ADR-001) — annotation reads are per-incident and small.
 - *Cost:* two concepts (`TimelineEvent` + `Annotation`) vs one flat `Comment`. Accepted — they answer different questions (*what happened* vs *commentary on what happened*).
 - *Guardrail:* UI/API writes go through `incidents.services` + tier-or-above permissions (ADR-001/008); the AI-drafted RCA follow-up is flag-gated with both branches tested (ADR-003); new code is held to ≥90% coverage + green Sonar.
+
+---
+
+## ADR-022 — Session Check: on-demand error-span lookup by session / user
+**Status:** Accepted · *Realizes #31; rides the event webhook #29; relates to the observability plane*
+
+**Context.** A partner (or a user) reports "something's off with these sessions"; today that means manually pulling traces per session and eyeballing for error spans. This is the **inverse of an incident** — *go look for problems* rather than *a human declared one* — and a natural dogfood of our webhooks + observability. The make-or-break is being able to **query traces by an id we control**, which requires ids on the spans and a queryable trace backend.
+
+**Decision.**
+1. **Span tagging (the prerequisite).** A middleware stamps two attributes on the active span:
+   - `session.id` = a **non-secret per-session correlation UUID** (minted + stored in the Django session). **Never the session auth key** — that's a credential and must not be displayed/shared. This id is safe to show, copy, and paste into a ticket.
+   - `session.user` = **keyed** `HMAC-SHA256(SESSION_USER_HMAC_KEY, <reporter-facing user/customer id>)`, truncated. Keyed ⇒ not brute-force reversible; the key is a **stable, non-rotated** per-env secret (rotation orphans emitted spans).
+   Both must be searchable in the trace backend (Tempo TraceQL).
+2. **Self-serve the id.** The `/ui/` header shows the logged-in user their `session.id` (copyable), so a real user can report it — session-id is the **primary** lookup; `session.user` is the fallback when another system has only the user.
+3. **`SessionCheck` + `ErrorSpan`.** A `SessionCheck` (subject_kind {session|user}, subject_hash, window, source {partner|e2e|manual}, status {queued|running|done|indeterminate}, verdict {clean|errors_found|aged_out}) yields zero-or-more `ErrorSpan`s (trace_id, span_id, name, service, status, http_status, ts). Parallels Incident/Transition. Only **hashes** are persisted — no plaintext PII in Watch's DB.
+4. **Trace-store seam.** `trace_store.find_error_spans(subject, window)` with a **provider** (`tempo` via TraceQL now; `none` no-op; vendor/Grafana-Cloud deferred), swappable like `flags`. Hermetic tests inject a fake provider.
+5. **Flow + local mode.** Inbound webhook (token auth, shared-secret like intake) → create a `SessionCheck` → **run synchronously in local mode** (`CHECKS_LOCAL_MODE`, default on) via `incidents.services`; in the cloud it enqueues to SQS and a worker calls the same service (the ADR-010 "one decision implementation" discipline). "Error span" = OTel span `status = ERROR` for v1.
+6. **Trust + E2E dogfood.** Tail-sampling **always keeps error spans**, so a **zero-error result is trustworthy**; a session past trace **retention** returns `aged_out`, never a false `clean`. On a passing E2E, fire an **outbound** webhook (the correlation id), **fire-and-forget**, that returns **inbound** as a `source=e2e` check — giving error-span coverage of what the test exercised *and* a live proof the outbound→inbound webhook path works (local + staging).
+
+**Consequences.**
+- *Gain:* the partner-report workflow is one webhook; error spans on a "green" E2E become visible without failing tests; the webhook round-trip self-tests both directions.
+- *Gain:* one decision implementation (services) shared by the local sync path and the cloud worker; trace backend is swappable per env behind the seam.
+- *Cost:* the span-tagging middleware + a stable HMAC key are a hard prerequisite; high-cardinality `session.id`/`session.user` must be indexed for TraceQL search.
+- *Cost:* v1 defers the SQS/worker + the vendor (Grafana Cloud) trace store — the local synchronous path proves the domain first.
+- *Guardrail:* only hashes stored (no PII); webhook is M2M shared-secret (not a user session, ADR-008); new code held to ≥90% coverage + green Sonar; the outbound E2E webhook never blocks the test.

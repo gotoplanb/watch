@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Session Checks · Watch{% endblock %}
+{% block content %}
+<h1 class="text-lg font-semibold text-slate-100">Session Checks</h1>
+<p class="text-sm text-slate-500 mt-1">Look up error spans for a session id or a user (ADR-022) — the inverse of an incident.</p>
+
+<form method="post" action="{% url 'ui:run_check' %}" class="mt-4 flex flex-wrap gap-3 items-end">
+  {% csrf_token %}
+  <label class="text-xs text-slate-400">Kind
+    <select name="subject_kind" class="block bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-100">
+      {% for val, label in kinds %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="text-xs text-slate-400 flex-1 min-w-[16rem]">Subject (session id, or user / customer id)
+    <input name="subject" required autocomplete="off"
+           class="block w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500"
+           placeholder="e.g. a session id from the header, or a user id">
+  </label>
+  <button class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm">Run check</button>
+</form>
+
+<ul class="mt-6 space-y-2">
+  {% for c in checks %}
+  <li class="bg-slate-900 border border-slate-800 rounded p-3 text-sm flex items-center justify-between gap-4">
+    <a href="{% url 'ui:check_detail' c.id %}" class="hover:underline truncate">
+      <span class="text-slate-300">{{ c.get_subject_kind_display }}</span>
+      <span class="font-mono text-slate-500">{{ c.subject_hash|slice:":16" }}…</span>
+    </a>
+    <div class="flex items-center gap-2 shrink-0">
+      {% if "errors_found" in c.verdict %}
+        <span class="px-2 py-0.5 rounded text-xs bg-rose-500/15 text-rose-300">{{ c.verdict }}</span>
+      {% elif c.verdict == "clean" %}
+        <span class="px-2 py-0.5 rounded text-xs bg-emerald-500/15 text-emerald-300">clean</span>
+      {% else %}
+        <span class="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">{{ c.verdict|default:c.status }}</span>
+      {% endif %}
+      <span class="text-slate-500 text-xs">{{ c.get_source_display }} · {{ c.created_at|date:"M j, H:i" }}</span>
+    </div>
+  </li>
+  {% empty %}
+  <li class="text-sm text-slate-500">No checks yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}
