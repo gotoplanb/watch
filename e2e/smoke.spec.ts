@@ -6,6 +6,11 @@ import { test, expect } from "@playwright/test";
 // are each hit at least once. Runs locally (make dev) and against staging in the pipeline.
 // MUTATES data — staging/local only, never prod. It tracks its OWN created incident (T1 -> T2)
 // rather than the seed, because seeded incidents auto-escalate off T1 on their SLA timeout.
+//
+// Suite tiering (#30): tag by MINIMUM environment. Untagged / @local run everywhere; @staging marks
+// tests that need AWS-managed behavior or long waits and run ONLY on staging. Local (`make e2e`,
+// pre-commit) filters with --grep-invert=@staging; the pipeline Smoke stage runs the full superset,
+// so local is always a subset of staging.
 const BASE = process.env.BASE_URL || "http://localhost:8010";
 const STATUS = process.env.STATUS_URL || BASE;
 const SECRET = process.env.INTAKE_WEBHOOK_SECRET || "";
@@ -15,7 +20,7 @@ const PASS = process.env.SMOKE_PASSWORD || "watch";
 const tier = async (page: any, id: string) =>
   (await (await page.request.get(`${BASE}/api/incidents/${id}/`)).json()).current_tier;
 
-test("smoke: health → status → login → create → escalate → T2", async ({ page }) => {
+test("smoke: health → status → login → create → escalate → T2", { tag: "@local" }, async ({ page }) => {
   // 1. Health — app + basic reachability.
   const health = await page.request.get(`${BASE}/api/health`);
   expect(health.status(), "health 200").toBe(200);
@@ -76,4 +81,14 @@ test("smoke: health → status → login → create → escalate → T2", async 
   // ...and the public posture reflects at least one T2 (our incident).
   const s1 = await (await page.request.get(`${BASE}/api/status`)).json();
   expect(s1.incidents.by_tier.T2, "posture shows a T2").toBeGreaterThanOrEqual(1);
+});
+
+// STAGING-ONLY (#30): real SLA-timeout auto-escalation through the tiers, driven by the Step
+// Functions timers + commit Lambda — minutes-to-many-minutes of waiting and AWS-managed behavior
+// we can't (and don't want to) reproduce in `make dev`. Locally we cover MANUAL escalation (above);
+// this proves the engine actually auto-escalates on its own. Skipped locally via --grep-invert=@staging.
+// TODO(#30): implement against staging — create an incident, wait out each tier SLA, assert
+// current_tier advances T1 → T2 → T3 without human action, and that a Transition/system event lands.
+test.fixme("auto-escalation walks T1 → T2 → T3 on SLA timeout", { tag: "@staging" }, async ({ page }) => {
+  void page;
 });

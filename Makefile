@@ -65,10 +65,13 @@ test: venv
 E2E_BASE ?= http://localhost:8010
 E2E_STATUS ?= http://localhost:5173
 E2E_SECRET ?= dev-webhook-secret
+# Suite tiering (#30): local runs skip @staging-only tests; the staging Smoke stage overrides
+# E2E_GREP="" (or --grep="@local|@staging") to run the full superset.
+E2E_GREP ?= --grep-invert=@staging
 e2e:
 	@cd e2e && npm install --silent \
 	  && npx playwright install chromium chromium-headless-shell \
-	  && BASE_URL=$(E2E_BASE) STATUS_URL=$(E2E_STATUS) INTAKE_WEBHOOK_SECRET=$(E2E_SECRET) npx playwright test
+	  && BASE_URL=$(E2E_BASE) STATUS_URL=$(E2E_STATUS) INTAKE_WEBHOOK_SECRET=$(E2E_SECRET) npx playwright test $(E2E_GREP)
 
 # Run hermetic units under coverage; writes backend/coverage.xml (Cobertura) and a
 # terminal summary. Fails if total coverage < 90% (the gate, in pyproject.toml).
