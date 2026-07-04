@@ -68,9 +68,13 @@ E2E_SECRET ?= dev-webhook-secret
 # Suite tiering (#30): local runs skip @staging-only tests; the staging Smoke stage overrides
 # E2E_GREP="" (or --grep="@local|@staging") to run the full superset.
 E2E_GREP ?= --grep-invert=@staging
+# Playwright's browser install can hang on some macOS setups (a broken local unzip — the download
+# finishes, extraction freezes). Set E2E_INSTALL=0 to skip it when browsers are already present
+# (install them out-of-band with `ditto` — see e2e/README.md). CI / fresh machines keep the default.
+E2E_INSTALL ?= 1
 e2e:
 	@cd e2e && npm install --silent \
-	  && npx playwright install chromium chromium-headless-shell \
+	  && { [ "$(E2E_INSTALL)" != 1 ] || npx playwright install chromium chromium-headless-shell; } \
 	  && BASE_URL=$(E2E_BASE) STATUS_URL=$(E2E_STATUS) INTAKE_WEBHOOK_SECRET=$(E2E_SECRET) npx playwright test $(E2E_GREP)
 
 # Run hermetic units under coverage; writes backend/coverage.xml (Cobertura) and a
