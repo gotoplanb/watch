@@ -66,8 +66,9 @@ E2E_BASE ?= http://localhost:8010
 E2E_STATUS ?= http://localhost:5173
 E2E_SECRET ?= dev-webhook-secret
 e2e:
-	@cd e2e && npm install --silent && npx playwright install chromium >/dev/null && \
-	  BASE_URL=$(E2E_BASE) STATUS_URL=$(E2E_STATUS) INTAKE_WEBHOOK_SECRET=$(E2E_SECRET) npx playwright test
+	@cd e2e && npm install --silent \
+	  && npx playwright install chromium chromium-headless-shell \
+	  && BASE_URL=$(E2E_BASE) STATUS_URL=$(E2E_STATUS) INTAKE_WEBHOOK_SECRET=$(E2E_SECRET) npx playwright test
 
 # Run hermetic units under coverage; writes backend/coverage.xml (Cobertura) and a
 # terminal summary. Fails if total coverage < 90% (the gate, in pyproject.toml).
