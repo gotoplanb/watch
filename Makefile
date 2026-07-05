@@ -11,8 +11,14 @@ PYTEST := $(VENV)/bin/pytest
 # Env for running the backend on the HOST against compose-provided infra. This is the
 # primary local loop here: it needs no image-registry/PyPI egress (only the cached
 # postgres/valkey/appconfig images), and exports OTel to the existing Watchtower.
+comma := ,
+# Tunnel host from .env (TUNNEL_DOMAIN), if set — lets the ngrok dev tunnel's Host pass Django's
+# ALLOWED_HOSTS / CSRF checks. Empty when no tunnel is configured (no effect on the plain loop).
+TUNNEL_HOST := $(shell test -f .env && sed -n 's/^TUNNEL_DOMAIN=//p' .env | tr -d '"' | head -1)
+
 HOSTENV := DJANGO_SECRET_KEY=dev DJANGO_DEBUG=1 \
-  DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,host.docker.internal \
+  DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,host.docker.internal$(if $(TUNNEL_HOST),$(comma)$(TUNNEL_HOST)) \
+  $(if $(TUNNEL_HOST),CSRF_TRUSTED_ORIGINS=https://$(TUNNEL_HOST)) \
   POSTGRES_HOST=localhost POSTGRES_PORT=5433 \
   VALKEY_URL=redis://localhost:6380/0 \
   APPCONFIG_AGENT_URL=http://localhost:2772 FLAGS_PROVIDER=appconfig \
