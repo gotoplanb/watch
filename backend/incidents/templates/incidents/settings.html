@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Settings · Watch{% endblock %}
+{% block content %}
+<h1 class="text-lg font-semibold text-slate-100">Settings</h1>
+<p class="text-sm text-slate-500 mt-1">Signed in as <span class="text-slate-300">{{ user.username }}</span>.</p>
+
+<h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Your paging subscription</h2>
+<p class="text-sm text-slate-500 mb-3">
+  Subscribe on your phone via the <a class="text-indigo-400 hover:text-indigo-300" href="https://ntfy.sh/app" target="_blank" rel="noopener">ntfy app</a>
+  (add the topic name), or open the link below. You're paged here when an incident reaches a tier you're on call for (ADR-013).
+</p>
+
+{% if not topic_secret_set %}
+<div class="bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded p-3 text-sm mb-3">
+  Paging topics are <strong>not salted</strong> (no <span class="font-mono">NTFY_TOPIC_SECRET</span> set) — they're guessable from the source. Set the secret to make them private.
+</div>
+{% endif %}
+
+<div class="bg-slate-900 border border-slate-800 rounded p-3" x-data="{ copied: '' }">
+  <div class="flex items-center justify-between gap-4">
+    <div class="min-w-0">
+      <div class="text-xs text-slate-500">your topic</div>
+      <div class="font-mono text-sm text-slate-200 truncate">{{ user_topic }}</div>
+    </div>
+    <button type="button"
+            class="shrink-0 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
+            @click="navigator.clipboard.writeText('{{ user_topic }}'); copied = 'topic'; setTimeout(() => copied = '', 1200)"
+            :class="copied === 'topic' && 'text-emerald-400'"
+            x-text="copied === 'topic' ? 'copied!' : 'copy topic'"></button>
+  </div>
+  <div class="flex items-center justify-between gap-4 mt-3 pt-3 border-t border-slate-800">
+    <a class="font-mono text-sm text-indigo-400 hover:text-indigo-300 truncate" href="{{ user_topic_url }}" target="_blank" rel="noopener">{{ user_topic_url }}</a>
+    <button type="button"
+            class="shrink-0 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
+            @click="navigator.clipboard.writeText('{{ user_topic_url }}'); copied = 'url'; setTimeout(() => copied = '', 1200)"
+            :class="copied === 'url' && 'text-emerald-400'"
+            x-text="copied === 'url' ? 'copied!' : 'copy link'"></button>
+  </div>
+</div>
+
+{% if tier_topics %}
+<h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Tier fallback topics</h2>
+<p class="text-sm text-slate-500 mb-3">Subscribe to these too — a page falls back to the tier topic when the rota has a gap (no one scheduled).</p>
+<ul class="space-y-2" x-data="{ copied: '' }">
+  {% for t in tier_topics %}
+  <li class="bg-slate-900 border border-slate-800 rounded p-3 text-sm flex items-center justify-between gap-4">
+    <div class="min-w-0">
+      <span class="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300 mr-2">{{ t.tier }}</span>
+      <a class="font-mono text-indigo-400 hover:text-indigo-300 truncate" href="{{ t.url }}" target="_blank" rel="noopener">{{ t.topic }}</a>
+    </div>
+    <button type="button"
+            class="shrink-0 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
+            @click="navigator.clipboard.writeText('{{ t.topic }}'); copied = '{{ t.tier }}'; setTimeout(() => copied = '', 1200)"
+            :class="copied === '{{ t.tier }}' && 'text-emerald-400'"
+            x-text="copied === '{{ t.tier }}' ? 'copied!' : 'copy topic'"></button>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

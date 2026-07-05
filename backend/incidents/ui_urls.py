@@ -20,4 +20,5 @@ urlpatterns = [
     path("checks/<uuid:pk>/", ui_views.check_detail, name="check_detail"),
     path("webhooks/", ui_views.webhook_list, name="webhooks"),
     path("webhooks/add/", ui_views.add_subscription, name="add_subscription"),
+    path("settings/", ui_views.settings_view, name="settings"),
 ]

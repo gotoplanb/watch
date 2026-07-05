@@ -31,7 +31,7 @@
           <span x-show="copied" class="text-emerald-400">copied</span>
         </span>
         {% endif %}
-        {{ user.username }}
+        <a class="text-slate-300 hover:text-slate-100" href="{% url 'ui:settings' %}" title="settings &amp; your paging subscription">{{ user.username }}</a>
         <a class="text-indigo-400 hover:text-indigo-300" href="{% url 'rest_framework:logout' %}?next={% url 'ui:incident_list' %}">log out</a>
       {% else %}
         <a class="text-indigo-400 hover:text-indigo-300" href="{% url 'rest_framework:login' %}">log in</a>

@@ -34,6 +34,48 @@ def test_list_redirects_anonymous_to_login(client):
 
 
 @pytest.mark.django_db
+def test_settings_requires_login(client):
+    resp = client.get("/ui/settings/")
+    assert resp.status_code == 302 and "/api-auth/login/" in resp["Location"]
+
+
+@pytest.mark.django_db
+def test_settings_shows_own_paging_topic(client, settings):
+    settings.PAGING_ENV = "test"
+    settings.NTFY_TOPIC_SECRET = "s3kret"
+    user = _user("t2a", "T2")
+    client.force_login(user)
+    resp = client.get("/ui/settings/")
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    own = services.paging_topic("user", user.id)
+    assert own in body and own.startswith(f"watch-test-user-{user.id}-")
+    # tier fallback topic for the user's tier is shown; the raw secret never is
+    assert services.paging_topic("tier", "T2") in body
+    assert "s3kret" not in body
+
+
+@pytest.mark.django_db
+def test_settings_does_not_leak_other_users_topics(client, settings):
+    settings.NTFY_TOPIC_SECRET = "s3kret"
+    other = _user("t3a", "T3")
+    me = _user("t1a", "T1")
+    client.force_login(me)
+    body = client.get("/ui/settings/").content.decode()
+    assert services.paging_topic("user", me.id) in body
+    assert services.paging_topic("user", other.id) not in body
+    assert services.paging_topic("tier", "T3") not in body  # not my tier
+
+
+@pytest.mark.django_db
+def test_settings_warns_when_secret_unset(client, settings):
+    settings.NTFY_TOPIC_SECRET = ""
+    client.force_login(_user("plain"))
+    body = client.get("/ui/settings/").content.decode()
+    assert "not salted" in body.lower()
+
+
+@pytest.mark.django_db
 def test_list_renders_for_authenticated(client):
     _incident()
     client.force_login(_user("viewer"))
