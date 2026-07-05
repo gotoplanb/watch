@@ -66,4 +66,5 @@ def create_incident_idempotent(
         events.emit("incident.created", {
             "incident_id": str(incident.id), "title": incident.title, "source": incident.source,
         })
+        services.page_on_tier_entry(incident, Tier.T1)  # page the T1 on-call (ADR-013)
     return incident, created

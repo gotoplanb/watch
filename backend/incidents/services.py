@@ -7,23 +7,29 @@ regardless of *how* it happened (spec §3).
 Every transition is idempotent: "act if still applicable", never blind "act"
 (ADR-001). Callers wrap these in select_for_update where concurrency matters.
 """
+import logging
 from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from . import events
+from . import events, flags, notify
 from .models import (
     Annotation,
     EventType,
     Incident,
     OnCallShift,
+    Page,
+    PageStatus,
     Status,
+    Tier,
     TimelineEvent,
     Transition,
     next_tier,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def current_on_call(tier, at=None):
@@ -41,6 +47,36 @@ def current_on_call(tier, at=None):
 def on_call_user(tier, at=None):
     shift = current_on_call(tier, at)
     return shift.user if shift else None
+
+
+def page_on_tier_entry(incident, tier) -> None:
+    """Page the current on-call when an incident ENTERS a tier — a new incident at T1 or an escalate
+    to T2/T3, never on ACK/RESOLVE (ADR-013). Deferred to after the transaction commits: paging is
+    fire-and-forget, so a paging failure never rolls back or blocks the escalation."""
+    transaction.on_commit(lambda: _page(incident, tier))
+
+
+def _page(incident, tier) -> None:
+    try:
+        # Rollout gate (ADR-014): keyed on the incident so `sample:R` keeps a given incident
+        # consistently in-or-out across all its tier entries.
+        if not flags.active("paging_enabled", key=str(incident.id)):
+            return
+        env = settings.PAGING_ENV
+        shift = current_on_call(tier)
+        user = shift.user if shift else None
+        # Per-user topic, falling back to the tier topic when the rota has a gap (ADR-013).
+        topic = f"watch-{env}-user-{user.id}" if user else f"watch-{env}-tier-{tier}"
+        who = f"@{user.username}" if user else f"{tier} on-call (rota gap)"
+        title = f"[{tier}] {incident.title}"[:110]
+        message = f"{who} — incident at {tier}\n{incident.title}\nid {incident.id}"
+        ok, err = notify.send(topic, title, message, priority="high", tags=["rotating_light"])
+        Page.objects.create(
+            incident=incident, tier=tier, topic=topic, target=user,
+            status=PageStatus.SENT if ok else PageStatus.FAILED, error="" if ok else err,
+        )
+    except Exception:  # pragma: no cover - defensive: paging must never break the domain
+        logger.warning("paging failed for incident %s", getattr(incident, "id", "?"), exc_info=True)
 
 
 def _record(incident, *, to_status, to_tier, actor, reason, from_status, from_tier):
@@ -128,6 +164,7 @@ def escalate(incident_id, actor: str, reason: str = "") -> Incident:
         "incident_id": str(incident.id), "title": incident.title,
         "from_tier": from_tier, "to_tier": target.value, "actor": actor, "auto": auto,
     })
+    page_on_tier_entry(incident, target.value)  # page the new tier's on-call (ADR-013)
     return incident
 
 

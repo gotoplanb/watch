@@ -314,3 +314,31 @@ class WebhookDelivery(models.Model):
 
     def __str__(self):
         return f"delivery {self.event_type} -> {self.subscription_id} [{self.status}]"
+
+
+class PageStatus(models.TextChoices):
+    SENT = "sent", "Sent"
+    FAILED = "failed", "Failed"
+
+
+class Page(models.Model):
+    """Audit of an escalation page attempt (ADR-013) — one row per attempt, best-effort. Records the
+    resolved on-call target (or the tier-topic fallback on a rota gap) and whether ntfy accepted it."""
+
+    id = models.BigAutoField(primary_key=True)
+    incident = models.ForeignKey(Incident, related_name="pages", on_delete=models.CASCADE)
+    tier = models.CharField(max_length=2, choices=Tier.choices)
+    topic = models.CharField(max_length=200)
+    target = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL
+    )
+    status = models.CharField(max_length=8, choices=PageStatus.choices)
+    error = models.CharField(max_length=320, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["incident", "-created_at"])]
+
+    def __str__(self):
+        return f"page {self.topic} [{self.status}]"

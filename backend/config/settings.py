@@ -167,6 +167,12 @@ TIER_SLA_SECONDS = {
     "T3": int(_env("SLA_T3_SECONDS", "3600")),
 }
 
+# --- Escalation paging (ADR-013): page the on-call via ntfy on a real tier entry ---
+# The `paging_enabled` control itself is a rollout mode read via the flags seam (ADR-014), not here.
+PAGING_ENV = _env("PAGING_ENV", "local")  # topic namespace: watch-<env>-user-<id> / -tier-<T>
+NTFY_BASE_URL = _env("NTFY_BASE_URL", "https://ntfy.sh")
+NTFY_TOKEN = _env("NTFY_TOKEN", "")  # empty for public ntfy.sh; access token / self-host for prod
+
 # --- Intake webhook auth (ADR-008): machine-to-machine shared secret ---
 INTAKE_WEBHOOK_SECRET = _env("INTAKE_WEBHOOK_SECRET", "")
 
