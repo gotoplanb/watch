@@ -15,8 +15,12 @@ comma := ,
 # Tunnel host from .env (TUNNEL_DOMAIN), if set — lets the ngrok dev tunnel's Host pass Django's
 # ALLOWED_HOSTS / CSRF checks. Empty when no tunnel is configured (no effect on the plain loop).
 TUNNEL_HOST := $(shell test -f .env && sed -n 's/^TUNNEL_DOMAIN=//p' .env | tr -d '"' | head -1)
+# Paging topic secret from .env (ADR-013) — salts ntfy topic names so they're not guessable from the
+# public source. Empty when unset (plain topics). Kept in gitignored .env, never in this file.
+NTFY_TOPIC_SECRET := $(shell test -f .env && sed -n 's/^NTFY_TOPIC_SECRET=//p' .env | tr -d '"' | head -1)
 
 HOSTENV := DJANGO_SECRET_KEY=dev DJANGO_DEBUG=1 \
+  $(if $(NTFY_TOPIC_SECRET),NTFY_TOPIC_SECRET=$(NTFY_TOPIC_SECRET)) \
   DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,host.docker.internal$(if $(TUNNEL_HOST),$(comma)$(TUNNEL_HOST)) \
   $(if $(TUNNEL_HOST),CSRF_TRUSTED_ORIGINS=https://$(TUNNEL_HOST)) \
   POSTGRES_HOST=localhost POSTGRES_PORT=5433 \

@@ -106,6 +106,40 @@ def test_escalate_pages_new_tier(settings, notifier, django_capture_on_commit_ca
     assert Page.objects.filter(incident=inc, tier="T2").exists()
 
 
+def test_paging_topic_plain_without_secret(settings):
+    settings.PAGING_ENV = "test"
+    settings.NTFY_TOPIC_SECRET = ""
+    assert services.paging_topic("user", 3) == "watch-test-user-3"
+    assert services.paging_topic("tier", "T2") == "watch-test-tier-T2"
+
+
+def test_paging_topic_hmac_suffix_with_secret(settings):
+    settings.PAGING_ENV = "test"
+    settings.NTFY_TOPIC_SECRET = "s3kret"
+    topic = services.paging_topic("user", 3)
+    # Keeps the human-readable base, adds a 12-hex HMAC suffix; the raw secret never appears.
+    assert topic.startswith("watch-test-user-3-") and "s3kret" not in topic
+    suffix = topic.rsplit("-", 1)[1]
+    assert len(suffix) == 12 and all(c in "0123456789abcdef" for c in suffix)
+    # Deterministic per identity, distinct across identities and kinds.
+    assert services.paging_topic("user", 3) == topic
+    assert services.paging_topic("user", 4) != topic
+    assert services.paging_topic("tier", "T1") != services.paging_topic("user", "T1")
+
+
+@pytest.mark.django_db
+def test_page_uses_secret_suffixed_topic(settings, notifier):
+    settings.PAGING_ENV = "test"
+    settings.NTFY_TOPIC_SECRET = "s3kret"
+    _paging("on")
+    user = get_user_model().objects.create_user("t2a")
+    now = timezone.now()
+    OnCallShift.objects.create(tier="T2", user=user, starts_at=now - timedelta(hours=1), ends_at=now + timedelta(hours=1))
+    services._page(_incident("T2"), "T2")
+    assert notifier.sent[0]["topic"] == services.paging_topic("user", user.id)
+    assert notifier.sent[0]["topic"].startswith(f"watch-test-user-{user.id}-")
+
+
 @pytest.mark.django_db
 def test_acknowledge_does_not_page(notifier, django_capture_on_commit_callbacks):
     _paging("on")

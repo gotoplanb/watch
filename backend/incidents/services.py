@@ -7,6 +7,8 @@ regardless of *how* it happened (spec §3).
 Every transition is idempotent: "act if still applicable", never blind "act"
 (ADR-001). Callers wrap these in select_for_update where concurrency matters.
 """
+import hashlib
+import hmac
 import logging
 from datetime import timedelta
 
@@ -56,17 +58,30 @@ def page_on_tier_entry(incident, tier) -> None:
     transaction.on_commit(lambda: _page(incident, tier))
 
 
+def paging_topic(kind: str, ident) -> str:
+    """The ntfy topic for a paging target (ADR-013). `kind` is 'user' or 'tier'. When
+    NTFY_TOPIC_SECRET is set, an HMAC suffix makes each topic **independently** unguessable from the
+    (public) source, and the secret itself never appears in the string. Empty secret → the plain
+    topic (local default), so nothing breaks before it's configured."""
+    env = settings.PAGING_ENV
+    base = f"watch-{env}-{kind}-{ident}"
+    secret = settings.NTFY_TOPIC_SECRET
+    if not secret:
+        return base
+    digest = hmac.new(secret.encode(), f"{env}:{kind}:{ident}".encode(), hashlib.sha256).hexdigest()
+    return f"{base}-{digest[:12]}"
+
+
 def _page(incident, tier) -> None:
     try:
         # Rollout gate (ADR-014): keyed on the incident so `sample:R` keeps a given incident
         # consistently in-or-out across all its tier entries.
         if not flags.active("paging_enabled", key=str(incident.id)):
             return
-        env = settings.PAGING_ENV
         shift = current_on_call(tier)
         user = shift.user if shift else None
         # Per-user topic, falling back to the tier topic when the rota has a gap (ADR-013).
-        topic = f"watch-{env}-user-{user.id}" if user else f"watch-{env}-tier-{tier}"
+        topic = paging_topic("user", user.id) if user else paging_topic("tier", tier)
         who = f"@{user.username}" if user else f"{tier} on-call (rota gap)"
         title = f"[{tier}] {incident.title}"[:110]
         message = f"{who} — incident at {tier}\n{incident.title}\nid {incident.id}"

@@ -211,18 +211,19 @@
 ---
 
 ## ADR-013 — Escalation paging via ntfy, targeted at the on-call
-**Status:** Accepted
+**Status:** Accepted · *amended: unguessable topic names (secret salt)*
 
 **Context.** Escalation moves the tier silently — no human is notified. We need to page the responsible person when an incident reaches their tier (manual or auto). ntfy.sh is a lightweight pub-sub push service (HTTP POST to a topic; phone/web subscribers) that fits the phone-first loop.
 
 **Decision.**
 - On a **real tier change** (new incident at T1, or escalate to T2/T3 — **not** on ACK), **page the current on-call** (ADR-012) via ntfy: POST to the on-call's per-user topic `watch-<env>-user-<id>`; **fall back** to the tier topic `watch-<env>-tier-<T>` when the rota has a gap.
+- **Topic names carry a secret salt so they can't be derived from the (public) source.** `NTFY_TOPIC_SECRET` (env locally, SSM in prod — like `NTFY_TOKEN`) is HMAC-SHA256'd with each target's identity into a 12-hex suffix: `watch-<env>-user-<id>-<hmac>` / `watch-<env>-tier-<T>-<hmac>`. Each topic is **independently** unguessable and the secret never appears in the string (leaking one topic doesn't expose the secret or any other). Empty secret → the plain topic (local default, back-compatible). `manage.py paging_topics` prints the current topics to subscribe to (the suffix isn't derivable without the secret).
 - **One hook in the single transition-writer** (`services`), so manual and auto escalation page through one path (ADR-001).
 - **Behind a flag** `paging_enabled` (ADR-003); **best-effort**, with a notification **audit record** per attempt (sent/failed). Provider behind a thin `notify(...)` seam so ntfy can be swapped/self-hosted.
 
 **Consequences.**
 - *Gain:* humans actually get paged on time, targeted to the on-call, quiet, degrading to a tier broadcast on a gap.
-- *Cost / caveat:* ntfy topics are **public by default** — prod uses **access tokens or a self-hosted ntfy** (topic names are guessable and pages can be sensitive). The seam keeps that swap to one class.
+- *Cost / caveat:* ntfy topics are **public by default** and pages can be sensitive — mitigated in depth: **unguessable topic names** (the `NTFY_TOPIC_SECRET` salt above) so subscribe/publish is closed to source-readers, plus **access tokens or a self-hosted ntfy** in prod. The seam keeps the server swap to one class.
 - *Cost:* best-effort paging is not guaranteed delivery. Upgrade path: enqueue (SQS) → a notifier with retries, decoupled from the engine; the audit record makes misses visible.
 - *Guardrail:* paging is **fire-and-forget after the transition commits** — it never blocks or alters the escalation decision, and a paging failure ≠ an escalation failure (the latter is still the alarmable "failed execution", ADR-001).
 

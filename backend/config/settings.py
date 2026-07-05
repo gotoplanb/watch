@@ -177,6 +177,9 @@ TIER_SLA_SECONDS = {
 PAGING_ENV = _env("PAGING_ENV", "local")  # topic namespace: watch-<env>-user-<id> / -tier-<T>
 NTFY_BASE_URL = _env("NTFY_BASE_URL", "https://ntfy.sh")
 NTFY_TOKEN = _env("NTFY_TOKEN", "")  # empty for public ntfy.sh; access token / self-host for prod
+# Secret salt mixed into paging topic names so they can't be derived from the (public) source
+# (ADR-013). Empty → plain topics (local default). Prod: an SSM secret, like NTFY_TOKEN.
+NTFY_TOPIC_SECRET = _env("NTFY_TOPIC_SECRET", "")
 
 # --- Intake webhook auth (ADR-008): machine-to-machine shared secret ---
 INTAKE_WEBHOOK_SECRET = _env("INTAKE_WEBHOOK_SECRET", "")
