@@ -1,0 +1,34 @@
+# Demo (ADR-013): a logged-in user's self-service paging subscription on /ui/settings/.
+# Record: shot-scraper video storyboards/paging-settings.yml -o /tmp/paging-settings.webm --mp4
+# Needs the backend on :8010 (make dev) with the demo users seeded (t2a / watch).
+output: paging-settings.webm
+url: http://localhost:8010/api-auth/login/?next=/ui/settings/
+viewport:
+  width: 1280
+  height: 800
+cursor: true
+wait_for: "text=Username"
+scenes:
+- name: Sign in as t2a
+  do:
+  - fill:
+      into: "input[name=username]"
+      text: "t2a"
+  - fill:
+      into: "input[name=password]"
+      text: "watch"
+  - pause: 0.8
+  - click: "input[type=submit]"
+  - wait_for_url: "**/ui/settings/"
+  - wait_for: "text=Your paging subscription"
+  - pause: 1.5
+- name: Your paging subscription (salted topic)
+  do:
+  - click: 'button:has-text("copy link")'
+  - pause: 2
+- name: Tier fallback topics
+  do:
+  - scroll:
+      to: "text=Tier fallback topics"
+      duration: 0.6
+  - pause: 2.5

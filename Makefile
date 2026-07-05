@@ -6,7 +6,7 @@ PY := python3.12
 VENV := backend/.venv
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: help venv test e2e dev infra up down logs seed smoke integration clean tunnel-domain tunnel-up tunnel-down tunnel-status
+.PHONY: help venv test e2e demo dev infra up down logs seed smoke integration clean tunnel-domain tunnel-up tunnel-down tunnel-status
 
 # Env for running the backend on the HOST against compose-provided infra. This is the
 # primary local loop here: it needs no image-registry/PyPI egress (only the cached
@@ -83,6 +83,20 @@ E2E_GREP ?= --grep-invert=@staging
 # finishes, extraction freezes). Set E2E_INSTALL=0 to skip it when browsers are already present
 # (install them out-of-band with `ditto` — see e2e/README.md). CI / fresh machines keep the default.
 E2E_INSTALL ?= 1
+
+# Record release demo videos from the versioned storyboards (shot-scraper video -> webm + mp4).
+# Needs the local stack up (make dev + make status-page) and shot-scraper installed
+# (`uv tool install shot-scraper`; seed its Playwright browser out-of-band — see storyboards/README.md).
+DEMO_OUT ?= /tmp/watch-demos
+demo:
+	@command -v shot-scraper >/dev/null || { echo "shot-scraper not installed (uv tool install shot-scraper); see storyboards/README.md"; exit 1; }
+	@mkdir -p $(DEMO_OUT)
+	@for s in storyboards/*.yml; do \
+	  echo "recording $$s"; \
+	  shot-scraper video $$s -o $(DEMO_OUT)/$$(basename $$s .yml).webm --mp4 || exit 1; \
+	done
+	@echo "demos -> $(DEMO_OUT)"
+
 e2e:
 	@cd e2e && npm install --silent \
 	  && { [ "$(E2E_INSTALL)" != 1 ] || npx playwright install chromium chromium-headless-shell; } \

@@ -1,0 +1,38 @@
+# Demo (ADR-027): the public, unauthenticated report form on the status SPA.
+# Record: shot-scraper video storyboards/status-report-form.yml -o /tmp/status-report-form.webm --mp4
+# Needs the local status page on :5173 + backend on :8010 (make dev + make status-page).
+output: status-report-form.webm
+url: http://localhost:5173
+viewport:
+  width: 1280
+  height: 800
+cursor: true
+wait_for: "text=Something wrong? Let us know"
+scenes:
+- name: The public status page
+  do:
+  - pause: 1.5
+- name: Report an incident — no sign-in
+  do:
+  - click: 'input[placeholder^="What"]'
+  - type:
+      into: 'input[placeholder^="What"]'
+      text: "Checkout returns 500 on payment"
+      delay_ms: 35
+  - type:
+      into: 'textarea[placeholder^="Any details"]'
+      text: "Started ~5 min ago, reproducible on Visa cards."
+      delay_ms: 20
+  - pause: 1
+  - click: "button[type=submit]"
+  - wait_for: "text=Thanks — received"
+  - pause: 2.5
+- name: Or submit a session id for a trace check
+  do:
+  - click: 'button:has-text("Check a session")'
+  - pause: 0.5
+  - type:
+      into: 'input[placeholder^="32-character"]'
+      text: "0123456789abcdef0123456789abcdef"
+      delay_ms: 20
+  - pause: 2
