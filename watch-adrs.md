@@ -474,3 +474,24 @@
 - *Gain:* one worker drains **both** kinds — Session Check and webhook delivery share the queue + consumer; the same image runs API and worker, so a promoted digest updates both.
 - *Cost:* a standing worker service (min 1 task) + a queue to operate; at-least-once means consumers must be idempotent (they are). Retry/backoff is SQS-native (visibility timeout + redrive), not app-tuned — a documented v1 caveat.
 - *Guardrail:* least-privilege split roles (send vs receive), DLQ bounds blast radius, the seam keeps boto3 out of the domain, both provider branches unit-tested; new code held to ≥90% coverage + green Sonar.
+
+---
+
+## ADR-026 — Multi-vendor trace store for Session Check (own telemetry + query-only adapters)
+**Status:** Accepted · *Realizes the deferral in ADR-022; refines the `trace_store` seam*
+
+**Context.** ADR-022's Session Check queries a trace backend for a session's error spans, and left the vendor impl deferred (only `none` + in-VPC `tempo`). Two distinct needs surfaced: **(a)** query Watch's **own** prod telemetry — which goes to **Grafana Cloud** (ADR-016 §2), not an in-VPC Tempo; and **(b)** use Watch as an **SRE tool against *existing* telemetry at work** — **Datadog** and **Sumo Logic** — where Watch does **not** own ingest and the traces are put there by unrelated systems.
+
+**Decision.**
+1. **One provider per backend behind the existing `find_error_spans(subject_kind, subject_hash, window)` seam** — `TRACE_STORE_PROVIDER` ∈ `none | tempo | grafana_cloud | datadog | sumologic`. Each provider builds a vendor query for "spans where the subject attribute = the hash **and** status = error, in the window", calls the vendor API, and **normalizes to the same span dict** (`trace_id, span_id, name, service, status, http_status, ts`) that `ErrorSpan` stores. A backend that can't answer raises `TraceStoreError` → the check is **indeterminate**, never a false `clean`.
+2. **The queries are read-only adapters; Watch owns ingest only for its own telemetry.** `tempo`/`grafana_cloud` are Watch's own spans (session-tagged by the middleware, ADR-022). `datadog`/`sumologic` point at **work** telemetry — **no gateway/export/ingest work here, and their ingest cost is not ours**. All Session Check does is issue queries.
+3. **Per-vendor query APIs, shared normalization:**
+   - `grafana_cloud` = **Tempo** (identical TraceQL `{ span.session.id = "…" && status = error }` + response as `tempo`), just **HTTPS + HTTP basic auth** (user = Tempo instance id, password = an access-policy token). It subclasses the Tempo provider.
+   - `datadog` = **APM v2 spans search** (`POST /api/v2/spans/events/search`), query `@session.id:<hash> status:error`, `DD-API-KEY` + `DD-APPLICATION-KEY` headers. Only **indexed** spans (retention filters) are searchable — Datadog's analogue of our tail-sampling keep-policy.
+   - `sumologic` = **async Search Job API** (create job → poll to *DONE GATHERING RESULTS* → fetch messages), basic auth (accessId:accessKey), region endpoint.
+4. **Auth is config, secrets via SSM in prod** (tokens/keys never in code/state), same discipline as the other app secrets. Querying is **not per-query billed** anywhere; ingest/retention/indexing is — so Session Check's read pattern is cheap, and the only cost lever is *what's kept* (our tail-sampling for own telemetry; the work systems' retention for theirs).
+
+**Consequences.**
+- *Gain:* Session Check works against Watch's own prod telemetry (Grafana Cloud) **and** as an SRE tool over existing Datadog/Sumo telemetry, all behind one seam, one normalized result, provider chosen by config.
+- *Cost / caveat:* the providers are unit-tested (query construction, auth, response parsing — all mocked), but **live-validated only against a real account**. Two documented assumptions to confirm before prod use: exact **Datadog span attribute field names** (`resource_name`, `custom.http.status_code`, `start_timestamp`) and the **Sumo tracing query dialect** (`_view=spans`, span field names) — both isolated to their provider + kept configurable.
+- *Guardrail:* a backend error is always `indeterminate` (never a false `clean`); secrets via SSM, never logged; new code held to ≥90% coverage + green Sonar.

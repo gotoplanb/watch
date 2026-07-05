@@ -197,9 +197,24 @@ SESSION_USER_HMAC_KEY = _env("SESSION_USER_HMAC_KEY", "")
 CHECKS_WEBHOOK_SECRET = _env("CHECKS_WEBHOOK_SECRET", "")
 # Run the check synchronously in-process (local/dev); the cloud path enqueues to SQS + a worker.
 CHECKS_LOCAL_MODE = _bool("CHECKS_LOCAL_MODE", True)
-# Trace backend the worker queries for error spans: none | tempo (vendor/Grafana Cloud deferred).
+# Trace backend the worker queries for error spans (ADR-026): none | tempo | grafana_cloud |
+# datadog | sumologic. tempo/grafana_cloud are Watch's own telemetry; datadog/sumologic are
+# query-only adapters onto EXISTING (work) telemetry — Watch-as-an-SRE-tool, no ingest here.
 TRACE_STORE_PROVIDER = _env("TRACE_STORE_PROVIDER", "none")
-TEMPO_QUERY_URL = _env("TEMPO_QUERY_URL", "http://localhost:3200")  # Tempo query-frontend base
+TEMPO_QUERY_URL = _env("TEMPO_QUERY_URL", "http://localhost:3200")  # in-VPC Tempo query-frontend base
+# Grafana Cloud Tempo (managed): HTTPS + basic auth (user = instance id, token = access-policy token).
+GRAFANA_CLOUD_TEMPO_URL = _env("GRAFANA_CLOUD_TEMPO_URL", "")
+GRAFANA_CLOUD_TEMPO_USER = _env("GRAFANA_CLOUD_TEMPO_USER", "")
+GRAFANA_CLOUD_TEMPO_TOKEN = _env("GRAFANA_CLOUD_TEMPO_TOKEN", "")  # secret (SSM in prod)
+# Datadog APM spans search (v2). Keys are secrets (SSM in prod); site e.g. datadoghq.com | us5... | eu.
+DATADOG_SITE = _env("DATADOG_SITE", "datadoghq.com")
+DATADOG_API_KEY = _env("DATADOG_API_KEY", "")
+DATADOG_APP_KEY = _env("DATADOG_APP_KEY", "")
+# Sumo Logic tracing (Search Job API). accessId/accessKey are secrets (SSM in prod); endpoint is
+# region-specific, e.g. https://api.us2.sumologic.com.
+SUMO_API_ENDPOINT = _env("SUMO_API_ENDPOINT", "")
+SUMO_ACCESS_ID = _env("SUMO_ACCESS_ID", "")
+SUMO_ACCESS_KEY = _env("SUMO_ACCESS_KEY", "")
 # Default lookback when a check omits an explicit window (seconds).
 CHECKS_DEFAULT_LOOKBACK_SECONDS = int(_env("CHECKS_DEFAULT_LOOKBACK_SECONDS", "3600") or "3600")
 # Trace retention — a window fully older than this returns `aged_out` (never a false clean).

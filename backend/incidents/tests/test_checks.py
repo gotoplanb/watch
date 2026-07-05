@@ -114,9 +114,10 @@ def test_tempo_provider_queries(settings, monkeypatch):
         def raise_for_status(self): pass
         def json(self): return {"traces": []}
 
-    def fake_get(url, params=None, timeout=None):
+    def fake_get(url, params=None, timeout=None, auth=None):
         captured["url"] = url
         captured["q"] = params["q"]
+        captured["auth"] = auth
         return Resp()
 
     monkeypatch.setattr(trace_store.requests, "get", fake_get)
