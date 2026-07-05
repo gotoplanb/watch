@@ -23,16 +23,19 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
 from . import checks, escalation, services
 from .intake import create_incident_idempotent
-from .models import Incident, Status
+from .models import CheckSource, CheckSubjectKind, Incident, Status
 from .permissions import CanActOnIncident
 from .serializers import (
     ActionSerializer,
     IncidentSerializer,
     IntakeSerializer,
+    PublicCheckSerializer,
+    PublicIncidentSerializer,
     SessionCheckSerializer,
 )
 
@@ -165,6 +168,87 @@ class SessionCheckWebhookView(APIView):
                 "verdict": check.verdict,
                 "error_spans": check.error_spans.count(),
             },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class _PublicReportThrottle(SimpleRateThrottle):
+    """Per-IP limiter for the anonymous report endpoints (ADR-027). Fixed scope (not
+    ScopedRateThrottle, which pulls its scope off the view's `throttle_scope`); rate from
+    DEFAULT_THROTTLE_RATES['public_report']. Preflights return no key, so they aren't counted."""
+
+    scope = "public_report"
+
+    def get_cache_key(self, request, view):
+        if request.method == "OPTIONS":
+            return None  # don't spend the budget on CORS preflights
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class _PublicCORSMixin:
+    """Minimal CORS for the anonymous status-page write endpoints — mirrors the GET status view's
+    single-origin allowance (ADR-011 / ADR-027) and answers the JSON-POST preflight. No credentials;
+    DRF's built-in `options()` handles the preflight and this stamps the headers onto it."""
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        origin = settings.STATUS_PAGE_CORS_ORIGIN
+        response["Access-Control-Allow-Origin"] = origin
+        response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        response["Access-Control-Allow-Headers"] = "Content-Type"
+        if origin != "*":
+            response["Vary"] = "Origin"
+        return response
+
+
+class ReportIncidentView(_PublicCORSMixin, APIView):
+    """Public, unauthenticated incident report from the status-page form (ADR-027). Unlike the M2M
+    intake webhook (ADR-008), there is NO shared secret — the abuse surface is bounded by a per-IP
+    throttle and the serializer's length caps. Creates a real incident (source=status-page) and,
+    like intake, starts one escalation execution."""
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+    throttle_classes = [_PublicReportThrottle]
+
+    def post(self, request):
+        s = PublicIncidentSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        d = s.validated_data
+        incident, created = create_incident_idempotent(
+            source="status-page",
+            payload={"detail": d["detail"], "reporter": "public"},
+            title=d["title"],
+            source_event_id=None,
+        )
+        if created:
+            incident.escalation_execution_arn = escalation.start_escalation(incident)
+            incident.save(update_fields=["escalation_execution_arn", "updated_at"])
+        return Response(
+            {"id": str(incident.id), "created": created},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class ReportCheckView(_PublicCORSMixin, APIView):
+    """Public Session Check submission from the status-page form (ADR-027). A visitor reports their
+    own non-secret session correlation id; we enqueue a check (source=self_report). The verdict is
+    for the on-call, not the anonymous submitter, so we return only an id/status acknowledgement."""
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+    throttle_classes = [_PublicReportThrottle]
+
+    def post(self, request):
+        s = PublicCheckSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        check = checks.create_and_run(
+            subject_kind=CheckSubjectKind.SESSION,
+            subject_raw=s.validated_data["session"].lower(),
+            source=CheckSource.SELF_REPORT,
+        )
+        return Response(
+            {"id": str(check.id), "status": check.status},
             status=status.HTTP_201_CREATED,
         )
 

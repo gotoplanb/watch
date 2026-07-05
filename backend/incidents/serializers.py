@@ -41,6 +41,25 @@ class IntakeSerializer(serializers.Serializer):
     payload = serializers.JSONField(required=False, default=dict)
 
 
+class PublicIncidentSerializer(serializers.Serializer):
+    """Public, unauthenticated incident report from the status-page form (ADR-027). Tight bounds keep
+    the anonymous write surface small; the body is stored as the incident payload, not trusted."""
+
+    title = serializers.CharField(max_length=200, trim_whitespace=True)
+    detail = serializers.CharField(max_length=2000, required=False, allow_blank=True, default="")
+
+
+class PublicCheckSerializer(serializers.Serializer):
+    """Public Session Check submission (ADR-027): a visitor reports their own session correlation id.
+    The id is a non-secret uuid4 hex (32 chars) surfaced by the app; we validate the shape so the
+    anonymous path can only enqueue well-formed checks."""
+
+    session = serializers.RegexField(
+        r"^[0-9a-fA-F]{32}$",
+        error_messages={"invalid": "Enter the 32-character session id shown in the app."},
+    )
+
+
 class SessionCheckSerializer(serializers.Serializer):
     """Inbound Session Check request (ADR-022). `subject` is the non-secret session correlation id
     (kind=session) or the plaintext user/customer id (kind=user, HMAC'd server-side)."""

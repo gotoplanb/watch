@@ -46,6 +46,83 @@ function Card({ label, value, accent }) {
   </div>`;
 }
 
+const FIELD =
+  "w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-2 text-slate-100 text-sm " +
+  "placeholder-slate-600 focus:outline-none focus:border-slate-600";
+
+function TabButton({ active, onClick, children }) {
+  const on = "bg-slate-800 text-slate-100";
+  const off = "text-slate-400 hover:text-slate-200";
+  return html`<button type="button" onClick=${onClick}
+    class=${`px-3 py-1.5 rounded-md text-sm font-medium ${active ? on : off}`}>${children}</button>`;
+}
+
+// Public, unauthenticated self-service report (ADR-027): report an incident, or submit a session id
+// for a trace check. Posts to the throttled anonymous endpoints; shows an honest ack/error, no verdict.
+function ReportForm() {
+  const [mode, setMode] = useState("incident"); // "incident" | "check"
+  const [title, setTitle] = useState("");
+  const [detail, setDetail] = useState("");
+  const [session, setSession] = useState("");
+  const [st, setSt] = useState({ status: "idle" }); // idle | sending | ok | error
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSt({ status: "sending" });
+    const incident = mode === "incident";
+    const path = incident ? "/api/report/incident" : "/api/report/check";
+    const body = incident ? { title, detail } : { session: session.trim() };
+    try {
+      const res = await fetch(`${API}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.status === 429) {
+        setSt({ status: "error", msg: "Too many submissions — please wait a moment and retry." });
+      } else if (!res.ok) {
+        const msg = data ? Object.values(data).flat().join(" ") : "Submission failed.";
+        setSt({ status: "error", msg });
+      } else {
+        setSt({ status: "ok", ref: (data?.id || "").slice(0, 8) });
+        setTitle(""); setDetail(""); setSession("");
+      }
+    } catch {
+      setSt({ status: "error", msg: "Could not reach Watch." });
+    }
+  };
+
+  const busy = st.status === "sending";
+  return html`
+    <section class="mt-6 bg-slate-900 border border-slate-800 rounded-lg p-4">
+      <h2 class="text-slate-200 font-semibold text-sm mb-1">Something wrong? Let us know</h2>
+      <p class="text-slate-500 text-xs mb-3">No sign-in needed. Report an issue, or submit a session id for a trace check.</p>
+      <div class="flex gap-1 mb-3">
+        <${TabButton} active=${mode === "incident"} onClick=${() => { setMode("incident"); setSt({ status: "idle" }); }}>Report an incident<//>
+        <${TabButton} active=${mode === "check"} onClick=${() => { setMode("check"); setSt({ status: "idle" }); }}>Check a session<//>
+      </div>
+      <form onSubmit=${submit} class="grid gap-2">
+        ${mode === "incident"
+          ? html`
+            <input class=${FIELD} placeholder="What's broken? (short summary)" maxlength="200"
+              required value=${title} onInput=${(e) => setTitle(e.target.value)} />
+            <textarea class=${FIELD} rows="3" maxlength="2000" placeholder="Any details (optional)"
+              value=${detail} onInput=${(e) => setDetail(e.target.value)}></textarea>`
+          : html`
+            <input class=${FIELD} placeholder="32-character session id from the app" pattern="[0-9a-fA-F]{32}"
+              required value=${session} onInput=${(e) => setSession(e.target.value)} />`}
+        <div class="flex items-center gap-3">
+          <button type="submit" disabled=${busy}
+            class="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-100 text-sm font-medium rounded-md px-4 py-2">
+            ${busy ? "Sending…" : "Submit"}</button>
+          ${st.status === "ok" && html`<span class="text-emerald-400 text-sm">Thanks — received${st.ref ? html` (ref ${st.ref})` : ""}.</span>`}
+          ${st.status === "error" && html`<span class="text-rose-400 text-sm">${st.msg}</span>`}
+        </div>
+      </form>
+    </section>`;
+}
+
 function StatusPage() {
   const [s, setS] = useState({ reachable: true, ok: true, data: null, loading: true });
 
@@ -97,6 +174,7 @@ function StatusPage() {
             <${Card} label="Resolved (24h)" value=${inc.resolved_24h} accent="good" />
           </div>`
         : html`<p class="text-slate-500">${s.loading ? "Loading…" : "No data."}</p>`}
+      <${ReportForm} />
       <footer class="text-slate-600 text-xs mt-4">${s.data?.generated_at ? `updated ${new Date(s.data.generated_at).toLocaleTimeString()}` : ""}</footer>
     </div>`;
 }

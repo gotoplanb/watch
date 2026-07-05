@@ -142,6 +142,11 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    # ADR-027: the only anonymous write path (the public status-page report form) is
+    # bounded per-IP. Rate is env-tunable so a noisy source can be clamped without a deploy.
+    "DEFAULT_THROTTLE_RATES": {
+        "public_report": _env("PUBLIC_REPORT_THROTTLE", "10/min"),
+    },
 }
 
 # --- Feature flags (ADR-003): thin seam, provider selected by env ---

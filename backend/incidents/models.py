@@ -218,6 +218,7 @@ class CheckSource(models.TextChoices):
     PARTNER = "partner", "Partner"
     E2E = "e2e", "E2E"
     MANUAL = "manual", "Manual"
+    SELF_REPORT = "self_report", "Self-report"  # public status-page form (ADR-027)
 
 
 class SessionCheck(models.Model):
@@ -229,7 +230,7 @@ class SessionCheck(models.Model):
     subject_hash = models.CharField(max_length=128)  # session correlation id, or HMAC of a user id
     window_from = models.DateTimeField(null=True, blank=True)
     window_to = models.DateTimeField(null=True, blank=True)
-    source = models.CharField(max_length=8, choices=CheckSource.choices, default=CheckSource.MANUAL)
+    source = models.CharField(max_length=16, choices=CheckSource.choices, default=CheckSource.MANUAL)
     status = models.CharField(max_length=16, choices=CheckStatus.choices, default=CheckStatus.QUEUED)
     verdict = models.CharField(max_length=128, blank=True, default="")  # clean | errors_found:N | aged_out
     created_at = models.DateTimeField(auto_now_add=True)
