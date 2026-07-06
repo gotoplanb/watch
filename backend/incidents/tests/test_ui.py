@@ -141,7 +141,7 @@ def test_add_note_appends_to_timeline(client):
     client.force_login(_user("commenter"))
     resp = client.post(f"/ui/incidents/{inc.id}/note/", {"body": "looking into it"})
     assert resp.status_code == 200 and b"looking into it" in resp.content
-    ev = TimelineEvent.objects.get(incident=inc)
+    ev = inc.events.get()
     assert ev.type == "note" and ev.actor == "commenter"
 
 
@@ -150,7 +150,7 @@ def test_empty_note_is_noop(client):
     inc = _incident()
     client.force_login(_user("commenter2"))
     resp = client.post(f"/ui/incidents/{inc.id}/note/", {"body": "   "})
-    assert resp.status_code == 200 and TimelineEvent.objects.filter(incident=inc).count() == 0
+    assert resp.status_code == 200 and inc.events.count() == 0
 
 
 @pytest.mark.django_db
@@ -245,7 +245,7 @@ def test_escalate_real_mode_leaves_state_to_lambda(client, settings, monkeypatch
 def test_escalate_emits_system_event():
     inc = _incident(Tier.T1)
     services.escalate(inc.id, actor="7")
-    sys_ev = TimelineEvent.objects.get(incident=inc, type="system")
+    sys_ev = inc.events.get(type="system")
     assert "Escalated T1→T2" in sys_ev.body and sys_ev.data["to_tier"] == "T2"
 
 
@@ -254,7 +254,7 @@ def test_auto_escalate_narrative_and_ai_post():
     inc = _incident(Tier.T1)
     from incidents.models import Transition
     services.escalate(inc.id, actor=Transition.SYSTEM_ACTOR)
-    sys_ev = TimelineEvent.objects.get(incident=inc, type="system")
+    sys_ev = inc.events.get(type="system")
     assert "Auto-escalated (SLA breach)" in sys_ev.body and sys_ev.data["auto"] is True
     ai = services.post_ai_event(inc, body="likely OOM in worker", data={"confidence": 0.7})
     assert ai.type == "ai" and ai.actor == "argus"
@@ -264,7 +264,7 @@ def test_auto_escalate_narrative_and_ai_post():
 def test_str_reprs():
     inc = _incident(Tier.T1)
     user = _user("author1")
-    ev = TimelineEvent.objects.create(incident=inc, type="note", actor="author1", body="x")
+    ev = TimelineEvent.objects.create(record=inc, type="note", actor="author1", body="x")
     assert "note by author1" in str(ev)
     a = services.annotate_event(ev, author=user, body="y", tag=AnnotationTag.UNEXPECTED)
     assert "unexpected" in str(a) and "author1" in str(a)

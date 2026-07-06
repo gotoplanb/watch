@@ -70,6 +70,10 @@ class Incident(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Timeline events attach via a GFK (ADR-031) so the timeline is shared across record types;
+    # this GenericRelation restores `incident.events` (virtual — no column, engine untouched).
+    events = GenericRelation("TimelineEvent")
+
     class Meta:
         constraints = [
             # ADR-009: dedupe is scoped to the open incident. Retries while OPEN
@@ -127,13 +131,16 @@ class EventType(models.TextChoices):
 
 
 class TimelineEvent(models.Model):
-    """A non-transition entry on an incident's timeline (ADR-021, replaces the flat Comment).
-    `note` = human message; `system` = escalation-engine narrative (auto-escalation / SLA / paging);
-    `ai` = AI-assisted triage finding. Merged with Transitions into the incident timeline and
-    annotatable like any event. `data` holds structured detail (e.g. from/to tier, sla_seconds)."""
+    """A non-transition entry on a RECORD's timeline (ADR-021/031). Attaches to any record —
+    incident/problem/rca — via a GenericForeignKey, so the timeline is shared across types.
+    `note` = human message; `system` = engine narrative; `ai` = AI-assisted finding. For incidents
+    it merges with Transitions (which stay incident-only); annotatable like any event."""
 
     id = models.BigAutoField(primary_key=True)
-    incident = models.ForeignKey(Incident, related_name="events", on_delete=models.CASCADE)
+    # Target record (ADR-031) — object_id is a CharField because records use UUID primary keys.
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.CharField(max_length=64)
+    record = GenericForeignKey("content_type", "object_id")
     type = models.CharField(max_length=8, choices=EventType.choices, default=EventType.NOTE)
     actor = models.CharField(max_length=128, blank=True, default="")  # username / system:… / argus
     body = models.TextField(blank=True, default="")
@@ -145,9 +152,10 @@ class TimelineEvent(models.Model):
 
     class Meta:
         ordering = ["occurred_at", "id"]
+        indexes = [models.Index(fields=["content_type", "object_id"], name="tlevent_record_idx")]
 
     def __str__(self):
-        return f"{self.incident_id}: {self.type} by {self.actor or 'system'}"
+        return f"{self.content_type_id}:{self.object_id} — {self.type} by {self.actor or 'system'}"
 
 
 class AnnotationTag(models.TextChoices):

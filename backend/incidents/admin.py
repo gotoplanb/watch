@@ -40,9 +40,9 @@ class TransitionAdmin(admin.ModelAdmin):
 
 @admin.register(TimelineEvent)
 class TimelineEventAdmin(admin.ModelAdmin):
-    list_display = ["incident", "type", "actor", "occurred_at"]
-    list_filter = ["type"]
-    search_fields = ["incident__id", "actor", "body"]
+    list_display = ["record", "type", "actor", "occurred_at"]  # 'record' is the GFK target (ADR-031)
+    list_filter = ["type", "content_type"]
+    search_fields = ["object_id", "actor", "body"]
 
 
 @admin.register(Annotation)

@@ -238,25 +238,25 @@ def resolve(incident_id, actor: str, reason: str = "") -> Incident:
 
 # --- Timeline events, annotations, and RCA assembly (ADR-021) ---
 
-def add_note(incident, actor: str, body: str) -> TimelineEvent:
-    """Human note on the incident timeline."""
+def add_note(record, actor: str, body: str) -> TimelineEvent:
+    """Human note (work note) on a record's timeline — incident/problem/rca (ADR-031)."""
     return TimelineEvent.objects.create(
-        incident=incident, type=EventType.NOTE, actor=actor, body=body
+        record=record, type=EventType.NOTE, actor=actor, body=body
     )
 
 
-def post_system_event(incident, body: str, data: dict | None = None) -> TimelineEvent:
-    """Escalation-engine narrative event — complements a Transition (which stays the audit record)."""
+def post_system_event(record, body: str, data: dict | None = None) -> TimelineEvent:
+    """Engine/automation narrative event — complements a Transition (which stays the audit record)."""
     return TimelineEvent.objects.create(
-        incident=incident, type=EventType.SYSTEM, actor="system", body=body, data=data or {}
+        record=record, type=EventType.SYSTEM, actor="system", body=body, data=data or {}
     )
 
 
-def post_ai_event(incident, body: str, actor: str = "argus", data: dict | None = None) -> TimelineEvent:
-    """AI-assisted triage finding on the timeline (§8 / #17) — the hook the AI agent posts through,
-    so its findings land in the incident history and feed the RCA."""
+def post_ai_event(record, body: str, actor: str = "argus", data: dict | None = None) -> TimelineEvent:
+    """AI-assisted finding on the timeline (§8 / #17) — the hook the AI agent posts through, so its
+    findings land in the record's history and feed the RCA."""
     return TimelineEvent.objects.create(
-        incident=incident, type=EventType.AI, actor=actor, body=body, data=data or {}
+        record=record, type=EventType.AI, actor=actor, body=body, data=data or {}
     )
 
 
@@ -266,16 +266,20 @@ def annotate_event(target, *, author, body: str = "", tag: str = "note") -> Anno
     return Annotation.objects.create(target=target, author=author, body=body, tag=tag)
 
 
-def timeline(incident):
-    """Merged, time-ordered incident history: Transitions + TimelineEvents, each with its
+def timeline(record):
+    """Merged, time-ordered history for any record (ADR-031): its TimelineEvents, plus Transitions
+    when the record has them (incidents only — Transitions stay incident-only). Each item carries its
     annotations prefetched. Items: {kind: transition|event, at, obj, target: 'kind:id'}."""
-    items = [
-        {"kind": "transition", "at": t.at, "obj": t, "target": f"transition:{t.id}"}
-        for t in incident.transitions.prefetch_related("annotations__author")
-    ]
+    items = []
+    transitions = getattr(record, "transitions", None)
+    if transitions is not None:  # incidents only
+        items += [
+            {"kind": "transition", "at": t.at, "obj": t, "target": f"transition:{t.id}"}
+            for t in transitions.prefetch_related("annotations__author")
+        ]
     items += [
         {"kind": "event", "at": e.occurred_at, "obj": e, "target": f"event:{e.id}"}
-        for e in incident.events.prefetch_related("annotations__author")
+        for e in record.events.prefetch_related("annotations__author")
     ]
     items.sort(key=lambda i: i["at"])
     return items
