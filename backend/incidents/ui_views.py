@@ -13,9 +13,11 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_GET, require_POST
 
+from django.contrib import messages
+
 from . import apikeys
 from . import checks as checks_svc
-from . import escalation, services
+from . import escalation, services, session_index
 from .models import (
     AnnotationTag,
     CheckSource,
@@ -273,6 +275,16 @@ def rotate_keys(request):
     """Rotate the current user's seed (ADR-030) — rolls their API key + ntfy topic together. Own
     keyring only; back to settings where the new values render."""
     apikeys.rotate(request.user)
+    return redirect("ui:settings")
+
+
+@login_required
+@require_POST
+def sign_out_everywhere(request):
+    """Revoke all of the user's OTHER sessions (ADR-008), keeping the current device signed in. Own
+    sessions only — the server-side session store makes this an instant kill, unlike a stateless JWT."""
+    n = session_index.flush(request.user, keep=request.session.session_key or "")
+    messages.success(request, f"Signed out {n} other session{'' if n == 1 else 's'}.")
     return redirect("ui:settings")
 
 

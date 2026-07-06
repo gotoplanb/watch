@@ -22,5 +22,6 @@ urlpatterns = [
     path("webhooks/add/", ui_views.add_subscription, name="add_subscription"),
     path("settings/", ui_views.settings_view, name="settings"),
     path("settings/rotate-keys/", ui_views.rotate_keys, name="rotate_keys"),
+    path("settings/sign-out-everywhere/", ui_views.sign_out_everywhere, name="sign_out_everywhere"),
     path("environments/", ui_views.env_dashboard, name="environments"),
 ]

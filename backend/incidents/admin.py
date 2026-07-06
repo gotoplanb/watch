@@ -1,4 +1,8 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.models import User
+
+from . import session_index
 
 from .models import (
     Annotation,
@@ -81,3 +85,18 @@ class WebhookDeliveryAdmin(admin.ModelAdmin):
     list_display = ["event_type", "subscription", "status", "status_code", "attempts", "created_at"]
     list_filter = ["status", "event_type"]
     readonly_fields = [f.name for f in WebhookDelivery._meta.fields]
+
+
+@admin.action(description="Force sign-out (revoke all sessions)")
+def force_sign_out(modeladmin, request, queryset):
+    """Superuser force-logout (ADR-008): revoke every session of the selected users."""
+    total = sum(session_index.flush(user) for user in queryset)
+    modeladmin.message_user(request, f"Signed out {total} session(s) across {queryset.count()} user(s).")
+
+
+admin.site.unregister(User)
+
+
+@admin.register(User)
+class WatchUserAdmin(UserAdmin):
+    actions = [force_sign_out]

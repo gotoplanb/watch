@@ -415,3 +415,20 @@ class UserKeyring(models.Model):
 
     def __str__(self):
         return f"keyring[{self.user_id}]"
+
+
+class UserSession(models.Model):
+    """Reverse index of a user's active login sessions (ADR-008). Sessions live only in Valkey (cache
+    backend), which has no user→sessions lookup — so we record each authenticated session key here to
+    enable 'sign out everywhere' + admin force sign-out. One row per login; rows are pruned on flush
+    (a leftover row for an already-expired session is harmless — deleting it is a no-op)."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="session_index")
+    session_key = models.CharField(max_length=40, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["user", "-created_at"])]
+
+    def __str__(self):
+        return f"session[{self.user_id}] {self.session_key[:8]}…"
