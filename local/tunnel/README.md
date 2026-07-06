@@ -39,7 +39,9 @@ make tunnel-status              # UP/DOWN per tunnel
 Notes:
 - Rendered policies (`policy.<svc>.local.yml`, with creds), tfstate, and pid/log files are gitignored.
 - If tofu state is lost: `tofu import ngrok_domain.watch_dev <domain>` (and `ngrok_domain.status_dev[0] <domain>`).
-- **Status tunnel + the API:** the status SPA fetches the backend at `<hostname>:8010`, so when served
-  over the `status` tunnel it will look for the API on that tunnel host, not the `watch` tunnel. Point it
-  at the watch tunnel (e.g. a `?api=https://<watch-domain>` override in `index.html`) if you need the
-  tunneled status page to reach a tunneled backend — see the note in the commit that added this.
+- **Status tunnel + the API (both tunnels up):** open the status page pointed at the watch tunnel:
+  `https://<status-domain>/?api=https://<watch-domain>`. The SPA fetches `<hostname>:8010` by default,
+  which is wrong over a tunnel (ngrok serves 443 only) — the `?api=` override (`index.html`) sends it to
+  the watch tunnel instead. So the cross-origin fetch clears the watch edge, its **basic-auth policy
+  exempts the public `/api/status*` posture endpoints** (`policy.tmpl.yml`; they're `AllowAny`, like the
+  public status site) — everything else on the watch tunnel stays password-protected.

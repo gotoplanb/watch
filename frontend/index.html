@@ -6,10 +6,16 @@
   <title>Watch · Status</title>
   <!--
     Build-less React (ADR-011): React + htm from an ESM CDN; Tailwind via the Play CDN
-    (matches the Django UI dark theme). Prod compiles to a fingerprinted bundle. Point
-    WATCH_API at the API origin (dev default: :8010 of whatever host serves this page).
+    (matches the Django UI dark theme). Prod compiles to a fingerprinted bundle. The API origin
+    resolves as: ?api=<url> override > :8010 of the serving host when served on a dev port
+    (local `make status-page`) > same-origin (prod/CloudFront). The ?api= override is for serving
+    this page over its own ngrok tunnel, where the API lives on the *watch* tunnel, not :8010 here.
   -->
-  <script>window.WATCH_API = `${location.protocol}//${location.hostname}:8010`;</script>
+  <script>
+    window.WATCH_API = new URLSearchParams(location.search).get("api")
+      || (location.port ? `${location.protocol}//${location.hostname}:8010`
+                        : `${location.protocol}//${location.hostname}`);
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-950 text-slate-200 min-h-screen [color-scheme:dark]">

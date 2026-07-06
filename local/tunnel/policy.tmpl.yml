@@ -1,9 +1,16 @@
-# ngrok edge traffic policy for the Watch dev tunnel. tunnel.sh renders this to policy.local.yml
-# (gitignored, mode 600) with credentials from .env, and passes it to the agent. Basic-auth runs at
-# ngrok's edge BEFORE any request reaches the local server, so unauthenticated scanners get 401 and
-# never touch the app. HTTP only.
+# ngrok edge traffic policy for the Watch dev tunnels. tunnel.sh renders this to
+# policy.<svc>.local.yml (gitignored, mode 600) with credentials from .env, and passes it to the
+# agent. Basic-auth runs at ngrok's edge BEFORE any request reaches the local server, so
+# unauthenticated scanners get 401 and never touch the app. HTTP only.
+#
+# Exception: the public status posture endpoints (/api/status, /api/status/stream — both AllowAny,
+# same as the public status.davestanton.com) are NOT basic-auth'd, so the status-page SPA served
+# over its own tunnel can fetch the API cross-origin (a browser won't send basic-auth cross-origin).
+# Everything else stays password-protected.
 on_http_request:
   - name: basic-auth
+    expressions:
+      - "!req.url.contains('/api/status')"
     actions:
       - type: basic-auth
         config:
