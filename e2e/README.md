@@ -18,13 +18,17 @@ Runners:
 ## Running
 ```
 make e2e                 # local: @local tests vs http://localhost:8010 (needs `make dev` up)
-make e2e E2E_INSTALL=0    # skip the browser install step (see macOS note below)
+make e2e E2E_INSTALL=1    # also (re)install browsers via npx — opt-in (see macOS note below)
 ```
+Browser install is **opt-in**: `E2E_INSTALL` defaults to `0`, so `make e2e` never runs
+`npx playwright install` unless you ask. Seed browsers once with `ditto` (below) and every later
+run — including the pre-commit hook's `make e2e` — just uses them. CI is unaffected: the pipeline
+Smoke stage runs on the prebuilt `mcr.microsoft.com/playwright` image with browsers baked in.
 
 ## macOS: browser install hangs
-On some macOS setups Playwright's browser install **freezes at "extracting archive"** (the download
-completes; the Node-based unzip stalls). Work around it by extracting with the native `ditto`, then
-running with `E2E_INSTALL=0` so `make e2e` doesn't re-trigger the hanging installer:
+On some macOS setups Playwright's `npx playwright install` **freezes at "extracting archive"** (the
+download completes; the Node-based unzip stalls) — which is why install is opt-in. Seed the browser
+natively with `ditto` instead; then plain `make e2e` (default `E2E_INSTALL=0`) uses it:
 
 ```bash
 D=~/Library/Caches/ms-playwright
@@ -34,6 +38,8 @@ rm -rf "$D/chromium_headless_shell-1148" && mkdir -p "$D/chromium_headless_shell
 ditto -x -k /tmp/hs.zip "$D/chromium_headless_shell-1148/"
 # (repeat for chromium-mac-arm64.zip -> $D/chromium-1148 if the full browser is also missing)
 
-cd ~/watch && make e2e E2E_INSTALL=0
+cd ~/watch && make e2e   # E2E_INSTALL=0 is the default — no installer, uses the seeded browser
 ```
-Tip: `export E2E_INSTALL=0` in your shell so the pre-commit hook's `make e2e` skips the installer too.
+Because install is opt-in by default, a plain `git commit` runs the hook's `make e2e` against the
+seeded browser and can't hang. You only need `E2E_INSTALL=1` to (re)provision on a box where the
+installer works.

@@ -79,10 +79,13 @@ E2E_SECRET ?= dev-webhook-secret
 # Suite tiering (#30): local runs skip @staging-only tests; the staging Smoke stage overrides
 # E2E_GREP="" (or --grep="@local|@staging") to run the full superset.
 E2E_GREP ?= --grep-invert=@staging
-# Playwright's browser install can hang on some macOS setups (a broken local unzip — the download
-# finishes, extraction freezes). Set E2E_INSTALL=0 to skip it when browsers are already present
-# (install them out-of-band with `ditto` — see e2e/README.md). CI / fresh machines keep the default.
-E2E_INSTALL ?= 1
+# Browser provisioning is OPT-IN. Default 0 = never run `npx playwright install`, because on some
+# macOS setups its unzip hangs forever (download finishes, extraction freezes). Local dev seeds
+# browsers out-of-band with `ditto` (see e2e/README.md), so the installer is never needed and a
+# plain `make e2e` / `git commit` can't hang. Opt in with E2E_INSTALL=1 only where the installer
+# actually works (Linux, or a Mac you've verified). CI is unaffected — the pipeline Smoke stage
+# (platform modules/pipeline/smoke.tf) uses the prebuilt playwright image and never calls this.
+E2E_INSTALL ?= 0
 
 # Record release demo videos from the versioned storyboards (shot-scraper video -> webm + mp4).
 # Needs the local stack up (make dev + make status-page) and shot-scraper installed
