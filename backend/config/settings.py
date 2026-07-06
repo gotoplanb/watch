@@ -183,6 +183,8 @@ NTFY_TOPIC_SECRET = _env("NTFY_TOPIC_SECRET", "")
 
 # --- Intake webhook auth (ADR-008): machine-to-machine shared secret ---
 INTAKE_WEBHOOK_SECRET = _env("INTAKE_WEBHOOK_SECRET", "")
+# ADR-028: M2M shared secret for the per-env ops status/digest ingest (X-Watch-Ops-Secret).
+OPS_INGEST_SECRET = _env("OPS_INGEST_SECRET", "")
 
 # CORS origin allowed to read the public /api/status posture (ADR-011). Default open
 # for the local status-page SPA; set to the CloudFront/status domain in prod.

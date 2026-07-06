@@ -17,6 +17,7 @@ both calling it is safe — the second is a no-op.
 """
 import hashlib
 import hmac
+import re
 
 from django.conf import settings
 from rest_framework import status, viewsets
@@ -28,16 +29,21 @@ from rest_framework.views import APIView
 
 from . import checks, escalation, services
 from .intake import create_incident_idempotent
-from .models import CheckSource, CheckSubjectKind, Incident, Status
+from .models import CheckSource, CheckSubjectKind, Digest, EnvStatus, Incident, Status
 from .permissions import CanActOnIncident
 from .serializers import (
     ActionSerializer,
+    DigestIngestSerializer,
+    DigestReadSerializer,
+    EnvStatusReadSerializer,
     IncidentSerializer,
     IntakeSerializer,
     PublicCheckSerializer,
     PublicIncidentSerializer,
     SessionCheckSerializer,
 )
+
+_ENV_RE = re.compile(r"^[a-z0-9-]+$")  # ADR-028 environment label
 
 
 class IncidentViewSet(viewsets.ReadOnlyModelViewSet):
@@ -271,3 +277,80 @@ class WebhookEchoView(APIView):
         if not secret or not hmac.compare_digest(signature, expected):
             return Response({"detail": "bad signature"}, status=status.HTTP_401_UNAUTHORIZED)
         return Response({"received": request.headers.get("X-Watch-Event", "")})
+
+
+# --- Per-environment ops status + digests (ADR-028) -------------------------------------------------
+def _ops_secret_ok(request) -> bool:
+    """M2M auth for the ops ingest (mirrors the intake webhook, ADR-008) — a shared secret in
+    X-Watch-Ops-Secret, never a human session."""
+    secret = request.headers.get("X-Watch-Ops-Secret", "")
+    return bool(settings.OPS_INGEST_SECRET) and hmac.compare_digest(secret, settings.OPS_INGEST_SECRET)
+
+
+class _OpsIngestView(APIView):
+    """Base for the secret-gated ops ingest POSTs. env comes from the URL; the body is per-subclass."""
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+
+    def _guard(self, request, env):
+        if not _ops_secret_ok(request):
+            return Response({"detail": "Invalid ops secret."}, status=status.HTTP_401_UNAUTHORIZED)
+        if not _ENV_RE.match(env or ""):
+            return Response({"detail": "Invalid environment label."}, status=status.HTTP_400_BAD_REQUEST)
+        return None
+
+
+class EnvStatusIngestView(_OpsIngestView):
+    """Ops status ingest (ADR-028). The request body is arbitrary JSON, stored VERBATIM as the status
+    payload — no schema; the posted JSON itself defines the display groupings."""
+
+    def post(self, request, env):
+        blocked = self._guard(request, env)
+        if blocked:
+            return blocked
+        payload = request.data
+        if not isinstance(payload, (dict, list)) or payload in ({}, []):
+            return Response({"detail": "Body must be a non-empty JSON object or array."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        s = EnvStatus.objects.create(environment=env, payload=payload)
+        return Response({"id": str(s.id), "environment": env, "created_at": s.created_at},
+                        status=status.HTTP_201_CREATED)
+
+
+class DigestIngestView(_OpsIngestView):
+    """Per-env digest ingest (ADR-028). `special` = the 'speci' ad-hoc incident digest flag."""
+
+    def post(self, request, env):
+        blocked = self._guard(request, env)
+        if blocked:
+            return blocked
+        s = DigestIngestSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        d = Digest.objects.create(environment=env, **s.validated_data)
+        return Response({"id": str(d.id), "environment": env, "special": d.special, "created_at": d.created_at},
+                        status=status.HTTP_201_CREATED)
+
+
+class EnvStatusReadView(APIView):
+    """Latest ops status for an env — session-auth (DRF default). The /ui renders from the ORM; this
+    is the JSON read for API consumers / tooling verification."""
+
+    def get(self, request, env):
+        s = EnvStatus.objects.filter(environment=env).first()  # Meta ordering: newest first
+        if not s:
+            return Response({"detail": "No status for this environment."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(EnvStatusReadSerializer(s).data)
+
+
+class DigestListView(APIView):
+    """Per-env digest history — session-auth; optional ?special=true|false filter."""
+
+    def get(self, request, env):
+        qs = Digest.objects.filter(environment=env)
+        special = request.query_params.get("special")
+        if special in ("true", "1"):
+            qs = qs.filter(special=True)
+        elif special in ("false", "0"):
+            qs = qs.filter(special=False)
+        return Response(DigestReadSerializer(qs[:50], many=True).data)

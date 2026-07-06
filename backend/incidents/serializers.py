@@ -1,6 +1,28 @@
 from rest_framework import serializers
 
-from .models import Incident, Tier, Transition
+from .models import Digest, EnvStatus, Incident, Tier, Transition
+
+
+class DigestIngestSerializer(serializers.Serializer):
+    """Ingest body for a per-env health digest (ADR-028). `special` is the 'speci' flag — an ad-hoc
+    incident digest vs a routine scheduled one. The status ingest has NO serializer: its body is
+    arbitrary JSON stored verbatim."""
+
+    content = serializers.CharField()
+    title = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
+    special = serializers.BooleanField(required=False, default=False)
+
+
+class EnvStatusReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EnvStatus
+        fields = ["id", "environment", "payload", "created_at"]
+
+
+class DigestReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Digest
+        fields = ["id", "environment", "title", "content", "special", "created_at"]
 
 
 class TransitionSerializer(serializers.ModelSerializer):

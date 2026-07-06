@@ -514,3 +514,23 @@
 - *Gain:* the status page becomes a two-way surface — a visitor can raise an incident or self-submit a session for a trace check in one click, no account — while every downstream invariant (idempotent intake, one escalation execution, paging on tier entry, Session Check semantics) is inherited unchanged.
 - *Cost / caveat:* this is the system's **first anonymous write path**; the throttle + validation are the whole defense. If abused, the lever is `PUBLIC_REPORT_THROTTLE` (or a WAF rule / CAPTCHA later) — noted, not built. A public reporter can create incidents that page the on-call, which is the intended behavior but also the abuse vector; the per-IP cap keeps a single source from flooding the rota.
 - *Guardrail:* source is server-stamped (never client-trusted); verdicts aren't exposed to anonymous callers; held to ≥90% coverage + green Sonar; both throttle branches (allowed / `429`) and the preflight-skip are tested.
+
+## ADR-028 — Per-environment ops status + digests: schema-less ingest, authenticated display
+**Status:** Accepted · *Migrates the useful half of the `hermit-watch-gen` precursor*
+
+**Context.** A precursor project (`hermit-watch-gen`) runs an external AI-SRE agent that, per environment, produces (a) a rich **ops status** object and (b) periodic **health digests** (markdown, pasted into Slack), and serves them behind a token page. We want that **ops-facing detail in Watch** — richer than the public posture (ADR-011) — but **Watch is only the store + display**: the existing tooling keeps generating the content and just re-points its POSTs at Watch. So Watch adds no AI, no triage, no scheduler, no "service" model. Two things make this unlike the rest of Watch's API: the status has **no rigid schema** (the posted JSON itself defines the groupings), and everything is keyed by **environment** (`prod`/`nonprod` today).
+
+**Decision.**
+1. **Two tiny models, both keyed by a free `environment` string** (validated `^[a-z0-9-]+$`; `prod`/`nonprod` are seeded/used now, a new label just works — no migration):
+   - `EnvStatus { environment, payload: JSONField, created_at }` — `payload` is stored **verbatim, unvalidated** (opaque JSON). **Keep history**; the newest row per env is "current".
+   - `Digest { environment, content: TextField (markdown), title, special: bool, created_at }` — `special` (the "speci" flag) marks a digest published **ad-hoc during an incident** vs the routine scheduled ones (default `false`). History per env, browsable.
+2. **M2M ingest, env in the path** (mirrors the intake webhook's machine auth, ADR-008 — a shared secret `OPS_INGEST_SECRET` in `X-Watch-Ops-Secret`, never a human session):
+   - `POST /api/environments/{env}/status` — body is arbitrary JSON, stored as `payload`.
+   - `POST /api/environments/{env}/digest` — `{content, title?, special?}`.
+   - Reads for the display: `GET .../status` (latest), `.../statuses` (history), `.../digests` (history, filterable by `special`).
+3. **Schema-less display via a generic renderer.** The `/ui` (session-auth, ADR-008) shows an environment switcher → the current status rendered by **walking the arbitrary JSON** (objects → titled groups, arrays → item lists, scalars → key/value; light, optional heuristics: a `state`/`severity` value → coloured badge, a URL → link) — **never** assuming a `services`-shaped schema — plus the browsable digest pane (rendered markdown, a **Copy for Slack** button, a SPECIAL/ROUTINE badge). Any authenticated user may view.
+
+**Consequences.**
+- *Gain:* the ops team gets the detailed per-env status + Slack-ready digests inside Watch (one auth, one place), with the precursor tooling unchanged bar its endpoint URLs. The renderer is schema-agnostic, so the tooling can restructure its groupings freely without a Watch change.
+- *Cost / caveat:* storing opaque JSON means Watch can't reason about the status (no validation, no querying inside `payload`) — deliberate; Watch is a dumb store here. `keep-history` grows unbounded; a retention trim is a later chore (noted, not built). The renderer must stay defensive (arbitrary depth/types, missing keys).
+- *Guardrail:* ingest is server-secret-gated (never client-session), env is validated, payload never executed; display is session-auth'd; held to ≥90% coverage + green Sonar; the generic renderer is unit-tested against several unrelated JSON shapes so "no rigid schema" is real.

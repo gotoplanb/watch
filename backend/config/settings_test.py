@@ -12,3 +12,4 @@ SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 FLAGS_PROVIDER = "memory"
 ESCALATION_LOCAL_MODE = True
 INTAKE_WEBHOOK_SECRET = "test-secret"
+OPS_INGEST_SECRET = "test-ops-secret"

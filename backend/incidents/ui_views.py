@@ -19,6 +19,8 @@ from .models import (
     AnnotationTag,
     CheckSource,
     CheckSubjectKind,
+    Digest,
+    EnvStatus,
     Incident,
     OnCallShift,
     SessionCheck,
@@ -258,4 +260,25 @@ def settings_view(request):
         "user_topic_url": f"{base}/{user_topic}",
         "tier_topics": tier_topics,
         "topic_secret_set": bool(settings.NTFY_TOPIC_SECRET),
+    })
+
+
+@login_required
+@require_GET
+def env_dashboard(request):
+    """Detailed per-environment ops status + digests (ADR-028) — session-auth, ops-facing. The status
+    payload is arbitrary JSON rendered by the schema-less `_json_node` partial; digests are markdown
+    with a Copy-for-Slack button and a SPECIAL/ROUTINE (speci) badge."""
+    envs = sorted(
+        set(EnvStatus.objects.values_list("environment", flat=True))
+        | set(Digest.objects.values_list("environment", flat=True))
+    )
+    if not envs:
+        envs = ["prod", "nonprod"]
+    env = request.GET.get("env") or envs[0]
+    return render(request, "incidents/environments.html", {
+        "environments": envs,
+        "env": env,
+        "status": EnvStatus.objects.filter(environment=env).first(),
+        "digests": list(Digest.objects.filter(environment=env)[:50]),
     })

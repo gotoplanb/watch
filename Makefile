@@ -27,7 +27,7 @@ HOSTENV := DJANGO_SECRET_KEY=dev DJANGO_DEBUG=1 \
   VALKEY_URL=redis://localhost:6380/0 \
   APPCONFIG_AGENT_URL=http://localhost:2772 FLAGS_PROVIDER=appconfig \
   INTAKE_WEBHOOK_SECRET=dev-webhook-secret CHECKS_WEBHOOK_SECRET=dev-webhook-secret \
-  WEBHOOK_ECHO_SECRET=dev-echo-secret SESSION_USER_HMAC_KEY=dev-hmac-key \
+  WEBHOOK_ECHO_SECRET=dev-echo-secret SESSION_USER_HMAC_KEY=dev-hmac-key OPS_INGEST_SECRET=dev-ops-secret \
   OTEL_ENABLED=1 OTEL_SERVICE_NAME=watch-backend OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 
 help:

@@ -12,8 +12,12 @@ import uuid
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
+from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
+
+# Environment label (ADR-028) — a free but bounded string; prod/nonprod today, a new label just works.
+ENV_LABEL = RegexValidator(r"^[a-z0-9-]+$", "environment must be lowercase letters, digits, or hyphens")
 
 
 class Status(models.TextChoices):
@@ -343,3 +347,41 @@ class Page(models.Model):
 
     def __str__(self):
         return f"page {self.topic} [{self.status}]"
+
+
+class EnvStatus(models.Model):
+    """Per-environment ops status (ADR-028). `payload` is stored VERBATIM — no schema; the posted JSON
+    itself defines the groupings the display renders. History kept; the newest row per env is 'current'.
+    Watch is a dumb store here — it never reasons about the payload shape."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    environment = models.CharField(max_length=64, validators=[ENV_LABEL])
+    payload = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["environment", "-created_at"])]
+
+    def __str__(self):
+        return f"status {self.environment} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class Digest(models.Model):
+    """Per-environment health digest (ADR-028) — markdown, pasted into Slack. `special` (the 'speci'
+    flag) marks an ad-hoc digest published during an incident vs the routine scheduled ones."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    environment = models.CharField(max_length=64, validators=[ENV_LABEL])
+    content = models.TextField()
+    title = models.CharField(max_length=200, blank=True, default="")
+    special = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["environment", "-created_at"])]
+
+    def __str__(self):
+        flag = " [special]" if self.special else ""
+        return f"digest {self.environment}{flag} @ {self.created_at:%Y-%m-%d %H:%M}"
