@@ -7,8 +7,12 @@ Two independent tunnels, toggled **separately or together**:
 
 | tunnel  | local target             | domain (.env)          | agent dashboard |
 |---------|--------------------------|------------------------|-----------------|
-| `watch` | `:8010` (`make dev`)     | `TUNNEL_DOMAIN`        | :4040           |
-| `status`| `:5173` (`make status-page`) | `STATUS_TUNNEL_DOMAIN` | :4041           |
+| `watch` | `:8010` (`make dev`)     | `TUNNEL_DOMAIN`        | :4045           |
+| `status`| `:5173` (`make status-page`) | `STATUS_TUNNEL_DOMAIN` | :4046           |
+
+Each agent's inspector web UI is pinned to a distinct port via a rendered per-agent config
+(`agent.<svc>.local.yml`, `--config`) — clear of `:4040`, which the global `~/dev-infrastructure`
+ngrok agent uses.
 
 - **Durable (Terraform, `main.tf`):** the reserved ngrok domain(s) — stable hostnames. The status
   domain is optional (`count` on `STATUS_TUNNEL_DOMAIN`), so `watch` works standalone.

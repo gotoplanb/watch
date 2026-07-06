@@ -23,13 +23,14 @@ ROOT="$(cd "$DIR/../.." && pwd)"
 
 # --- per-service config ---------------------------------------------------------------------------
 svc_port()      { case "$1" in watch) echo 8010 ;; status) echo 5173 ;; *) return 1 ;; esac; }
-svc_web()       { case "$1" in watch) echo "localhost:4040" ;; status) echo "localhost:4041" ;; esac; }
+svc_web()       { case "$1" in watch) echo "localhost:4045" ;; status) echo "localhost:4046" ;; esac; }  # clear of :4040 (global agent)
 svc_tf()        { case "$1" in watch) echo "ngrok_domain.watch_dev" ;; status) echo "ngrok_domain.status_dev" ;; esac; }
 svc_domain()    { case "$1" in watch) printf '%s' "${TUNNEL_DOMAIN:-}" ;; status) printf '%s' "${STATUS_TUNNEL_DOMAIN:-}" ;; esac; }
 svc_domainvar() { case "$1" in watch) echo "TUNNEL_DOMAIN" ;; status) echo "STATUS_TUNNEL_DOMAIN" ;; esac; }
 pidfile() { echo "$DIR/.tunnel.$1.pid"; }
 logfile() { echo "$DIR/.tunnel.$1.log"; }
 polfile() { echo "$DIR/policy.$1.local.yml"; }
+cfgfile() { echo "$DIR/agent.$1.local.yml"; }
 
 running() { local pf; pf="$(pidfile "$1")"; [ -f "$pf" ] && kill -0 "$(cat "$pf" 2>/dev/null)" 2>/dev/null; }
 
@@ -49,6 +50,10 @@ render_policy() { # $1=svc — render the shared basic-auth template with creds 
   chmod 600 "$(polfile "$1")"
 }
 
+render_config() { # $1=svc — per-agent config with a distinct web_addr so two agents don't clash on :4040
+  printf 'version: "3"\nagent:\n  web_addr: %s\n' "$(svc_web "$1")" > "$(cfgfile "$1")"
+}
+
 up_one() {
   local svc="$1" port domain
   port="$(svc_port "$svc")" || { echo "unknown service '$svc'" >&2; return 2; }
@@ -61,26 +66,26 @@ up_one() {
   if [ -z "$domain" ]; then
     echo "$svc: no domain — set $(svc_domainvar "$svc") in .env (or 'make tunnel-domain TUN=$svc')" >&2; return 1
   fi
-  render_policy "$svc"
+  render_policy "$svc"; render_config "$svc"
   echo "$svc: starting https://${domain} -> localhost:${port} (basic-auth) ..."
   NGROK_AUTHTOKEN="$NGROK_AUTHTOKEN" nohup ngrok http "$port" \
     --url="https://${domain}" \
-    --web-addr="$(svc_web "$svc")" \
+    --config="$(cfgfile "$svc")" \
     --traffic-policy-file="$(polfile "$svc")" \
     >"$(logfile "$svc")" 2>&1 &
   echo $! > "$(pidfile "$svc")"
-  sleep 2
+  sleep 3
   if running "$svc"; then
     echo "$svc: up (pid $(cat "$(pidfile "$svc")"))  URL: https://${domain}   agent dashboard: http://$(svc_web "$svc")"
   else
-    echo "$svc: failed to start — see $(logfile "$svc")" >&2; rm -f "$(pidfile "$svc")" "$(polfile "$svc")"; return 1
+    echo "$svc: failed to start — see $(logfile "$svc")" >&2; rm -f "$(pidfile "$svc")" "$(polfile "$svc")" "$(cfgfile "$svc")"; return 1
   fi
 }
 
 down_one() {
   local svc="$1"
   if running "$svc"; then kill "$(cat "$(pidfile "$svc")")" 2>/dev/null && echo "$svc: stopped"; else echo "$svc: not running"; fi
-  rm -f "$(pidfile "$svc")" "$(polfile "$svc")"
+  rm -f "$(pidfile "$svc")" "$(polfile "$svc")" "$(cfgfile "$svc")"
 }
 
 status_one() {
