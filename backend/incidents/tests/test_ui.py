@@ -40,6 +40,16 @@ def test_settings_requires_login(client):
 
 
 @pytest.mark.django_db
+def test_settings_shows_own_api_key(client, settings):
+    from incidents import apikeys
+    settings.API_KEY_SECRET = "unit-key-secret"
+    user = _user("keyholder")
+    client.force_login(user)
+    body = client.get("/ui/settings/").content.decode()
+    assert apikeys.api_key_for(user) in body and "Authorization: Bearer" in body
+
+
+@pytest.mark.django_db
 def test_settings_shows_own_paging_topic(client, settings):
     settings.PAGING_ENV = "test"
     settings.NTFY_TOPIC_SECRET = "s3kret"

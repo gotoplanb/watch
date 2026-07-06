@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_GET, require_POST
 
+from . import apikeys
 from . import checks as checks_svc
 from . import escalation, services
 from .models import (
@@ -255,6 +256,9 @@ def settings_view(request):
         for t in tiers
     ]
     return render(request, "incidents/settings.html", {
+        "api_key": apikeys.api_key_for(request.user),
+        "api_key_set": bool(settings.API_KEY_SECRET),
+        "ingest_base": request.build_absolute_uri("/api/environments").rstrip("/"),
         "ntfy_base": base,
         "user_topic": user_topic,
         "user_topic_url": f"{base}/{user_topic}",

@@ -357,6 +357,9 @@ class EnvStatus(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     environment = models.CharField(max_length=64, validators=[ENV_LABEL])
     payload = models.JSONField()
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -376,6 +379,9 @@ class Digest(models.Model):
     content = models.TextField()
     title = models.CharField(max_length=200, blank=True, default="")
     special = models.BooleanField(default=False)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -22,12 +22,13 @@ import re
 from django.conf import settings
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
 from . import checks, escalation, services
+from .authentication import ApiKeyAuthentication
 from .intake import create_incident_idempotent
 from .models import CheckSource, CheckSubjectKind, Digest, EnvStatus, Incident, Status
 from .permissions import CanActOnIncident
@@ -279,23 +280,15 @@ class WebhookEchoView(APIView):
         return Response({"received": request.headers.get("X-Watch-Event", "")})
 
 
-# --- Per-environment ops status + digests (ADR-028) -------------------------------------------------
-def _ops_secret_ok(request) -> bool:
-    """M2M auth for the ops ingest (mirrors the intake webhook, ADR-008) — a shared secret in
-    X-Watch-Ops-Secret, never a human session."""
-    secret = request.headers.get("X-Watch-Ops-Secret", "")
-    return bool(settings.OPS_INGEST_SECRET) and hmac.compare_digest(secret, settings.OPS_INGEST_SECRET)
-
-
+# --- Per-environment ops status + digests (ADR-028 / ADR-029) --------------------------------------
 class _OpsIngestView(APIView):
-    """Base for the secret-gated ops ingest POSTs. env comes from the URL; the body is per-subclass."""
+    """Base for the ops ingest POSTs. Auth is a per-user API key (ADR-029) via ApiKeyAuthentication, so
+    `request.user` is the poster and each row is attributed. env comes from the URL; body per-subclass."""
 
-    authentication_classes: list = []
-    permission_classes = [AllowAny]
+    authentication_classes = [ApiKeyAuthentication]
+    permission_classes = [IsAuthenticated]
 
-    def _guard(self, request, env):
-        if not _ops_secret_ok(request):
-            return Response({"detail": "Invalid ops secret."}, status=status.HTTP_401_UNAUTHORIZED)
+    def _bad_env(self, env):
         if not _ENV_RE.match(env or ""):
             return Response({"detail": "Invalid environment label."}, status=status.HTTP_400_BAD_REQUEST)
         return None
@@ -306,14 +299,13 @@ class EnvStatusIngestView(_OpsIngestView):
     payload — no schema; the posted JSON itself defines the display groupings."""
 
     def post(self, request, env):
-        blocked = self._guard(request, env)
-        if blocked:
-            return blocked
+        if (bad := self._bad_env(env)) is not None:
+            return bad
         payload = request.data
         if not isinstance(payload, (dict, list)) or payload in ({}, []):
             return Response({"detail": "Body must be a non-empty JSON object or array."},
                             status=status.HTTP_400_BAD_REQUEST)
-        s = EnvStatus.objects.create(environment=env, payload=payload)
+        s = EnvStatus.objects.create(environment=env, payload=payload, posted_by=request.user)
         return Response({"id": str(s.id), "environment": env, "created_at": s.created_at},
                         status=status.HTTP_201_CREATED)
 
@@ -322,12 +314,11 @@ class DigestIngestView(_OpsIngestView):
     """Per-env digest ingest (ADR-028). `special` = the 'speci' ad-hoc incident digest flag."""
 
     def post(self, request, env):
-        blocked = self._guard(request, env)
-        if blocked:
-            return blocked
+        if (bad := self._bad_env(env)) is not None:
+            return bad
         s = DigestIngestSerializer(data=request.data)
         s.is_valid(raise_exception=True)
-        d = Digest.objects.create(environment=env, **s.validated_data)
+        d = Digest.objects.create(environment=env, posted_by=request.user, **s.validated_data)
         return Response({"id": str(d.id), "environment": env, "special": d.special, "created_at": d.created_at},
                         status=status.HTTP_201_CREATED)
 

@@ -534,3 +534,19 @@
 - *Gain:* the ops team gets the detailed per-env status + Slack-ready digests inside Watch (one auth, one place), with the precursor tooling unchanged bar its endpoint URLs. The renderer is schema-agnostic, so the tooling can restructure its groupings freely without a Watch change.
 - *Cost / caveat:* storing opaque JSON means Watch can't reason about the status (no validation, no querying inside `payload`) — deliberate; Watch is a dumb store here. `keep-history` grows unbounded; a retention trim is a later chore (noted, not built). The renderer must stay defensive (arbitrary depth/types, missing keys).
 - *Guardrail:* ingest is server-secret-gated (never client-session), env is validated, payload never executed; display is session-auth'd; held to ≥90% coverage + green Sonar; the generic renderer is unit-tested against several unrelated JSON shapes so "no rigid schema" is real.
+
+## ADR-029 — Per-user API keys for ops ingest (replaces the shared secret)
+**Status:** Accepted · *Refines ADR-028 (auth)*
+
+**Context.** ADR-028 gated the ops status/digest ingest with one **shared** `OPS_INGEST_SECRET` — fine to prove the concept, but anonymous (every post looks the same) and coarse (one secret for everyone). Moving this "more proper" inside Watch means **per-user API keys**: each user, once logged in, sees **their own** posting key in account settings and points their tooling at it — the same self-service model as their ntfy paging topic ([[release-demo-videos]] aside, cf. ADR-013's `NTFY_TOPIC_SECRET`).
+
+**Decision.**
+1. **Derived, not stored** (mirrors the ntfy topic): a user's key is `wk_{user_id}_{HMAC-SHA256(API_KEY_SECRET, "apikey:"+user_id)[:32]}`. It **encodes the user id** (so ingest is O(1) and *attributable*) with an HMAC suffix that's unguessable without the server secret. Nothing is persisted — the key is recomputed to verify and re-shown in settings; empty `API_KEY_SECRET` ⇒ keys are off.
+2. **A real DRF authentication class** (`ApiKeyAuthentication`) reads `Authorization: Bearer <key>` (or `X-Watch-Api-Key`), resolves it to the user, and sets `request.user`. The ingest views become `IsAuthenticated` — so the poster is a first-class user and each `EnvStatus`/`Digest` records **`posted_by`**.
+3. **Self-service surface:** the `/ui/settings` page shows the user their key + a ready POST example (env in the path, ADR-028), with a copy button — exactly like the paging topic. Session-auth, own-key-only.
+4. **Replaces the shared secret** — `OPS_INGEST_SECRET` is removed (the feature shipped the same session and isn't wired to prod tooling yet, so there's nothing to migrate).
+
+**Consequences.**
+- *Gain:* posts are attributed to a user, keys are per-user (a leak is scoped to one person), and it's self-service — no admin hands out secrets. No new table; verification is a recompute.
+- *Cost / caveat:* a derived key can't be revoked **individually** — rotation is global via `API_KEY_SECRET` (same tradeoff as the ntfy topic). Per-user revocation / rotation / last-used tracking would need a stored-key model — a later step, noted not built. The key is re-viewable in settings (session-auth), so it's a shown-repeatedly secret, not a shown-once one.
+- *Guardrail:* `API_KEY_SECRET` via SSM in prod (never committed); constant-time compare; keys off when unset; both branches tested; ≥90% coverage + green Sonar.
