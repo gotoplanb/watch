@@ -113,7 +113,7 @@
 ---
 
 ## ADR-008 — Authentication & authorization: Django session auth, tier-role-or-above, separate webhook auth
-**Status:** Accepted
+**Status:** Accepted · *amended: rolling multi-day session lifetime*
 
 **Context.** Spec review (#5) found auth unspecified: §4.3 externalizes sessions to Valkey and §3 names T1/T2/T3 roles, but no authentication mechanism was stated and no rule said *who* may advance or resolve an incident — i.e. nothing guarded the `SendTaskSuccess` call introduced in ADR-007. Two sub-problems: human auth (which must cohere with the existing Valkey *session-cookie* decision — a stateless JWT model would moot it), and machine intake auth (the webhook), plus the authorization rule itself. ADR-003's "prefer a managed service over homegrown" instinct points at Cognito, but Django's session auth is a framework feature, not a reimplemented managed service, and it's the option coherent with §4.3.
 
@@ -121,6 +121,7 @@
 1. **Human authentication = Django's built-in session auth**, server-side session cookies in **Valkey** (consistent with §4.3 and the stateless-task requirement). Tiers are **Django Groups** (T1/T2/T3). **SSO/OIDC federation is left as a clean seam** (pluggable Django auth backend), not built in v1.
 2. **Authorization rule for tier-ending actions** (ACK / ESCALATE / RESOLVE): a user may act **iff they hold the incident's `current_tier` role or any higher tier** (senior override). Role-based, **not** per-assignee (v1 keeps assignment simple, §3). This is the guard in front of the `SendTaskSuccess` path from ADR-007.
 3. **Intake/webhook auth is machine-to-machine and fully separate** from human sessions: **API Gateway** authorizes the Sumo webhook via a shared secret / request signature (or IAM), validated **before** SQS enqueue. The human path and intake path share no credentials.
+4. **Session lifetime is long and rolling** (amended 2026-07-06): `SESSION_COOKIE_AGE` = **14 days** (env-tunable) with **`SESSION_SAVE_EVERY_REQUEST`** so the Valkey TTL slides forward on every request — an *active* user is never logged out; only ~14 days of **inactivity** expires the session. Django's "refresh token" analogue for a session-cookie model (there are no JWTs to refresh). Persistent cookie (survives browser close); `SESSION_COOKIE_SECURE` in prod. Rejected a short fixed expiry (the default counts from login and ignores activity → surprise logouts mid-work).
 
 **Consequences.**
 - *Gain:* coherent with the existing Valkey session decision — no rework of §4.3; trivial for the local/phone loop; no external IdP dependency for v1.

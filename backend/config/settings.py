@@ -124,6 +124,12 @@ CACHES = {
 }
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 SESSION_CACHE_ALIAS = "default"
+# Session lifetime (ADR-008): long, ROLLING sessions. SESSION_SAVE_EVERY_REQUEST re-saves the session
+# on every request, so its Valkey TTL slides forward — an *active* user is never logged out; only
+# ~SESSION_COOKIE_AGE of inactivity expires it. Persistent cookie (survives browser close). Env-tunable.
+SESSION_COOKIE_AGE = int(_env("SESSION_COOKIE_AGE", str(14 * 24 * 3600)))  # 14 days of inactivity
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
