@@ -77,6 +77,10 @@ up_one() {
   sleep 3
   if running "$svc"; then
     echo "$svc: up (pid $(cat "$(pidfile "$svc")"))  URL: https://${domain}   agent dashboard: http://$(svc_web "$svc")"
+    # The status SPA needs its API pointed at the watch tunnel — print the ready-to-open URL.
+    local watch_domain; watch_domain="$(svc_domain watch)"
+    [ "$svc" = "status" ] && [ -n "$watch_domain" ] && \
+      echo "        open: https://${domain}/?api=https://${watch_domain}   (status page -> watch tunnel API)"
   else
     echo "$svc: failed to start — see $(logfile "$svc")" >&2; rm -f "$(pidfile "$svc")" "$(polfile "$svc")" "$(cfgfile "$svc")"; return 1
   fi
