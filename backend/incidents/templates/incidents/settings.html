@@ -32,16 +32,30 @@
             :class="copied === 'key' && 'text-emerald-400'"
             x-text="copied === 'key' ? 'copied!' : 'copy key'"></button>
   </div>
-  <div class="mt-3 pt-3 border-t border-slate-800">
-    <div class="text-xs text-slate-500 mb-1">post a status / digest (replace <span class="font-mono">&lt;env&gt;</span> with e.g. <span class="font-mono">prod</span>)</div>
-    <pre class="font-mono text-xs text-slate-300 whitespace-pre-wrap" x-ref="curl">curl -X POST {{ ingest_base }}/&lt;env&gt;/status \
+  <div class="mt-3 pt-3 border-t border-slate-800 space-y-4">
+    <div class="text-xs text-slate-500">Replace <span class="font-mono">&lt;env&gt;</span> with e.g. <span class="font-mono">prod</span>. Same key + auth header for both.</div>
+    <div>
+      <div class="text-xs text-slate-500 mb-1">post a <strong class="text-slate-300">status</strong> — the whole body is your JSON (any shape; it drives the display)</div>
+      <pre class="font-mono text-xs text-slate-300 whitespace-pre-wrap" x-ref="curlStatus">curl -X POST {{ ingest_base }}/&lt;env&gt;/status \
   -H "Authorization: Bearer {{ api_key }}" \
   -H "Content-Type: application/json" \
   -d '{ ...your status JSON... }'</pre>
-    <button type="button" class="mt-2 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
-            @click="navigator.clipboard.writeText($refs.curl.textContent); copied = 'curl'; setTimeout(() => copied = '', 1200)"
-            :class="copied === 'curl' && 'text-emerald-400'"
-            x-text="copied === 'curl' ? 'copied!' : 'copy curl'"></button>
+      <button type="button" class="mt-2 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
+              @click="navigator.clipboard.writeText($refs.curlStatus.textContent); copied = 'status'; setTimeout(() => copied = '', 1200)"
+              :class="copied === 'status' && 'text-emerald-400'"
+              x-text="copied === 'status' ? 'copied!' : 'copy curl'"></button>
+    </div>
+    <div>
+      <div class="text-xs text-slate-500 mb-1">post a <strong class="text-slate-300">digest</strong> — markdown goes in <span class="font-mono">content</span>; <span class="font-mono">title</span> + <span class="font-mono">special</span> optional</div>
+      <pre class="font-mono text-xs text-slate-300 whitespace-pre-wrap" x-ref="curlDigest">curl -X POST {{ ingest_base }}/&lt;env&gt;/digest \
+  -H "Authorization: Bearer {{ api_key }}" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "## System Health\n\n…markdown…", "title": "Hourly digest", "special": false}'</pre>
+      <button type="button" class="mt-2 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
+              @click="navigator.clipboard.writeText($refs.curlDigest.textContent); copied = 'digest'; setTimeout(() => copied = '', 1200)"
+              :class="copied === 'digest' && 'text-emerald-400'"
+              x-text="copied === 'digest' ? 'copied!' : 'copy curl'"></button>
+    </div>
   </div>
 </div>
 {% endif %}

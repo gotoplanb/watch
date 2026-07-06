@@ -47,6 +47,9 @@ def test_settings_shows_own_api_key(client, settings):
     client.force_login(user)
     body = client.get("/ui/settings/").content.decode()
     assert apikeys.api_key_for(user) in body and "Authorization: Bearer" in body
+    # both ingest examples, with the digest's distinct content-field body
+    assert "/&lt;env&gt;/status" in body and "/&lt;env&gt;/digest" in body
+    assert '"content":' in body
 
 
 @pytest.mark.django_db
