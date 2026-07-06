@@ -28,6 +28,8 @@ from .models import (
     OnCallShift,
     Problem,
     ProblemStatus,
+    Rca,
+    RcaStatus,
     SessionCheck,
     Status,
     Tier,
@@ -377,3 +379,85 @@ def problem_update(request, pk):
     if fields:
         problem.save(update_fields=fields + ["updated_at"])
     return redirect(_PROBLEM_DETAIL, pk=pk)
+
+
+# --- RCA records (ADR-031): a stored root-cause writeup, document seeded by assembly then edited ---
+
+_RCA_DETAIL = "ui:rca_detail"  # redirect target, reused across the write views
+
+
+@login_required
+@require_GET
+def rca_list(request):
+    return render(request, "incidents/rcas.html", {
+        "rcas": Rca.objects.all()[:200],
+        "incidents": Incident.objects.all()[:200],  # optional seed source in the create form
+    })
+
+
+@login_required
+@require_POST
+def rca_create(request):
+    title = (request.POST.get("title") or "").strip()
+    incident = None
+    incident_id = (request.POST.get("incident") or "").strip()
+    if incident_id:
+        incident = Incident.objects.filter(pk=incident_id).first()
+    if not title and incident is None:
+        return redirect("ui:rcas")  # nothing to go on — need a title or a seed incident
+    rca = services.seed_rca(title=title, incident=incident, actor=request.user.username)
+    return redirect(_RCA_DETAIL, pk=rca.id)
+
+
+@login_required
+@require_GET
+def rca_detail(request, pk):
+    rca = get_object_or_404(Rca, pk=pk)
+    return render(request, "incidents/rca_detail.html", {
+        "rca": rca,
+        "timeline": services.timeline(rca),
+        "statuses": RcaStatus.choices,
+        "users": User.objects.order_by("username"),
+    })
+
+
+@login_required
+@require_POST
+def rca_save_document(request, pk):
+    rca = get_object_or_404(Rca, pk=pk)
+    rca.document = request.POST.get("document") or ""
+    rca.save(update_fields=["document", "updated_at"])
+    return redirect(_RCA_DETAIL, pk=pk)
+
+
+@login_required
+@require_POST
+def rca_add_note(request, pk):
+    rca = get_object_or_404(Rca, pk=pk)
+    body = (request.POST.get("body") or "").strip()
+    if body:
+        services.add_note(rca, actor=request.user.username, body=body)
+    return redirect(_RCA_DETAIL, pk=pk)
+
+
+@login_required
+@require_POST
+def rca_update(request, pk):
+    """Status + assignee changes; a status change posts a system event to the shared timeline."""
+    rca = get_object_or_404(Rca, pk=pk)
+    fields = []
+    status = request.POST.get("status")
+    if status in RcaStatus.values and status != rca.status:
+        old, rca.status = rca.status, status
+        fields.append("status")
+        services.post_system_event(rca, f"Status {old} → {status} by {request.user.username}")
+    assignee_id = (request.POST.get("assignee") or "").strip()
+    if assignee_id.isdigit() and User.objects.filter(pk=assignee_id).exists():
+        rca.assignee_id = int(assignee_id)
+        fields.append("assignee")
+    elif not assignee_id and rca.assignee_id:
+        rca.assignee = None
+        fields.append("assignee")
+    if fields:
+        rca.save(update_fields=fields + ["updated_at"])
+    return redirect(_RCA_DETAIL, pk=pk)

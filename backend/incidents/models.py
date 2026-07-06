@@ -501,3 +501,42 @@ class Problem(models.Model):
 
     def __str__(self):
         return f"{self.number or self.id} [{self.status}] {self.title}"
+
+
+class RcaStatus(models.TextChoices):
+    DRAFT = "draft", "Draft"
+    IN_REVIEW = "in_review", "In review"
+    FINAL = "final", "Final"
+
+
+class Rca(models.Model):
+    """A thin ops record (ADR-031) — a stored root-cause writeup. Its `document` is *seeded* by the
+    timeline assembler (services.rca_markdown) at creation and then hand-edited; a live-LLM draft is a
+    later, flagged follow-up. Like Problem it carries no escalation and shares the generic timeline/links."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    number = models.CharField(max_length=20, unique=True, null=True, blank=True)  # RCA-0003
+    title = models.CharField(max_length=512)
+    document = models.TextField(blank=True, default="")  # Markdown — assembly-seeded, then edited
+    status = models.CharField(max_length=16, choices=RcaStatus.choices, default=RcaStatus.DRAFT)
+    assignee = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Shared timeline (ADR-031) — work notes / system / AI events attach here via the GFK.
+    events = GenericRelation("TimelineEvent")
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def save(self, *args, **kwargs):
+        if not self.number:
+            from . import numbering
+            self.number = numbering.next_number("RCA")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.number or self.id} [{self.status}] {self.title}"

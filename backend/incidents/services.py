@@ -348,3 +348,17 @@ def rca_markdown(incident) -> str:
         out.append("_(none flagged)_")
     out += ["", "## Root cause", "", "_(to be completed)_", "", "## Follow-ups", "", "_(to be completed)_", ""]
     return "\n".join(out)
+
+
+def seed_rca(*, title: str = "", incident=None, actor: str = "system"):
+    """Create a stored RCA record (ADR-031). When seeded from an incident, its `document` starts as the
+    assembled annotated timeline (rca_markdown) and is then hand-edited; otherwise it starts blank. The
+    provenance lands as a system timeline event (the durable incident↔RCA link is a RecordLink later)."""
+    from .models import Rca
+    document = rca_markdown(incident) if incident is not None else ""
+    if not title:
+        title = f"RCA — {incident.title}" if incident is not None else "Untitled RCA"
+    rca = Rca.objects.create(title=title, document=document)
+    if incident is not None:
+        post_system_event(rca, f"Seeded from incident {incident.number or incident.id} by {actor}")
+    return rca
