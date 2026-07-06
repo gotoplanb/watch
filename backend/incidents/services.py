@@ -21,9 +21,13 @@ from .models import (
     Annotation,
     EventType,
     Incident,
+    LinkKind,
     OnCallShift,
     Page,
     PageStatus,
+    Problem,
+    Rca,
+    RecordLink,
     Status,
     Tier,
     TimelineEvent,
@@ -362,3 +366,79 @@ def seed_rca(*, title: str = "", incident=None, actor: str = "system"):
     if incident is not None:
         post_system_event(rca, f"Seeded from incident {incident.number or incident.id} by {actor}")
     return rca
+
+
+# --- Generic record links (ADR-031) — Jira-style issue-links across record types ---
+
+# Human number prefix → model. Records without a number (e.g. Check probes) aren't resolvable
+# by number and are linkable only programmatically for now.
+_LINK_MODELS = {"INC": Incident, "PRB": Problem, "RCA": Rca}
+
+
+def record_for_number(number: str):
+    """Resolve a human record number (INC-/PRB-/RCA-) to its record, or None. Case-insensitive."""
+    number = (number or "").strip().upper()
+    prefix = number.split("-", 1)[0]
+    model = _LINK_MODELS.get(prefix)
+    if model is None:
+        return None
+    return model.objects.filter(number=number).first()
+
+
+def _label(record) -> str:
+    return getattr(record, "number", None) or str(getattr(record, "id", record))
+
+
+def link_records(from_record, to_record, *, kind: str, actor: str = "system"):
+    """Create a directed link (from_record `kind` to_record) and narrate it on both timelines.
+    Returns (link, created). Idempotent on the exact (from,to,kind) tuple; refuses self-links."""
+    from django.contrib.contenttypes.models import ContentType
+
+    if kind not in LinkKind.values:
+        kind = LinkKind.RELATES_TO
+    from_ct = ContentType.objects.get_for_model(from_record)
+    to_ct = ContentType.objects.get_for_model(to_record)
+    if from_ct == to_ct and str(from_record.pk) == str(to_record.pk):
+        return None, False  # no self-links
+    link, created = RecordLink.objects.get_or_create(
+        from_content_type=from_ct, from_object_id=str(from_record.pk),
+        to_content_type=to_ct, to_object_id=str(to_record.pk), kind=kind,
+        defaults={"created_by": None},
+    )
+    if created:
+        label = dict(LinkKind.choices)[kind]
+        post_system_event(from_record, f"Linked — {label} {_label(to_record)} (by {actor})")
+        post_system_event(to_record, f"Linked — {_label(from_record)} {label} this (by {actor})")
+    return link, created
+
+
+def links_for(record):
+    """All links touching `record`, each as a display row: {id, kind, kind_label, direction, other,
+    other_label}. `direction` is 'out' (record is the from side) or 'in' (record is the to side)."""
+    from django.contrib.contenttypes.models import ContentType
+
+    ct = ContentType.objects.get_for_model(record)
+    oid = str(record.pk)
+    labels = dict(LinkKind.choices)
+    rows = []
+    qs = RecordLink.objects.filter(from_content_type=ct, from_object_id=oid).select_related(
+        "to_content_type"
+    ) | RecordLink.objects.filter(to_content_type=ct, to_object_id=oid).select_related(
+        "from_content_type"
+    )
+    for link in qs:
+        outgoing = link.from_content_type_id == ct.id and link.from_object_id == oid
+        other = link.to_record if outgoing else link.from_record
+        if other is None:  # pragma: no cover - dangling GFK (target deleted)
+            continue
+        rows.append({
+            "id": link.id, "kind": link.kind, "kind_label": labels[link.kind],
+            "direction": "out" if outgoing else "in", "other": other, "other_label": _label(other),
+        })
+    return rows
+
+
+def unlink(link_id) -> bool:
+    """Delete a link by id. Returns True if one was removed."""
+    deleted, _ = RecordLink.objects.filter(pk=link_id).delete()
+    return bool(deleted)

@@ -540,3 +540,45 @@ class Rca(models.Model):
 
     def __str__(self):
         return f"{self.number or self.id} [{self.status}] {self.title}"
+
+
+class LinkKind(models.TextChoices):
+    RELATES_TO = "relates_to", "relates to"
+    CAUSED_BY = "caused_by", "caused by"
+    DUPLICATE_OF = "duplicate_of", "duplicate of"
+    BLOCKS = "blocks", "blocks"
+
+
+class RecordLink(models.Model):
+    """One generic, directed link between any two records (ADR-031) — Jira-style issue-links. Both ends
+    are GenericForeignKeys, so incident/problem/rca/check link freely without per-pair join tables. The
+    kind carries the meaning (`from` kind `to`); display shows direction (→ outgoing, ← incoming)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    from_content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, related_name="+")
+    from_object_id = models.CharField(max_length=64)
+    from_record = GenericForeignKey("from_content_type", "from_object_id")
+    to_content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, related_name="+")
+    to_object_id = models.CharField(max_length=64)
+    to_record = GenericForeignKey("to_content_type", "to_object_id")
+    kind = models.CharField(max_length=16, choices=LinkKind.choices, default=LinkKind.RELATES_TO)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["from_content_type", "from_object_id"], name="reclink_from_idx"),
+            models.Index(fields=["to_content_type", "to_object_id"], name="reclink_to_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["from_content_type", "from_object_id", "to_content_type", "to_object_id", "kind"],
+                name="uniq_record_link",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.from_content_type_id}:{self.from_object_id} -{self.kind}-> {self.to_content_type_id}:{self.to_object_id}"

@@ -1,0 +1,30 @@
+{# Shared record-links block (ADR-031). Needs: links, link_kinds, record_number. #}
+<h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Links</h2>
+<ul class="space-y-2">
+  {% for l in links %}
+  <li class="bg-slate-900 border border-slate-800 rounded p-2.5 text-sm flex items-center justify-between gap-3">
+    <span class="min-w-0 truncate text-slate-200">
+      <span class="text-slate-500" title="{% if l.direction == 'out' %}outgoing{% else %}incoming{% endif %}">{% if l.direction == 'out' %}→{% else %}←{% endif %}</span>
+      {{ l.kind_label }}
+      <span class="font-mono text-xs text-slate-400">{{ l.other_label }}</span>
+      <span class="text-slate-400">{{ l.other.title }}</span>
+    </span>
+    <form method="post" action="{% url 'ui:link_remove' l.id %}">
+      {% csrf_token %}<input type="hidden" name="from_number" value="{{ record_number }}">
+      <button class="shrink-0 text-xs text-slate-500 hover:text-red-400">remove</button>
+    </form>
+  </li>
+  {% empty %}
+  <li class="text-sm text-slate-500">No links yet.</li>
+  {% endfor %}
+</ul>
+<form method="post" action="{% url 'ui:link_add' %}" class="mt-2 flex flex-wrap items-center gap-2">
+  {% csrf_token %}
+  <input type="hidden" name="from_number" value="{{ record_number }}">
+  <select name="kind" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100">
+    {% for value, label in link_kinds %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+  </select>
+  <input name="to_number" autocomplete="off" placeholder="INC-0007 / PRB-0002 / RCA-0001"
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+  <button class="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-100 text-sm">Add link</button>
+</form>

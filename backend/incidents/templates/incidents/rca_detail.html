@@ -31,6 +31,8 @@
   <div class="mt-2"><button class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm">Save document</button></div>
 </form>
 
+{% include "incidents/_links.html" %}
+
 <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Timeline</h2>
 <form method="post" action="{% url 'ui:rca_add_note' rca.id %}" class="mb-3 flex gap-2">
   {% csrf_token %}

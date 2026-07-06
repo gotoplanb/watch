@@ -73,6 +73,8 @@ The root keeps id="incident-body" so subsequent swaps still find it.
     </a>
   </div>
 
+  {% include "incidents/_links.html" %}
+
   <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Timeline</h2>
   <ol class="space-y-2">
     {% for e in timeline %}

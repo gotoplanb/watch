@@ -25,6 +25,7 @@ from .models import (
     Digest,
     EnvStatus,
     Incident,
+    LinkKind,
     OnCallShift,
     Problem,
     ProblemStatus,
@@ -63,6 +64,9 @@ def _detail_ctx(request, incident):
         "can_act": can_act_on(request.user, incident),
         "next_tier": next_tier(incident.current_tier),
         "annotation_tags": AnnotationTag.choices,
+        "links": services.links_for(incident),
+        "link_kinds": LinkKind.choices,
+        "record_number": incident.number,
     }
 
 
@@ -345,6 +349,9 @@ def problem_detail(request, pk):
         "timeline": services.timeline(problem),
         "statuses": ProblemStatus.choices,
         "users": User.objects.order_by("username"),
+        "links": services.links_for(problem),
+        "link_kinds": LinkKind.choices,
+        "record_number": problem.number,
     })
 
 
@@ -418,6 +425,9 @@ def rca_detail(request, pk):
         "timeline": services.timeline(rca),
         "statuses": RcaStatus.choices,
         "users": User.objects.order_by("username"),
+        "links": services.links_for(rca),
+        "link_kinds": LinkKind.choices,
+        "record_number": rca.number,
     })
 
 
@@ -461,3 +471,37 @@ def rca_update(request, pk):
     if fields:
         rca.save(update_fields=fields + ["updated_at"])
     return redirect(_RCA_DETAIL, pk=pk)
+
+
+# --- Generic record links (ADR-031) — shared add/remove across incident/problem/rca details ---
+
+def _record_detail_redirect(record):
+    """Redirect back to a record's /ui detail page after a link add/remove."""
+    if isinstance(record, Problem):
+        return redirect(_PROBLEM_DETAIL, pk=record.id)
+    if isinstance(record, Rca):
+        return redirect(_RCA_DETAIL, pk=record.id)
+    return redirect("ui:incident_detail", pk=record.id)
+
+
+@login_required
+@require_POST
+def link_add(request):
+    """Link two records by their human numbers (INC-/PRB-/RCA-). Redirects back to the source record."""
+    src = services.record_for_number(request.POST.get("from_number", ""))
+    dst = services.record_for_number(request.POST.get("to_number", ""))
+    if src is not None and dst is not None:
+        services.link_records(src, dst, kind=request.POST.get("kind", ""), actor=request.user.username)
+    if src is not None:
+        return _record_detail_redirect(src)
+    return redirect("ui:incident_list")
+
+
+@login_required
+@require_POST
+def link_remove(request, link_id):
+    services.unlink(link_id)
+    src = services.record_for_number(request.POST.get("from_number", ""))
+    if src is not None:
+        return _record_detail_redirect(src)
+    return redirect("ui:incident_list")
