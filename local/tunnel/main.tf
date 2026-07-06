@@ -13,10 +13,26 @@ resource "ngrok_domain" "watch_dev" {
   description = "Watch local dev tunnel (make dev :8010) — on-demand, basic-auth at the edge."
 }
 
+# Status-page tunnel (make status-page :5173). Optional — created only when STATUS_TUNNEL_DOMAIN
+# is set (count => 0/1), so the watch tunnel works standalone.
+resource "ngrok_domain" "status_dev" {
+  count       = trimspace(var.status_domain) == "" ? 0 : 1
+  domain      = var.status_domain
+  description = "Watch status-page local dev tunnel (make status-page :5173) — on-demand, basic-auth at the edge."
+}
+
 output "domain" {
   value = ngrok_domain.watch_dev.domain
 }
 
 output "url" {
   value = "https://${ngrok_domain.watch_dev.domain}"
+}
+
+output "status_domain" {
+  value = try(ngrok_domain.status_dev[0].domain, "")
+}
+
+output "status_url" {
+  value = try("https://${ngrok_domain.status_dev[0].domain}", "")
 }

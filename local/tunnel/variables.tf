@@ -8,3 +8,9 @@ variable "domain" {
   }
 }
 
+variable "status_domain" {
+  description = "Reserved ngrok hostname for the status-page tunnel (:5173). Sourced from STATUS_TUNNEL_DOMAIN in .env via TF_VAR_status_domain. Optional — empty means the status tunnel isn't reserved (the watch tunnel is unaffected)."
+  type        = string
+  default     = ""
+}
+

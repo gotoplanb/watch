@@ -1,28 +1,41 @@
-# Dev tunnel (ngrok)
+# Dev tunnels (ngrok)
 
-On-demand, basic-auth'd public ingress to the local `make dev` server (`:8010`) on a **stable
-reserved hostname** — for remote testing / sharing a running local server before pushing to main.
-HTTP only; no SSH/TCP.
+On-demand, basic-auth'd public ingress to the local dev servers on **stable reserved hostnames** —
+for remote testing / sharing a running local stack before pushing to main. HTTP only; no SSH/TCP.
 
-- **Durable (Terraform, `main.tf`):** the reserved ngrok domain — the stable hostname.
-- **Runtime (`tunnel.sh`):** the ngrok agent + edge **basic-auth** policy, toggled on demand. Runs
-  its own agent process, independent of the global `~/dev-infrastructure` LaunchAgent tunnels.
+Two independent tunnels, toggled **separately or together**:
+
+| tunnel  | local target             | domain (.env)          | agent dashboard |
+|---------|--------------------------|------------------------|-----------------|
+| `watch` | `:8010` (`make dev`)     | `TUNNEL_DOMAIN`        | :4040           |
+| `status`| `:5173` (`make status-page`) | `STATUS_TUNNEL_DOMAIN` | :4041           |
+
+- **Durable (Terraform, `main.tf`):** the reserved ngrok domain(s) — stable hostnames. The status
+  domain is optional (`count` on `STATUS_TUNNEL_DOMAIN`), so `watch` works standalone.
+- **Runtime (`tunnel.sh`):** per-tunnel ngrok agent + edge **basic-auth** policy, each with its own
+  pid / log / policy / web-addr, independent of the global `~/dev-infrastructure` LaunchAgent tunnels.
 
 ## One-time setup
 1. In the repo `.env` (gitignored) set: `NGROK_API_KEY` (Terraform), `NGROK_AUTHTOKEN` (agent),
-   `TUNNEL_DOMAIN` (**your own** reserved host — ngrok domains are globally unique per account; it's
-   the single source of truth for both the agent and Terraform), `TUNNEL_BASIC_AUTH_USER`,
-   `TUNNEL_BASIC_AUTH_PASS`. See `.env.example`. There is no baked-in default, so multiple
-   developers each use their own domain.
-2. Reserve the domain: `make tunnel-domain` (runs `tofu apply` here).
+   `TUNNEL_DOMAIN` + (optional) `STATUS_TUNNEL_DOMAIN` (**your own** reserved hosts — the single
+   source of truth for both the agent and Terraform), `TUNNEL_BASIC_AUTH_USER`,
+   `TUNNEL_BASIC_AUTH_PASS`. See `.env.example`.
+2. Reserve the domain(s): `make tunnel-domain` (both) — or scope with `TUN=watch` / `TUN=status`.
 
 ## Daily use
 ```
-make tunnel-up       # start — prints https://<domain>
-make tunnel-status   # UP/DOWN
-make tunnel-down     # stop (also wipes the rendered creds file)
+make tunnel-up                  # start BOTH — prints each https://<domain>
+make tunnel-up   TUN=status     # just the status tunnel
+make tunnel-down TUN=watch      # stop just the watch tunnel
+make tunnel-status              # UP/DOWN per tunnel
 ```
+`TUN` defaults to `both`; the underlying script also takes it positionally
+(`local/tunnel/tunnel.sh up status`).
 
-Notes: the rendered policy (`policy.local.yml`, with creds), tfstate, pid/log are all gitignored.
-If tofu state is lost: `tofu import ngrok_domain.watch_dev <domain>`. Custom (non-`ngrok.app`)
-domains need a CNAME to the resource's `cname_target`.
+Notes:
+- Rendered policies (`policy.<svc>.local.yml`, with creds), tfstate, and pid/log files are gitignored.
+- If tofu state is lost: `tofu import ngrok_domain.watch_dev <domain>` (and `ngrok_domain.status_dev[0] <domain>`).
+- **Status tunnel + the API:** the status SPA fetches the backend at `<hostname>:8010`, so when served
+  over the `status` tunnel it will look for the API on that tunnel host, not the `watch` tunnel. Point it
+  at the watch tunnel (e.g. a `?api=https://<watch-domain>` override in `index.html`) if you need the
+  tunneled status page to reach a tunneled backend — see the note in the commit that added this.

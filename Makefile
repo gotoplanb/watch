@@ -168,12 +168,15 @@ down:
 clean: down
 	rm -rf $(VENV)
 
-# --- dev tunnel (ngrok): on-demand basic-auth'd public ingress to :8010 (local/tunnel) ---
-tunnel-domain: ## Reserve the ngrok dev-tunnel domain from .env TUNNEL_DOMAIN (Terraform; needs NGROK_API_KEY)
-	local/tunnel/tunnel.sh domain
-tunnel-up: ## Start the on-demand ngrok tunnel to :8010 (basic-auth); prints the URL
-	local/tunnel/tunnel.sh up
-tunnel-down: ## Stop the ngrok tunnel
-	local/tunnel/tunnel.sh down
-tunnel-status: ## Show whether the ngrok tunnel is up
-	local/tunnel/tunnel.sh status
+# --- dev tunnels (ngrok): on-demand basic-auth'd public ingress (local/tunnel) ---
+# Two tunnels: watch -> :8010 (make dev), status -> :5173 (make status-page). Scope any target with
+# TUN=watch|status|both (default both), e.g. `make tunnel-up TUN=status`.
+TUN ?= both
+tunnel-domain: ## Reserve ngrok tunnel domain(s) from .env (Terraform; needs NGROK_API_KEY). TUN=watch|status|both
+	local/tunnel/tunnel.sh domain $(TUN)
+tunnel-up: ## Start ngrok tunnel(s) (basic-auth); prints the URL(s). TUN=watch|status|both
+	local/tunnel/tunnel.sh up $(TUN)
+tunnel-down: ## Stop ngrok tunnel(s). TUN=watch|status|both
+	local/tunnel/tunnel.sh down $(TUN)
+tunnel-status: ## Show tunnel(s) up/down. TUN=watch|status|both
+	local/tunnel/tunnel.sh status $(TUN)
