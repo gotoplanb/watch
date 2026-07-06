@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Problems · Watch{% endblock %}
+{% block content %}
+<h1 class="text-lg font-semibold text-slate-100">Problems</h1>
+<p class="text-sm text-slate-500 mt-1">Root-cause records behind recurring incidents (ADR-031). No SLA/escalation — a place to investigate.</p>
+
+<form method="post" action="{% url 'ui:problem_create' %}" class="mt-4 mb-5 grid gap-2 sm:grid-cols-[1fr_auto] max-w-3xl">
+  {% csrf_token %}
+  <input name="title" required autocomplete="off" placeholder="New problem — short title"
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+  <button class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm">Create problem</button>
+</form>
+
+<ul class="space-y-2">
+  {% for p in problems %}
+  <li class="bg-slate-900 border border-slate-800 rounded p-3 flex items-center justify-between gap-4">
+    <a href="{% url 'ui:problem_detail' p.id %}" class="min-w-0 truncate text-slate-100 hover:text-white">
+      <span class="font-mono text-xs text-slate-400">{{ p.number }}</span> {{ p.title }}
+    </a>
+    <span class="shrink-0 px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">{{ p.get_status_display }}</span>
+  </li>
+  {% empty %}
+  <li class="text-sm text-slate-500">No problems yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

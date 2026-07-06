@@ -26,6 +26,8 @@ from .models import (
     EnvStatus,
     Incident,
     OnCallShift,
+    Problem,
+    ProblemStatus,
     SessionCheck,
     Status,
     Tier,
@@ -307,3 +309,71 @@ def env_dashboard(request):
         "status": EnvStatus.objects.filter(environment=env).first(),
         "digests": list(Digest.objects.filter(environment=env)[:50]),
     })
+
+
+# --- Problems (ADR-031): thin ops record, generic timeline, no escalation engine ---
+_PROBLEM_DETAIL = "ui:problem_detail"  # redirect target, reused across the write views
+
+
+@login_required
+@require_GET
+def problem_list(request):
+    return render(request, "incidents/problems.html", {
+        "problems": Problem.objects.all()[:200],
+        "statuses": ProblemStatus.choices,
+    })
+
+
+@login_required
+@require_POST
+def problem_create(request):
+    title = (request.POST.get("title") or "").strip()
+    if not title:
+        return redirect("ui:problems")
+    p = Problem.objects.create(title=title, description=(request.POST.get("description") or "").strip())
+    return redirect(_PROBLEM_DETAIL, pk=p.id)
+
+
+@login_required
+@require_GET
+def problem_detail(request, pk):
+    problem = get_object_or_404(Problem, pk=pk)
+    return render(request, "incidents/problem_detail.html", {
+        "problem": problem,
+        "timeline": services.timeline(problem),
+        "statuses": ProblemStatus.choices,
+        "users": User.objects.order_by("username"),
+    })
+
+
+@login_required
+@require_POST
+def problem_add_note(request, pk):
+    problem = get_object_or_404(Problem, pk=pk)
+    body = (request.POST.get("body") or "").strip()
+    if body:
+        services.add_note(problem, actor=request.user.username, body=body)
+    return redirect(_PROBLEM_DETAIL, pk=pk)
+
+
+@login_required
+@require_POST
+def problem_update(request, pk):
+    """Status + assignee changes; a status change posts a system event to the shared timeline."""
+    problem = get_object_or_404(Problem, pk=pk)
+    fields = []
+    status = request.POST.get("status")
+    if status in ProblemStatus.values and status != problem.status:
+        old, problem.status = problem.status, status
+        fields.append("status")
+        services.post_system_event(problem, f"Status {old} → {status} by {request.user.username}")
+    assignee_id = (request.POST.get("assignee") or "").strip()
+    if assignee_id.isdigit() and User.objects.filter(pk=assignee_id).exists():
+        problem.assignee_id = int(assignee_id)
+        fields.append("assignee")
+    elif not assignee_id and problem.assignee_id:
+        problem.assignee = None
+        fields.append("assignee")
+    if fields:
+        problem.save(update_fields=fields + ["updated_at"])
+    return redirect(_PROBLEM_DETAIL, pk=pk)

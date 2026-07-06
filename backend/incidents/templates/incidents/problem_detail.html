@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ problem.number }} · Watch{% endblock %}
+{% block content %}
+<a href="{% url 'ui:problems' %}" class="text-sm text-indigo-400 hover:text-indigo-300">← all problems</a>
+
+<div class="mt-3 flex items-start justify-between gap-4">
+  <div class="min-w-0">
+    <h1 class="text-lg font-semibold text-slate-100">
+      <span class="font-mono text-sm text-slate-400">{{ problem.number }}</span> {{ problem.title }}
+    </h1>
+    {% if problem.description %}<p class="text-sm text-slate-400 mt-1">{{ problem.description }}</p>{% endif %}
+  </div>
+  <span class="shrink-0 px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">{{ problem.get_status_display }}</span>
+</div>
+
+<form method="post" action="{% url 'ui:problem_update' problem.id %}" class="mt-4 flex flex-wrap items-center gap-2">
+  {% csrf_token %}
+  <select name="status" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100">
+    {% for value, label in statuses %}<option value="{{ value }}" {% if value == problem.status %}selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+  <select name="assignee" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100">
+    <option value="">— unassigned —</option>
+    {% for u in users %}<option value="{{ u.id }}" {% if u.id == problem.assignee_id %}selected{% endif %}>{{ u.username }}</option>{% endfor %}
+  </select>
+  <button class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-100 text-sm">Update</button>
+</form>
+
+<form method="post" action="{% url 'ui:problem_add_note' problem.id %}" class="mt-4 flex gap-2">
+  {% csrf_token %}
+  <input name="body" autocomplete="off" placeholder="Add a work note…"
+         class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+  <button class="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-100 text-sm">Add note</button>
+</form>
+
+<h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Timeline</h2>
+<ul class="space-y-2">
+  {% for e in timeline %}
+  <li class="bg-slate-900 border border-slate-800 rounded p-3 text-sm">
+    <div class="text-xs text-slate-500">{{ e.obj.type }} · {{ e.obj.actor|default:"system" }} · {{ e.at|date:"M j, H:i:s" }}</div>
+    {% if e.obj.body %}<p class="text-slate-200 mt-1 whitespace-pre-wrap">{{ e.obj.body }}</p>{% endif %}
+  </li>
+  {% empty %}
+  <li class="text-sm text-slate-500">No timeline entries yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

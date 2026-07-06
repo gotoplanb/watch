@@ -44,6 +44,7 @@ def next_tier(tier: str):
 
 class Incident(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    number = models.CharField(max_length=20, unique=True, null=True, blank=True)  # INC-0142 (ADR-031)
 
     # Intake
     source = models.CharField(max_length=128)
@@ -88,8 +89,16 @@ class Incident(models.Model):
             models.Index(fields=["status", "current_tier"], name="incidents_status_tier_idx"),
         ]
 
+    def save(self, *args, **kwargs):
+        # Assign a human number on .create()/.save() paths (ADR-031). Intake uses bulk_create (which
+        # skips save), so it assigns INC- explicitly — this covers seed/admin/test creation.
+        if not self.number:
+            from . import numbering
+            self.number = numbering.next_number("INC")
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.id} [{self.status}/{self.current_tier}] {self.title}"
+        return f"{self.number or self.id} [{self.status}/{self.current_tier}] {self.title}"
 
 
 class Transition(models.Model):
@@ -440,3 +449,55 @@ class UserSession(models.Model):
 
     def __str__(self):
         return f"session[{self.user_id}] {self.session_key[:8]}…"
+
+
+class RecordCounter(models.Model):
+    """Per-prefix monotonic counter for human record numbers (ADR-031): INC-/PRB-/RCA-. Incremented
+    under `select_for_update` (a no-op on sqlite, which serializes writes anyway) so numbers are
+    unique; gaps are fine (ServiceNow-style)."""
+
+    prefix = models.CharField(max_length=8, primary_key=True)
+    value = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f"{self.prefix}={self.value}"
+
+
+class ProblemStatus(models.TextChoices):
+    OPEN = "open", "Open"
+    INVESTIGATING = "investigating", "Investigating"
+    KNOWN_ERROR = "known_error", "Known error"
+    RESOLVED = "resolved", "Resolved"
+    CLOSED = "closed", "Closed"
+
+
+class Problem(models.Model):
+    """A thin ops record (ADR-031) — the root-cause ticket behind recurring incidents. No escalation
+    engine (that's incident-only); it shares the generic timeline + links. `data` holds variable bits."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    number = models.CharField(max_length=20, unique=True, null=True, blank=True)  # PRB-0007
+    title = models.CharField(max_length=512)
+    description = models.TextField(blank=True, default="")
+    status = models.CharField(max_length=16, choices=ProblemStatus.choices, default=ProblemStatus.OPEN)
+    assignee = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Shared timeline (ADR-031) — work notes / system / AI events attach here via the GFK.
+    events = GenericRelation("TimelineEvent")
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def save(self, *args, **kwargs):
+        if not self.number:
+            from . import numbering
+            self.number = numbering.next_number("PRB")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.number or self.id} [{self.status}] {self.title}"

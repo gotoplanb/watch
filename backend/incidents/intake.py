@@ -13,7 +13,7 @@ import json
 
 from django.conf import settings
 
-from . import events, services
+from . import events, numbering, services
 from .models import Incident, Status, Tier
 
 
@@ -63,8 +63,12 @@ def create_incident_idempotent(
         incident, created = live, (live.id == candidate_id)
 
     if created:
+        # Intake inserts via bulk_create (skips save), so assign the human number here (ADR-031).
+        incident.number = numbering.next_number("INC")
+        incident.save(update_fields=["number", "updated_at"])
         events.emit("incident.created", {
-            "incident_id": str(incident.id), "title": incident.title, "source": incident.source,
+            "incident_id": str(incident.id), "number": incident.number,
+            "title": incident.title, "source": incident.source,
         })
         services.page_on_tier_entry(incident, Tier.T1)  # page the T1 on-call (ADR-013)
     return incident, created
