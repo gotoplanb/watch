@@ -136,7 +136,9 @@ def test_page_uses_secret_suffixed_topic(settings, notifier):
     now = timezone.now()
     OnCallShift.objects.create(tier="T2", user=user, starts_at=now - timedelta(hours=1), ends_at=now + timedelta(hours=1))
     services._page(_incident("T2"), "T2")
-    assert notifier.sent[0]["topic"] == services.paging_topic("user", user.id)
+    # The user topic mixes the user's rotation seed (ADR-030).
+    from incidents import apikeys
+    assert notifier.sent[0]["topic"] == services.paging_topic("user", user.id, seed=apikeys.seed_for(user))
     assert notifier.sent[0]["topic"].startswith(f"watch-test-user-{user.id}-")
 
 

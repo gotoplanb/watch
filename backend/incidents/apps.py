@@ -6,10 +6,12 @@ class IncidentsConfig(AppConfig):
     name = "incidents"
 
     def ready(self):
-        # OTel instrumentation is wired here (apps loaded, before serving requests).
-        # Off by default so hermetic unit tests don't export; compose turns it on.
         from django.conf import settings
 
+        from . import signals  # noqa: F401 — connects the per-user keyring signal (ADR-030)
+
+        # OTel instrumentation is wired here (apps loaded, before serving requests).
+        # Off by default so hermetic unit tests don't export; compose turns it on.
         if getattr(settings, "OTEL_ENABLED", False):  # pragma: no cover - bootstrap
             from config.otel import configure_otel
 

@@ -12,6 +12,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand
 
+from incidents import apikeys
 from incidents.services import paging_topic
 
 
@@ -29,4 +30,5 @@ class Command(BaseCommand):
 
         self.stdout.write("\nper-user topics (paged when the user is on-call):")
         for user in User.objects.order_by("id"):
-            self.stdout.write(f"  {user.username:8} {base}/{paging_topic('user', user.id)}")
+            topic = paging_topic("user", user.id, seed=apikeys.seed_for(user))
+            self.stdout.write(f"  {user.username:8} {base}/{topic}")

@@ -50,6 +50,26 @@ def test_settings_shows_own_api_key(client, settings):
 
 
 @pytest.mark.django_db
+def test_rotate_keys_rolls_the_shown_key(client, settings):
+    from incidents import apikeys
+    settings.API_KEY_SECRET = "unit-key-secret"
+    user = _user("rotator")
+    client.force_login(user)
+    before = apikeys.api_key_for(user)
+    assert client.post("/ui/settings/rotate-keys/").status_code == 302  # back to settings
+    after = apikeys.api_key_for(user)
+    assert after != before
+    body = client.get("/ui/settings/").content.decode()
+    assert after in body and before not in body
+
+
+@pytest.mark.django_db
+def test_rotate_keys_requires_login(client):
+    resp = client.post("/ui/settings/rotate-keys/")
+    assert resp.status_code == 302 and "/api-auth/login/" in resp["Location"]
+
+
+@pytest.mark.django_db
 def test_settings_shows_own_paging_topic(client, settings):
     settings.PAGING_ENV = "test"
     settings.NTFY_TOPIC_SECRET = "s3kret"
@@ -58,7 +78,8 @@ def test_settings_shows_own_paging_topic(client, settings):
     resp = client.get("/ui/settings/")
     assert resp.status_code == 200
     body = resp.content.decode()
-    own = services.paging_topic("user", user.id)
+    from incidents import apikeys
+    own = services.paging_topic("user", user.id, seed=apikeys.seed_for(user))
     assert own in body and own.startswith(f"watch-test-user-{user.id}-")
     # tier fallback topic for the user's tier is shown; the raw secret never is
     assert services.paging_topic("tier", "T2") in body
@@ -72,8 +93,9 @@ def test_settings_does_not_leak_other_users_topics(client, settings):
     me = _user("t1a", "T1")
     client.force_login(me)
     body = client.get("/ui/settings/").content.decode()
-    assert services.paging_topic("user", me.id) in body
-    assert services.paging_topic("user", other.id) not in body
+    from incidents import apikeys
+    assert services.paging_topic("user", me.id, seed=apikeys.seed_for(me)) in body
+    assert services.paging_topic("user", other.id, seed=apikeys.seed_for(other)) not in body
     assert services.paging_topic("tier", "T3") not in body  # not my tier
 
 

@@ -249,7 +249,7 @@ def settings_view(request):
     the logged-in owner is the whole point. Also lists the tier fallback topic(s) for the user's tier
     group(s), since a rota gap pages the tier, not the person."""
     base = settings.NTFY_BASE_URL.rstrip("/")
-    user_topic = services.paging_topic("user", request.user.id)
+    user_topic = services.paging_topic("user", request.user.id, seed=apikeys.seed_for(request.user))
     tiers = request.user.groups.filter(name__in=[t.value for t in Tier]).values_list("name", flat=True)
     tier_topics = [
         {"tier": t, "topic": services.paging_topic("tier", t), "url": f"{base}/{services.paging_topic('tier', t)}"}
@@ -265,6 +265,15 @@ def settings_view(request):
         "tier_topics": tier_topics,
         "topic_secret_set": bool(settings.NTFY_TOPIC_SECRET),
     })
+
+
+@login_required
+@require_POST
+def rotate_keys(request):
+    """Rotate the current user's seed (ADR-030) — rolls their API key + ntfy topic together. Own
+    keyring only; back to settings where the new values render."""
+    apikeys.rotate(request.user)
+    return redirect("ui:settings")
 
 
 @login_required

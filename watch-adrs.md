@@ -550,3 +550,19 @@
 - *Gain:* posts are attributed to a user, keys are per-user (a leak is scoped to one person), and it's self-service — no admin hands out secrets. No new table; verification is a recompute.
 - *Cost / caveat:* a derived key can't be revoked **individually** — rotation is global via `API_KEY_SECRET` (same tradeoff as the ntfy topic). Per-user revocation / rotation / last-used tracking would need a stored-key model — a later step, noted not built. The key is re-viewable in settings (session-auth), so it's a shown-repeatedly secret, not a shown-once one.
 - *Guardrail:* `API_KEY_SECRET` via SSM in prod (never committed); constant-time compare; keys off when unset; both branches tested; ≥90% coverage + green Sonar.
+
+## ADR-030 — Per-user rotation seed: one knob rotates all derived credentials
+**Status:** Accepted · *Refines ADR-013 (ntfy topic) + ADR-029 (ops API key)*
+
+**Context.** ADR-029's per-user API key and ADR-013's per-user ntfy topic are both **derived** (HMAC of a *global* secret + the user id) — great, except they can only be rotated *globally* (rotate the secret → everyone changes). We want **per-user** rotation without a stored-key-per-credential model. Insight (from the user): give each user **one rotation seed** stored on their record, mixed into *every* per-user derivation. Rotating that seed rolls **all** the user's links at once — today the ntfy topic + the ops API key, tomorrow an MCP link — with zero new per-credential plumbing.
+
+**Decision.**
+1. **`UserKeyring`** — a 1:1 with `User` holding a random `secret` (the rotation seed) + `rotated_at`. Created **at user creation** (a `post_save` signal), with a lazy `get_or_create` fallback so pre-existing users get one on first access.
+2. **Every per-user derived credential mixes in the seed:** `api_key_for` → `HMAC(API_KEY_SECRET, "apikey:{id}:{seed}")`; the **per-user** paging topic → `…:{id}:{seed}` in its HMAC message. **Shared** credentials do NOT (the tier fallback topics stay global — no seed — since they're not one person's to rotate).
+3. **Rotation is one action:** `rotate(user)` regenerates the seed; a **"Rotate my keys"** button in `/ui/settings` (session-auth, own-keyring-only) rolls the ntfy topic + API key together and re-renders the new values. A future credential that derives from the seed is covered for free.
+4. **Two-tier revocation:** rotate one user's seed = revoke that user; rotate the global `API_KEY_SECRET`/`NTFY_TOPIC_SECRET` = revoke everyone. Still no per-*credential* revocation (all of a user's links move together) — an intentional simplicity/latitude trade the user chose.
+
+**Consequences.**
+- *Gain:* real per-user revocation/rotation with **no key-per-link table** and no change to the derive-don't-store model; new credential types inherit rotation automatically by mixing the seed.
+- *Cost / caveat:* introducing the seed changes every user's *current* API key + user topic **once** (they re-copy from settings — nothing external depends on them yet). A user can't rotate just one link — all move together (by design). The seed is one more secret at rest (random per user, in Postgres).
+- *Guardrail:* seed is CSPRNG (`secrets`); own-keyring-only rotation; both existing derivations proven to change on rotate and the old key to stop authenticating; tier topics proven unaffected; ≥90% coverage + green Sonar.

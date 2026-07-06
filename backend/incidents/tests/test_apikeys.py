@@ -43,3 +43,39 @@ def test_off_when_secret_empty(settings):
     u = User.objects.create(username="x")
     assert apikeys.api_key_for(u) == ""
     assert apikeys.user_for_key("wk_1_whatever") is None
+
+
+# --- per-user rotation seed (ADR-030) -------------------------------------------------------------
+@pytest.mark.django_db
+def test_keyring_created_at_user_creation():
+    from incidents.models import UserKeyring
+    u = User.objects.create(username="new")
+    kr = UserKeyring.objects.get(user=u)  # post_save signal created it
+    assert apikeys.seed_for(u) and f"keyring[{u.pk}]" == str(kr)
+
+
+@pytest.mark.django_db
+def test_rotate_rolls_the_key_and_invalidates_the_old(settings):
+    from incidents import services
+    settings.NTFY_TOPIC_SECRET = "topicsecret"  # so the topic has an HMAC the seed feeds
+    u = User.objects.create(username="rot")
+    old_key = apikeys.api_key_for(u)
+    old_topic = services.paging_topic("user", u.id, seed=apikeys.seed_for(u))
+    assert apikeys.user_for_key(old_key) == u             # old key works before rotate
+
+    apikeys.rotate(u)
+
+    new_key = apikeys.api_key_for(u)
+    new_topic = services.paging_topic("user", u.id, seed=apikeys.seed_for(u))
+    assert new_key != old_key and new_topic != old_topic  # both links rolled together
+    assert apikeys.user_for_key(old_key) is None          # old key no longer authenticates
+    assert apikeys.user_for_key(new_key) == u
+
+
+@pytest.mark.django_db
+def test_rotate_leaves_tier_topics_untouched(settings):
+    from incidents import services
+    u = User.objects.create(username="rot2")
+    tier_before = services.paging_topic("tier", "T2")
+    apikeys.rotate(u)
+    assert services.paging_topic("tier", "T2") == tier_before  # shared topic, no seed

@@ -4,8 +4,17 @@
 <h1 class="text-lg font-semibold text-slate-100">Settings</h1>
 <p class="text-sm text-slate-500 mt-1">Signed in as <span class="text-slate-300">{{ user.username }}</span>.</p>
 
-<h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Your ops-ingest API key</h2>
-<p class="text-sm text-slate-500 mb-3">Post per-environment status + digests with this key — it authenticates as <span class="text-slate-300">you</span> (ADR-029). Keep it secret; treat it like a password.</p>
+<div class="flex items-center justify-between mt-6 mb-2">
+  <h2 class="text-sm font-semibold text-slate-400">Your ops-ingest API key</h2>
+  {% if api_key_set %}
+  <form method="post" action="{% url 'ui:rotate_keys' %}"
+        onsubmit="return confirm('Rotate your keys? Your API key AND your ntfy paging topic will change — you\'ll need to re-copy both (and update any tooling / re-subscribe on your phone).');">
+    {% csrf_token %}
+    <button type="submit" class="px-2 py-1 rounded text-xs bg-rose-500/15 text-rose-300 hover:bg-rose-500/25">Rotate my keys</button>
+  </form>
+  {% endif %}
+</div>
+<p class="text-sm text-slate-500 mb-3">Post per-environment status + digests with this key — it authenticates as <span class="text-slate-300">you</span> (ADR-029). Keep it secret; treat it like a password. Rotating rolls this key <em>and</em> your paging topic together (ADR-030).</p>
 
 {% if not api_key_set %}
 <div class="bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded p-3 text-sm mb-3">

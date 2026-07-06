@@ -7,6 +7,7 @@ Lifecycle is two orthogonal fields (ADR-007): `status` x `current_tier`, plus
     TRIAGED_T1 = (OPEN, T1, acknowledged_at=<set>)
 RESOLVED is reachable from any tier.
 """
+import secrets
 import uuid
 
 from django.conf import settings
@@ -391,3 +392,26 @@ class Digest(models.Model):
     def __str__(self):
         flag = " [special]" if self.special else ""
         return f"digest {self.environment}{flag} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
+def _gen_seed() -> str:
+    return secrets.token_hex(16)
+
+
+class UserKeyring(models.Model):
+    """Per-user rotation seed (ADR-030). A single random `secret` mixed into every per-user derived
+    credential (ops API key, ntfy paging topic, …). Rotating it rolls all of a user's links at once —
+    per-user revocation without a key-per-credential table. Created at user creation (signal)."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="keyring")
+    secret = models.CharField(max_length=64, default=_gen_seed)
+    rotated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def rotate(self):
+        self.secret = _gen_seed()
+        self.rotated_at = timezone.now()
+        self.save(update_fields=["secret", "rotated_at"])
+
+    def __str__(self):
+        return f"keyring[{self.user_id}]"

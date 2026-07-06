@@ -16,7 +16,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from . import events, flags, notify
+from . import apikeys, events, flags, notify
 from .models import (
     Annotation,
     EventType,
@@ -58,17 +58,20 @@ def page_on_tier_entry(incident, tier) -> None:
     transaction.on_commit(lambda: _page(incident, tier))
 
 
-def paging_topic(kind: str, ident) -> str:
+def paging_topic(kind: str, ident, seed: str = "") -> str:
     """The ntfy topic for a paging target (ADR-013). `kind` is 'user' or 'tier'. When
     NTFY_TOPIC_SECRET is set, an HMAC suffix makes each topic **independently** unguessable from the
     (public) source, and the secret itself never appears in the string. Empty secret → the plain
-    topic (local default), so nothing breaks before it's configured."""
+    topic (local default), so nothing breaks before it's configured. A per-user `seed` (ADR-030) is
+    mixed in for the user topic so rotating the user's keyring rolls it; tier topics pass no seed
+    (shared, not one person's to rotate) and are unaffected."""
     env = settings.PAGING_ENV
     base = f"watch-{env}-{kind}-{ident}"
     secret = settings.NTFY_TOPIC_SECRET
     if not secret:
         return base
-    digest = hmac.new(secret.encode(), f"{env}:{kind}:{ident}".encode(), hashlib.sha256).hexdigest()
+    msg = f"{env}:{kind}:{ident}" + (f":{seed}" if seed else "")
+    digest = hmac.new(secret.encode(), msg.encode(), hashlib.sha256).hexdigest()
     return f"{base}-{digest[:12]}"
 
 
@@ -81,7 +84,7 @@ def _page(incident, tier) -> None:
         shift = current_on_call(tier)
         user = shift.user if shift else None
         # Per-user topic, falling back to the tier topic when the rota has a gap (ADR-013).
-        topic = paging_topic("user", user.id) if user else paging_topic("tier", tier)
+        topic = paging_topic("user", user.id, seed=apikeys.seed_for(user)) if user else paging_topic("tier", tier)
         who = f"@{user.username}" if user else f"{tier} on-call (rota gap)"
         title = f"[{tier}] {incident.title}"[:110]
         message = f"{who} — incident at {tier}\n{incident.title}\nid {incident.id}"
