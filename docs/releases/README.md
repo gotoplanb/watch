@@ -65,8 +65,10 @@ so far (fill in the rest when we cut the first major):
    when we lock the toolchain and libraries — OpenTofu / Terragrunt / provider versions, language
    runtimes, key app deps — so the release is reproducible and an unpinned upgrade can't silently
    break us. (Real example: OpenTofu auto-upgrading to 1.12 introduced a resource-identity check that
-   broke cross-account `teardown` mid-build — worked around with `-refresh=false`, but a pin would
-   have prevented the surprise.) Record the pinned versions in the release notes.
+   broke cross-account `teardown` mid-build. `-refresh=false` looked like a workaround but made it
+   *worse* — it dropped state entries without deleting the resources, leaving billable orphans — and
+   was reverted; the real fix was **pinning OpenTofu to 1.11.11** and asserting the pin in the scripts
+   and CI. See ADR-032 and `docs/releases/v0.9.md`.) Record the pinned versions in the release notes.
 
 > Still forming — expand this as we learn what a major actually needs.
 
