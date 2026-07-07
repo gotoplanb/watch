@@ -48,13 +48,21 @@ gh release create v0.8.0 --repo gotoplanb/platform   --title "…" --notes-file 
 gh release create v0.8.0 --repo gotoplanb/watchtower --title "…" --notes-file attest.md
 ```
 
-## Major — `vX.0.0`  ·  *TODO — not yet exercised*
+## Major — `vX.0.0`  ·  *forming — not yet exercised*
 
-> **Placeholder.** We haven't cut a major release yet. When we do, this section should define the
-> extra ceremony on top of the minor checklist — at minimum: recording **demo clips** of the
-> user-facing features (`make demo` storyboards) and attaching them to the GitHub release, plus
-> whatever breaking-change / upgrade / migration communication a major warrants. Fill this in when we
-> get there.
+Everything in the minor checklist, **plus** the extra ceremony a major warrants. Known requirements
+so far (fill in the rest when we cut the first major):
+
+1. **Documentation & ADR audit** — a thorough review of **all ADRs** (`watch-adrs.md`) and the
+   architecture/design docs (spec, `docs/`, platform `docs/architecture/*`) to confirm they reflect
+   the shipped reality. Reconcile any drift **in the same release** — per the "code follows the ADRs"
+   discipline, a major is the checkpoint where the written record must catch up to the code.
+2. **Demo clips** — record clips of the user-facing features (`make demo` storyboards) and attach
+   them to the GitHub release.
+3. **Breaking-change / upgrade / migration communication** — call out anything that isn't a
+   drop-in upgrade (schema, config, API, or cross-repo contract changes).
+
+> Still forming — expand this as we learn what a major actually needs.
 
 ---
 
