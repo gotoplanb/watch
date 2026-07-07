@@ -18,6 +18,9 @@ TUNNEL_HOST := $(shell test -f .env && sed -n 's/^TUNNEL_DOMAIN=//p' .env | tr -
 # Paging topic secret from .env (ADR-013) — salts ntfy topic names so they're not guessable from the
 # public source. Empty when unset (plain topics). Kept in gitignored .env, never in this file.
 NTFY_TOPIC_SECRET := $(shell test -f .env && sed -n 's/^NTFY_TOPIC_SECRET=//p' .env | tr -d '"' | head -1)
+# Seeded tier-user password from .env (ADR-008) — the e2e smoke logs in as a tier user, so it must
+# match whatever seed_demo applied. Empty here → the e2e recipe falls back to the dev default 'watch'.
+SEED_USER_PASSWORD := $(shell test -f .env && sed -n 's/^SEED_USER_PASSWORD=//p' .env | tr -d '"' | head -1)
 
 HOSTENV := DJANGO_SECRET_KEY=dev DJANGO_DEBUG=1 \
   $(if $(NTFY_TOPIC_SECRET),NTFY_TOPIC_SECRET=$(NTFY_TOPIC_SECRET)) \
@@ -76,6 +79,9 @@ test: venv
 E2E_BASE ?= http://localhost:8010
 E2E_STATUS ?= http://localhost:5173
 E2E_SECRET ?= dev-webhook-secret
+# Login the smoke uses (must match the seeded DB). Password from .env's SEED_USER_PASSWORD, else 'watch'.
+E2E_USER ?= t1a
+E2E_PASSWORD ?= $(or $(SEED_USER_PASSWORD),watch)
 # Suite tiering (#30): local runs skip @staging-only tests; the staging Smoke stage overrides
 # E2E_GREP="" (or --grep="@local|@staging") to run the full superset.
 E2E_GREP ?= --grep-invert=@staging
@@ -103,7 +109,8 @@ demo:
 e2e:
 	@cd e2e && npm install --silent \
 	  && { [ "$(E2E_INSTALL)" != 1 ] || npx playwright install chromium chromium-headless-shell; } \
-	  && BASE_URL=$(E2E_BASE) STATUS_URL=$(E2E_STATUS) INTAKE_WEBHOOK_SECRET=$(E2E_SECRET) npx playwright test $(E2E_GREP)
+	  && SMOKE_USER=$(E2E_USER) SMOKE_PASSWORD='$(E2E_PASSWORD)' \
+	     BASE_URL=$(E2E_BASE) STATUS_URL=$(E2E_STATUS) INTAKE_WEBHOOK_SECRET=$(E2E_SECRET) npx playwright test $(E2E_GREP)
 
 # Run hermetic units under coverage; writes backend/coverage.xml (Cobertura) and a
 # terminal summary. Fails if total coverage < 90% (the gate, in pyproject.toml).

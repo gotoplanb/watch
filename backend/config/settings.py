@@ -196,6 +196,11 @@ API_KEY_SECRET = _env("API_KEY_SECRET", "")
 # for the local status-page SPA; set to the CloudFront/status domain in prod.
 STATUS_PAGE_CORS_ORIGIN = _env("STATUS_PAGE_CORS_ORIGIN", "*")
 
+# Passwords `seed_demo` assigns — split so the superuser isn't the same guessable value as the
+# tier users. Dev-friendly defaults; set both in .env (non-guessable) on any tunnel-exposed box.
+SEED_USER_PASSWORD = _env("SEED_USER_PASSWORD", "watch")
+SEED_ADMIN_PASSWORD = _env("SEED_ADMIN_PASSWORD", "admin")
+
 # --- Status SSE feed (ADR-024) ---
 # The SSE stream re-checks posture every POLL seconds and recycles after MAX_SECONDS (the
 # EventSource auto-reconnects) so no connection is held indefinitely.

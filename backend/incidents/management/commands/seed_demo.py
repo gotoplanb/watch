@@ -7,8 +7,10 @@ Seed a usable local environment (manual use):
 
     python manage.py seed_demo
 
-Passwords are 'watch' (admin/admin). Local only — never run against a real env.
+Passwords come from settings (SEED_USER_PASSWORD / SEED_ADMIN_PASSWORD, default watch/admin) and are
+(re)applied every run, so updating .env + re-seeding rotates them. Local/dev only — never a real env.
 """
+from django.conf import settings
 from django.contrib.auth.models import Group, User
 from django.core.management.base import BaseCommand
 
@@ -35,20 +37,18 @@ class Command(BaseCommand):
             Group.objects.get_or_create(name=tier)
 
         for username, tier in TIER_USERS.items():
-            user, created = User.objects.get_or_create(username=username)
-            if created:
-                user.set_password("watch")
-                user.save()
+            user, _ = User.objects.get_or_create(username=username)
+            user.set_password(settings.SEED_USER_PASSWORD)  # (re)apply so .env changes rotate creds
+            user.save()
             user.groups.set([Group.objects.get(name=tier)])
             self.stdout.write(f"  user {username} -> {tier}")
 
-        admin, created = User.objects.get_or_create(
+        admin, _ = User.objects.get_or_create(
             username="admin", defaults={"is_staff": True, "is_superuser": True}
         )
-        if created:
-            admin.set_password("admin")
-            admin.save()
-            self.stdout.write("  superuser admin/admin")
+        admin.set_password(settings.SEED_ADMIN_PASSWORD)
+        admin.save()
+        self.stdout.write("  superuser admin (password from SEED_ADMIN_PASSWORD)")
 
         if not opts["no_incident"]:
             incident, was_created = create_incident_idempotent(
