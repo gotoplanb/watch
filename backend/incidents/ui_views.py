@@ -5,7 +5,9 @@ actions reuse the same services/permissions as the API; HTMX swaps the incident 
 partial so the page updates without a full reload.
 """
 from django.conf import settings
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.models import User
 from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
@@ -251,6 +253,9 @@ def add_subscription(request):
     return redirect("ui:webhooks")
 
 
+_SETTINGS = "ui:settings"  # redirect target, reused across the settings write views
+
+
 @login_required
 @require_GET
 def settings_view(request):
@@ -283,7 +288,7 @@ def rotate_keys(request):
     """Rotate the current user's seed (ADR-030) — rolls their API key + ntfy topic together. Own
     keyring only; back to settings where the new values render."""
     apikeys.rotate(request.user)
-    return redirect("ui:settings")
+    return redirect(_SETTINGS)
 
 
 @login_required
@@ -293,7 +298,24 @@ def sign_out_everywhere(request):
     sessions only — the server-side session store makes this an instant kill, unlike a stateless JWT."""
     n = session_index.flush(request.user, keep=request.session.session_key or "")
     messages.success(request, f"Signed out {n} other session{'' if n == 1 else 's'}.")
-    return redirect("ui:settings")
+    return redirect(_SETTINGS)
+
+
+@login_required
+@require_POST
+def change_password(request):
+    """Self-service password change (ADR-008). Django's PasswordChangeForm enforces the current
+    password + AUTH_PASSWORD_VALIDATORS; update_session_auth_hash keeps THIS session signed in
+    (the password-hash change would otherwise invalidate the session cookie)."""
+    form = PasswordChangeForm(user=request.user, data=request.POST)
+    if form.is_valid():
+        form.save()
+        update_session_auth_hash(request, request.user)  # don't log the user out of their own device
+        messages.success(request, "Password changed.")
+    else:
+        errs = "; ".join(msg for field in form.errors.values() for msg in field)
+        messages.error(request, f"Could not change password: {errs}")
+    return redirect(_SETTINGS)
 
 
 @login_required

@@ -73,6 +73,63 @@ def test_rotate_keys_requires_login(client):
 
 
 @pytest.mark.django_db
+def test_change_password_requires_login(client):
+    resp = client.post("/ui/settings/change-password/")
+    assert resp.status_code == 302 and "/api-auth/login/" in resp["Location"]
+
+
+@pytest.mark.django_db
+def test_change_password_success_keeps_session(client):
+    user = _user("changer")
+    user.set_password("oldpassword123")
+    user.save()
+    client.force_login(user)
+    resp = client.post("/ui/settings/change-password/", {
+        "old_password": "oldpassword123",
+        "new_password1": "s3curely-rotated-pw",
+        "new_password2": "s3curely-rotated-pw",
+    })
+    assert resp.status_code == 302 and resp["Location"] == "/ui/settings/"
+    user.refresh_from_db()
+    assert user.check_password("s3curely-rotated-pw")
+    # update_session_auth_hash keeps THIS session valid — still authed on the next request
+    assert client.get("/ui/settings/").status_code == 200
+
+
+@pytest.mark.django_db
+def test_change_password_wrong_old_is_rejected(client):
+    user = _user("wrongold")
+    user.set_password("oldpassword123")
+    user.save()
+    client.force_login(user)
+    resp = client.post("/ui/settings/change-password/", {
+        "old_password": "not-the-old-one",
+        "new_password1": "s3curely-rotated-pw",
+        "new_password2": "s3curely-rotated-pw",
+    })
+    assert resp.status_code == 302
+    user.refresh_from_db()
+    assert user.check_password("oldpassword123")  # unchanged
+    body = client.get("/ui/settings/").content.decode()
+    assert "Could not change password" in body
+
+
+@pytest.mark.django_db
+def test_change_password_mismatch_is_rejected(client):
+    user = _user("mismatch")
+    user.set_password("oldpassword123")
+    user.save()
+    client.force_login(user)
+    client.post("/ui/settings/change-password/", {
+        "old_password": "oldpassword123",
+        "new_password1": "s3curely-rotated-pw",
+        "new_password2": "different-typo-pw",
+    })
+    user.refresh_from_db()
+    assert user.check_password("oldpassword123")  # unchanged
+
+
+@pytest.mark.django_db
 def test_settings_shows_own_paging_topic(client, settings):
     settings.PAGING_ENV = "test"
     settings.NTFY_TOPIC_SECRET = "s3kret"

@@ -13,9 +13,21 @@
 
 {% if messages %}
   {% for m in messages %}
-  <div class="mt-3 rounded p-2 text-sm bg-emerald-500/10 text-emerald-300">{{ m }}</div>
+  <div class="mt-3 rounded p-2 text-sm {% if 'error' in m.tags %}bg-rose-500/10 text-rose-300{% else %}bg-emerald-500/10 text-emerald-300{% endif %}">{{ m }}</div>
   {% endfor %}
 {% endif %}
+
+<h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Password</h2>
+<form method="post" action="{% url 'ui:change_password' %}" class="grid gap-2 max-w-sm">
+  {% csrf_token %}
+  <input type="password" name="old_password" autocomplete="current-password" required placeholder="Current password"
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+  <input type="password" name="new_password1" autocomplete="new-password" required placeholder="New password"
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+  <input type="password" name="new_password2" autocomplete="new-password" required placeholder="New password (again)"
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+  <div><button class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm">Change password</button></div>
+</form>
 
 <div class="flex items-center justify-between mt-6 mb-2">
   <h2 class="text-sm font-semibold text-slate-400">Your ops-ingest API key</h2>
