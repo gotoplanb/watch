@@ -5,6 +5,20 @@ Incident intake & tiered-escalation platform. **The design docs are authoritativ
 [`watch-adrs.md`](watch-adrs.md) (decisions + tradeoffs). Code follows the ADRs, not
 the other way round. If you change a decision, update the ADR/spec in the same change.
 
+## Operating mode — ACTIVE BUILD MODE (read this after every compaction)
+We are **rapidly building** this project and **create/destroy the whole AWS estate almost daily.**
+This is the current normal, not an exception:
+- **Run `make live` / `make teardown` / manual staging deploys directly** (bootstrap admin creds).
+  Long-running ones go in the `watch` tmux session. Don't hedge or treat these as scary one-offs —
+  they're routine. Cost ~$10/day during build is fine for velocity (destroy at end of session).
+- The **"Claude is read-only on AWS, pipeline mutates via OIDC"** principle is the **eventual
+  production discipline / target**, NOT a restriction on current build-mode work. Read-only applies
+  when we're *verifying* a live prod estate; while building, I apply directly.
+- Cloud IaC lives in **`~/platform`** (Terragrunt/OpenTofu); local dev is `make dev` here.
+- **Known blocker:** new Org member accounts hit a **CloudFront account-verification** hold
+  (`AccessDenied: account must be verified before you can add new CloudFront resources`) — the estate
+  otherwise stands up; only `staging/frontend`/`prod/frontend` fail. Needs AWS Support / time.
+
 ## How decisions get made and recorded
 1. Surface gaps/questions as **GitHub issues** under the `spec-gap` label (`gh issue create`).
 2. Discuss and resolve them with the user — one coupled cluster at a time. The user
