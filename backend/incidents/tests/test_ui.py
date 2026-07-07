@@ -115,6 +115,23 @@ def test_change_password_wrong_old_is_rejected(client):
 
 
 @pytest.mark.django_db
+def test_change_password_weak_is_rejected(client):
+    user = _user("weakling")
+    user.set_password("oldpassword123")
+    user.save()
+    client.force_login(user)
+    # "password" clears the length floor but the CommonPasswordValidator rejects it
+    client.post("/ui/settings/change-password/", {
+        "old_password": "oldpassword123",
+        "new_password1": "password",
+        "new_password2": "password",
+    })
+    user.refresh_from_db()
+    assert user.check_password("oldpassword123")  # unchanged
+    assert "Could not change password" in client.get("/ui/settings/").content.decode()
+
+
+@pytest.mark.django_db
 def test_change_password_mismatch_is_rejected(client):
     user = _user("mismatch")
     user.set_password("oldpassword123")

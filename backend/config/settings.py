@@ -131,8 +131,14 @@ SESSION_COOKIE_AGE = int(_env("SESSION_COOKIE_AGE", str(14 * 24 * 3600)))  # 14 
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
+# Applied wherever a password is set via a form (e.g. the /ui change-password flow, ADR-008) — not to
+# set_password() calls like seed_demo. The standard trio rejects common/weak, user-similar, and
+# all-numeric passwords on top of the length floor.
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
 # @login_required (UI, ADR-011) redirects here; the DRF/Django auth login honors ?next.
