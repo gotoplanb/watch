@@ -8,25 +8,61 @@
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>[x-cloak]{display:none!important}</style>
 </head>
 <body class="bg-slate-950 text-slate-200 min-h-screen [color-scheme:dark]"
       hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
-  <header class="bg-slate-900 border-b border-slate-800 text-slate-100 px-6 py-3 flex items-center justify-between">
-    <div class="flex items-center gap-5">
-      <a href="{% url 'ui:incident_list' %}" class="font-semibold tracking-tight">Watch · Incidents</a>
-      <a href="{% url 'ui:schedule' %}" class="text-sm text-slate-400 hover:text-slate-100">Schedule</a>
-      <a href="{% url 'ui:checks' %}" class="text-sm text-slate-400 hover:text-slate-100">Checks</a>
-      <a href="{% url 'ui:problems' %}" class="text-sm text-slate-400 hover:text-slate-100">Problems</a>
-      <a href="{% url 'ui:rcas' %}" class="text-sm text-slate-400 hover:text-slate-100">RCAs</a>
-      <a href="{% url 'ui:webhooks' %}" class="text-sm text-slate-400 hover:text-slate-100">Webhooks</a>
-      <a href="{% url 'ui:environments' %}" class="text-sm text-slate-400 hover:text-slate-100">Environments</a>
+  {# Header collapses to a hamburger below md; section links live in one partial (desktop inline + mobile panel); Alpine `open` toggles it. #}
+  <header class="bg-slate-900 border-b border-slate-800 text-slate-100"
+          x-data="{ open: false }" @keydown.escape.window="open = false">
+    <div class="px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-5 min-w-0">
+        <a href="{% url 'ui:incident_list' %}" class="font-semibold tracking-tight whitespace-nowrap">Watch · Incidents</a>
+        <nav class="hidden md:flex items-center gap-5">
+          {% include 'incidents/_nav_links.html' with item_class="text-sm text-slate-400 hover:text-slate-100" %}
+        </nav>
+      </div>
+      <div class="hidden md:flex items-center gap-4 text-sm text-slate-400">
+        {% if user.is_authenticated %}
+          {% if session_correlation_id %}
+          {# Non-secret session id (ADR-022) — safe to share; give to support to check for errors. #}
+          <span x-data="{ copied: false }" class="text-xs text-slate-500"
+                data-session-id="{{ session_correlation_id }}">
+            session
+            <button type="button" class="font-mono text-slate-400 hover:text-slate-200"
+                    @click="navigator.clipboard.writeText('{{ session_correlation_id }}'); copied = true; setTimeout(() => copied = false, 1200)"
+                    :title="copied ? 'copied!' : 'click to copy your session id'">{{ session_correlation_id|slice:":8" }}…</button>
+            <span x-show="copied" class="text-emerald-400">copied</span>
+          </span>
+          {% endif %}
+          <a class="text-slate-300 hover:text-slate-100" href="{% url 'ui:settings' %}" title="settings &amp; your paging subscription">{{ user.username }}</a>
+          <a class="text-indigo-400 hover:text-indigo-300" href="{% url 'rest_framework:logout' %}?next={% url 'ui:incident_list' %}">log out</a>
+        {% else %}
+          <a class="text-indigo-400 hover:text-indigo-300" href="{% url 'rest_framework:login' %}">log in</a>
+        {% endif %}
+      </div>
+      {# Hamburger — mobile only #}
+      <button type="button"
+              class="md:hidden inline-flex items-center justify-center rounded p-2 -mr-2 text-slate-300 hover:text-slate-100 hover:bg-slate-800"
+              @click="open = !open" :aria-expanded="open.toString()" aria-controls="mobile-nav" aria-label="Toggle navigation">
+        <svg x-show="!open" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
+        </svg>
+        <svg x-show="open" x-cloak class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>
-    <div class="flex items-center gap-4 text-sm text-slate-400">
+    {# Mobile panel — the same section links, stacked; plus the user/session chrome #}
+    <nav id="mobile-nav" x-show="open" x-cloak @click.outside="open = false"
+         class="md:hidden border-t border-slate-800 px-3 pb-3 pt-1 flex flex-col gap-0.5">
+      {% include 'incidents/_nav_links.html' with item_class="block px-2 py-2 rounded text-slate-300 hover:text-slate-100 hover:bg-slate-800" %}
+      <div class="border-t border-slate-800 my-2"></div>
       {% if user.is_authenticated %}
+        <a class="block px-2 py-2 rounded text-slate-300 hover:text-slate-100 hover:bg-slate-800" href="{% url 'ui:settings' %}">{{ user.username }} · settings</a>
+        <a class="block px-2 py-2 rounded text-indigo-400 hover:text-indigo-300 hover:bg-slate-800" href="{% url 'rest_framework:logout' %}?next={% url 'ui:incident_list' %}">log out</a>
         {% if session_correlation_id %}
-        {# Non-secret session id (ADR-022) — safe to share; give to support to check for errors. #}
-        <span x-data="{ copied: false }" class="text-xs text-slate-500"
-              data-session-id="{{ session_correlation_id }}">
+        <span x-data="{ copied: false }" class="px-2 py-2 text-xs text-slate-500" data-session-id="{{ session_correlation_id }}">
           session
           <button type="button" class="font-mono text-slate-400 hover:text-slate-200"
                   @click="navigator.clipboard.writeText('{{ session_correlation_id }}'); copied = true; setTimeout(() => copied = false, 1200)"
@@ -34,12 +70,10 @@
           <span x-show="copied" class="text-emerald-400">copied</span>
         </span>
         {% endif %}
-        <a class="text-slate-300 hover:text-slate-100" href="{% url 'ui:settings' %}" title="settings &amp; your paging subscription">{{ user.username }}</a>
-        <a class="text-indigo-400 hover:text-indigo-300" href="{% url 'rest_framework:logout' %}?next={% url 'ui:incident_list' %}">log out</a>
       {% else %}
-        <a class="text-indigo-400 hover:text-indigo-300" href="{% url 'rest_framework:login' %}">log in</a>
+        <a class="block px-2 py-2 rounded text-indigo-400 hover:text-indigo-300 hover:bg-slate-800" href="{% url 'rest_framework:login' %}">log in</a>
       {% endif %}
-    </div>
+    </nav>
   </header>
   <main class="max-w-5xl mx-auto p-6">{% block content %}{% endblock %}</main>
 </body>

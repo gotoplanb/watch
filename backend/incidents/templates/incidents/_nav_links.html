@@ -1,0 +1,7 @@
+{# Primary section nav — single source for the (growing) feature list; base.html renders it twice (desktop inline + mobile panel) via `item_class`. Add a nav entry HERE once. #}
+<a href="{% url 'ui:schedule' %}" class="{{ item_class }}">Schedule</a>
+<a href="{% url 'ui:checks' %}" class="{{ item_class }}">Checks</a>
+<a href="{% url 'ui:problems' %}" class="{{ item_class }}">Problems</a>
+<a href="{% url 'ui:rcas' %}" class="{{ item_class }}">RCAs</a>
+<a href="{% url 'ui:webhooks' %}" class="{{ item_class }}">Webhooks</a>
+<a href="{% url 'ui:environments' %}" class="{{ item_class }}">Environments</a>
