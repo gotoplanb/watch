@@ -31,12 +31,15 @@ download completes; the Node-based unzip stalls) — which is why install is opt
 natively with `ditto` instead; then plain `make e2e` (default `E2E_INSTALL=0`) uses it:
 
 ```bash
+# Playwright 1.61.1 -> chromium build 1228 (Chrome for Testing 149.0.7827.55). Bump these together
+# when @playwright/test moves: `npx playwright install --dry-run chromium chromium-headless-shell`
+# prints the current build number + download URLs.
 D=~/Library/Caches/ms-playwright
-B=https://playwright.azureedge.net/builds/chromium/1148
-curl -L -o /tmp/hs.zip "$B/chromium-headless-shell-mac-arm64.zip"
-rm -rf "$D/chromium_headless_shell-1148" && mkdir -p "$D/chromium_headless_shell-1148"
-ditto -x -k /tmp/hs.zip "$D/chromium_headless_shell-1148/"
-# (repeat for chromium-mac-arm64.zip -> $D/chromium-1148 if the full browser is also missing)
+B=https://cdn.playwright.dev/builds/cft/149.0.7827.55/mac-arm64
+curl -L -o /tmp/hs.zip "$B/chrome-headless-shell-mac-arm64.zip"
+rm -rf "$D/chromium_headless_shell-1228" && mkdir -p "$D/chromium_headless_shell-1228"
+ditto -x -k /tmp/hs.zip "$D/chromium_headless_shell-1228/"
+# (repeat for chrome-mac-arm64.zip -> $D/chromium-1228 if the full browser is also missing)
 
 cd ~/watch && make e2e   # E2E_INSTALL=0 is the default — no installer, uses the seeded browser
 ```
