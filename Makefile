@@ -1,12 +1,18 @@
 # Watch — local developer workflow.
 # Goal: everything runs local — unit + integration tests, manual use, and OTel
 # telemetry visible in the local Watchtower (LGTM) stack.
+#
+# `make help` is auto-generated: any target with a `## description` after its
+# colon shows up in the list. Add the comment when you add a target — that's the
+# only maintenance the help needs (no hand-curated echo list to drift).
 
 PY := python3.12
 VENV := backend/.venv
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: help venv test e2e demo dev infra up down logs seed seed-dev smoke integration clean tunnel-domain tunnel-up tunnel-down tunnel-status
+.PHONY: help venv test e2e demo dev infra status-page up down logs seed seed-dev smoke \
+        coverage sonar-scan sonar-scan-only install-hooks integration clean \
+        tunnel-domain tunnel-up tunnel-down tunnel-status
 
 # Env for running the backend on the HOST against compose-provided infra. This is the
 # primary local loop here: it needs no image-registry/PyPI egress (only the cached
@@ -33,19 +39,9 @@ HOSTENV := DJANGO_SECRET_KEY=dev DJANGO_DEBUG=1 \
   WEBHOOK_ECHO_SECRET=dev-echo-secret SESSION_USER_HMAC_KEY=dev-hmac-key API_KEY_SECRET=dev-api-key-secret \
   OTEL_ENABLED=1 OTEL_SERVICE_NAME=watch-backend OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 
-help:
-	@echo "make dev          PRIMARY local loop: infra in Docker + backend on host (:8010)"
-	@echo "                  migrate + seed + runserver; OTel -> existing Watchtower"
-	@echo "make seed-dev     reseed the host-venv dev DB, applying SEED_USER/ADMIN_PASSWORD from .env"
-	@echo "make infra        start only Postgres/Valkey/AppConfig in Docker"
-	@echo "make test         run hermetic unit tests (no Docker)"
-	@echo "make coverage     run units under coverage; fails if < 90% (the gate)"
-	@echo "make sonar-scan   coverage + SonarQube scan (local Watchtower :9000, project watch)"
-	@echo "make install-hooks install the pre-commit quality gates (coverage + Sonar)"
-	@echo "make integration  run integration tests vs running infra (Postgres, AppConfig, [SFN if up])"
-	@echo "make smoke        push an incident through the intake webhook"
-	@echo "make up           full containerized stack (needs registry/PyPI egress; for CI/normal net)"
-	@echo "make down         stop the stack and remove volumes"
+help: ## Show this list (any target with a trailing comment)
+	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
+	  awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n",$$1,$$2}'
 	@echo ""
 	@echo "Watchtower Grafana (existing): http://localhost:3000  -> Explore -> Tempo (service watch-backend)"
 	@echo "App / browsable API:           http://localhost:8010/api/  (login t1a..t3b / admin; pw from SEED_USER_PASSWORD/SEED_ADMIN_PASSWORD in .env)"
@@ -55,24 +51,24 @@ venv:
 	$(VENV)/bin/pip install -q --upgrade pip
 	$(VENV)/bin/pip install -q -r backend/requirements.txt
 
-infra:
+infra: ## Start only Postgres/Valkey/AppConfig in Docker
 	@test -f .env || cp .env.example .env
 	docker compose up -d postgres valkey appconfig-agent
 
 # Serve the build-less React status page (ADR-011). Expects the API on :8010.
-status-page:
+status-page: ## Serve the build-less React status page on :5173 (API on :8010)
 	@echo "status page -> http://localhost:5173  (API at http://localhost:8010)"
 	cd frontend && python3 -m http.server 5173
 
 # One-command working loop (no image build): infra in Docker, app on the host.
-dev: venv infra
+dev: venv infra ## PRIMARY local loop — infra in Docker + backend on host (:8010): migrate+seed+runserver
 	@echo "Waiting for Postgres on :5433..."
 	@for i in $$(seq 1 30); do nc -z localhost 5433 && break; sleep 1; done
 	cd backend && $(HOSTENV) .venv/bin/python manage.py migrate
 	cd backend && $(HOSTENV) .venv/bin/python manage.py seed_demo
 	cd backend && $(HOSTENV) .venv/bin/python manage.py runserver --noreload 0.0.0.0:8010
 
-test: venv
+test: venv ## Run hermetic unit tests (no Docker)
 	cd backend && .venv/bin/pytest
 
 # Post-deploy functional smoke (Playwright). Defaults hit the `make dev` loop; override
@@ -98,7 +94,7 @@ E2E_INSTALL ?= 0
 # Needs the local stack up (make dev + make status-page) and shot-scraper installed
 # (`uv tool install shot-scraper`; seed its Playwright browser out-of-band — see storyboards/README.md).
 DEMO_OUT ?= /tmp/watch-demos
-demo:
+demo: ## Record release demo videos from storyboards (shot-scraper; needs the stack up)
 	@command -v shot-scraper >/dev/null || { echo "shot-scraper not installed (uv tool install shot-scraper); see storyboards/README.md"; exit 1; }
 	@mkdir -p $(DEMO_OUT)
 	@for s in storyboards/*.yml; do \
@@ -107,7 +103,7 @@ demo:
 	done
 	@echo "demos -> $(DEMO_OUT)"
 
-e2e:
+e2e: ## Playwright post-deploy smoke (defaults to the make-dev loop; override E2E_* for staging)
 	@cd e2e && npm install --silent \
 	  && { [ "$(E2E_INSTALL)" != 1 ] || npx playwright install chromium chromium-headless-shell; } \
 	  && SMOKE_USER=$(E2E_USER) SMOKE_PASSWORD='$(E2E_PASSWORD)' \
@@ -115,14 +111,14 @@ e2e:
 
 # Run hermetic units under coverage; writes backend/coverage.xml (Cobertura) and a
 # terminal summary. Fails if total coverage < 90% (the gate, in pyproject.toml).
-coverage: venv
+coverage: venv ## Run units under coverage; fails if < 90% (the gate)
 	cd backend && .venv/bin/pytest --cov --cov-report=xml --cov-report=term -q
 
 # Static analysis + coverage to the local Watchtower SonarQube (:9000). Reads
 # SONAR_TOKEN from .env. Runs the scanner with backend/ as the base dir and waits for
 # the quality gate (sonar.qualitygate.wait in sonar-project.properties), so a red gate
 # exits non-zero. Results at http://localhost:9000/dashboard?id=watch
-sonar-scan: coverage sonar-scan-only
+sonar-scan: coverage sonar-scan-only ## Coverage + SonarQube scan (local Watchtower :9000, project watch)
 
 # Scan using the already-generated backend/coverage.xml (used by the pre-commit hook,
 # which runs coverage itself first).
@@ -138,20 +134,20 @@ sonar-scan-only:
 		sonarsource/sonar-scanner-cli:latest
 
 # Install the versioned git hooks (coverage + Sonar gates on commit).
-install-hooks:
+install-hooks: ## Install the pre-commit quality gates (coverage + Sonar)
 	git config core.hooksPath .githooks
 	@chmod +x .githooks/* 2>/dev/null || true
 	@echo "git hooks installed (core.hooksPath=.githooks)"
 
-up:
+up: ## Full containerized stack (needs registry/PyPI egress; for CI / normal net)
 	@test -f .env || cp .env.example .env
 	docker compose up -d --build
 	@echo "Stack up. App http://localhost:8010/api/  •  traces in Watchtower Grafana http://localhost:3000"
 
-logs:
+logs: ## Tail the backend container logs (make up)
 	docker compose logs -f backend
 
-seed:
+seed: ## Reseed the containerized (make up) DB
 	docker compose exec backend python manage.py seed_demo
 
 # Dev peer of `make seed`. `make seed` execs the *containerized* backend (make up); the make-dev loop
@@ -164,7 +160,7 @@ seed-dev: venv infra ## Reseed the make-dev (host-venv) DB, applying SEED_USER/A
 	@for i in $$(seq 1 30); do nc -z localhost 5433 && break; sleep 1; done
 	cd backend && { set -a; test -f ../.env && . ../.env; set +a; } && $(HOSTENV) .venv/bin/python manage.py seed_demo
 
-smoke:
+smoke: ## Push an incident through the intake webhook
 	curl -fsS -X POST http://localhost:8010/api/intake/webhook \
 	  -H "X-Watch-Webhook-Secret: $$(grep INTAKE_WEBHOOK_SECRET .env | cut -d= -f2)" \
 	  -H "Content-Type: application/json" \
@@ -174,7 +170,7 @@ smoke:
 # Integration tests (spec §6): real Postgres + AppConfig Agent + Step Functions Local.
 # Tests run on the host venv against the running infra; SFN Local is best-effort
 # (the test skips if its container can't start, e.g. no registry egress).
-integration: venv infra
+integration: venv infra ## Integration tests vs running infra (Postgres, AppConfig, [SFN if up])
 	-docker compose --profile integration up -d stepfunctions-local
 	@echo "Giving Step Functions Local a moment (skipped if unavailable)..."
 	@for i in $$(seq 1 15); do nc -z localhost 8083 && break; sleep 1; done; true
@@ -183,10 +179,10 @@ integration: venv infra
 	  APPCONFIG_AGENT_URL=http://localhost:2772 \
 	  .venv/bin/pytest -m integration -p no:cacheprovider
 
-down:
+down: ## Stop the stack and remove volumes
 	docker compose --profile integration down -v
 
-clean: down
+clean: down ## down + remove the venv
 	rm -rf $(VENV)
 
 # --- dev tunnels (ngrok): on-demand basic-auth'd public ingress (local/tunnel) ---
