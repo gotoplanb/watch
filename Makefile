@@ -6,7 +6,7 @@ PY := python3.12
 VENV := backend/.venv
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: help venv test e2e demo dev infra up down logs seed smoke integration clean tunnel-domain tunnel-up tunnel-down tunnel-status
+.PHONY: help venv test e2e demo dev infra up down logs seed seed-dev smoke integration clean tunnel-domain tunnel-up tunnel-down tunnel-status
 
 # Env for running the backend on the HOST against compose-provided infra. This is the
 # primary local loop here: it needs no image-registry/PyPI egress (only the cached
@@ -36,6 +36,7 @@ HOSTENV := DJANGO_SECRET_KEY=dev DJANGO_DEBUG=1 \
 help:
 	@echo "make dev          PRIMARY local loop: infra in Docker + backend on host (:8010)"
 	@echo "                  migrate + seed + runserver; OTel -> existing Watchtower"
+	@echo "make seed-dev     reseed the host-venv dev DB, applying SEED_USER/ADMIN_PASSWORD from .env"
 	@echo "make infra        start only Postgres/Valkey/AppConfig in Docker"
 	@echo "make test         run hermetic unit tests (no Docker)"
 	@echo "make coverage     run units under coverage; fails if < 90% (the gate)"
@@ -47,7 +48,7 @@ help:
 	@echo "make down         stop the stack and remove volumes"
 	@echo ""
 	@echo "Watchtower Grafana (existing): http://localhost:3000  -> Explore -> Tempo (service watch-backend)"
-	@echo "App / browsable API:           http://localhost:8010/api/  (login: t1/t2/t3 pw 'watch')"
+	@echo "App / browsable API:           http://localhost:8010/api/  (login t1a..t3b / admin; pw from SEED_USER_PASSWORD/SEED_ADMIN_PASSWORD in .env)"
 
 venv:
 	$(PY) -m venv $(VENV)
@@ -152,6 +153,16 @@ logs:
 
 seed:
 	docker compose exec backend python manage.py seed_demo
+
+# Dev peer of `make seed`. `make seed` execs the *containerized* backend (make up); the make-dev loop
+# runs the backend on the HOST venv with no backend container, so `docker compose exec backend` fails
+# ("service backend is not running"). This reseeds the host-venv DB and, crucially, sources .env so a
+# rotated SEED_USER_PASSWORD / SEED_ADMIN_PASSWORD actually applies (settings read os.environ only, and
+# HOSTENV doesn't carry them). $(HOSTENV) after the source overrides infra vars back to localhost.
+seed-dev: venv infra ## Reseed the make-dev (host-venv) DB, applying SEED_USER/ADMIN_PASSWORD from .env
+	@echo "Waiting for Postgres on :5433..."
+	@for i in $$(seq 1 30); do nc -z localhost 5433 && break; sleep 1; done
+	cd backend && { set -a; test -f ../.env && . ../.env; set +a; } && $(HOSTENV) .venv/bin/python manage.py seed_demo
 
 smoke:
 	curl -fsS -X POST http://localhost:8010/api/intake/webhook \
