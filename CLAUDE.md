@@ -5,6 +5,17 @@ Incident intake & tiered-escalation platform. **The design docs are authoritativ
 [`watch-adrs.md`](watch-adrs.md) (decisions + tradeoffs). Code follows the ADRs, not
 the other way round. If you change a decision, update the ADR/spec in the same change.
 
+> **RULE 0 — use the project's own interface first. ALWAYS look for a `make` target or an
+> existing script in `scripts/` / `local/` before ad-hoc probing.** For anything operational
+> (tunnels, dev loop, deploys, DB, AWS lifecycle, status checks) the answer is almost always a
+> target — run `make help`, skim the `Makefile`, and read the relevant `*.sh`/Terraform outputs
+> BEFORE improvising `curl`/CLI one-offs or asking the user. Ad-hoc probing is what wrecks things:
+> it misreads state (e.g. hitting a generic port that belongs to another project), reinvents what
+> already exists, and skips the guardrails the scripts encode. Concrete case: for "tunnels up" the
+> answer was `make tunnel-status` / `make tunnel-up` (URLs from `local/tunnel/` Terraform) — not
+> curling `localhost:4040`, which returned a neighbouring project's data and sent me down a wrong,
+> apologetic rabbit hole. Read the interface, then act.
+
 ## Operating mode — ACTIVE BUILD MODE (read this after every compaction)
 We are **rapidly building** this project and **create/destroy the whole AWS estate almost daily.**
 This is the current normal, not an exception:
