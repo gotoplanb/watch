@@ -39,6 +39,12 @@ HOSTENV := DJANGO_SECRET_KEY=dev DJANGO_DEBUG=1 \
   WEBHOOK_ECHO_SECRET=dev-echo-secret SESSION_USER_HMAC_KEY=dev-hmac-key API_KEY_SECRET=dev-api-key-secret \
   OTEL_ENABLED=1 OTEL_SERVICE_NAME=watch-backend OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 
+# Seed the DB applying .env's SEED_USER_PASSWORD / SEED_ADMIN_PASSWORD. settings read os.environ only
+# and HOSTENV doesn't carry the seed passwords, so we source .env first (then $(HOSTENV) overrides the
+# infra vars back to localhost). Shared by `dev` and `seed-dev` so a `make dev` restart keeps rotated
+# creds instead of silently resetting them to the watch/admin defaults.
+SEED_CMD = cd backend && { set -a; test -f ../.env && . ../.env; set +a; } && $(HOSTENV) .venv/bin/python manage.py seed_demo
+
 help: ## Show this list (any target with a trailing comment)
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
 	  awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n",$$1,$$2}'
@@ -65,7 +71,7 @@ dev: venv infra ## PRIMARY local loop — infra in Docker + backend on host (:80
 	@echo "Waiting for Postgres on :5433..."
 	@for i in $$(seq 1 30); do nc -z localhost 5433 && break; sleep 1; done
 	cd backend && $(HOSTENV) .venv/bin/python manage.py migrate
-	cd backend && $(HOSTENV) .venv/bin/python manage.py seed_demo
+	$(SEED_CMD)
 	cd backend && $(HOSTENV) .venv/bin/python manage.py runserver --noreload 0.0.0.0:8010
 
 test: venv ## Run hermetic unit tests (no Docker)
@@ -158,7 +164,7 @@ seed: ## Reseed the containerized (make up) DB
 seed-dev: venv infra ## Reseed the make-dev (host-venv) DB, applying SEED_USER/ADMIN_PASSWORD from .env
 	@echo "Waiting for Postgres on :5433..."
 	@for i in $$(seq 1 30); do nc -z localhost 5433 && break; sleep 1; done
-	cd backend && { set -a; test -f ../.env && . ../.env; set +a; } && $(HOSTENV) .venv/bin/python manage.py seed_demo
+	$(SEED_CMD)
 
 smoke: ## Push an incident through the intake webhook
 	curl -fsS -X POST http://localhost:8010/api/intake/webhook \
