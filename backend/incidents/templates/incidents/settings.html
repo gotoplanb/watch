@@ -21,11 +21,11 @@
 <form method="post" action="{% url 'ui:change_password' %}" class="grid gap-2 max-w-sm">
   {% csrf_token %}
   <input type="password" name="old_password" autocomplete="current-password" required placeholder="Current password"
-         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-500">
   <input type="password" name="new_password1" autocomplete="new-password" required placeholder="New password"
-         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-500">
   <input type="password" name="new_password2" autocomplete="new-password" required placeholder="New password (again)"
-         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-500">
   <div><button class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm">Change password</button></div>
 </form>
 

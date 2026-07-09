@@ -7,13 +7,13 @@
 <form method="post" action="{% url 'ui:run_check' %}" class="mt-4 flex flex-wrap gap-3 items-end">
   {% csrf_token %}
   <label class="text-xs text-slate-400">Kind
-    <select name="subject_kind" class="block bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-100">
+    <select name="subject_kind" class="block bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-base md:text-sm text-slate-100">
       {% for val, label in kinds %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
     </select>
   </label>
   <label class="text-xs text-slate-400 flex-1 min-w-[16rem]">Subject (session id, or user / customer id)
     <input name="subject" required autocomplete="off"
-           class="block w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500"
+           class="block w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-500"
            placeholder="e.g. a session id from the header, or a user id">
   </label>
   <button class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm">Run check</button>

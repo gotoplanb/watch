@@ -7,7 +7,7 @@
 <form method="post" action="{% url 'ui:problem_create' %}" class="mt-4 mb-5 grid gap-2 sm:grid-cols-[1fr_auto] max-w-3xl">
   {% csrf_token %}
   <input name="title" required autocomplete="off" placeholder="New problem — short title"
-         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500">
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-500">
   <button class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm">Create problem</button>
 </form>
 

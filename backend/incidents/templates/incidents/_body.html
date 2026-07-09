@@ -63,7 +63,7 @@ The root keeps id="incident-body" so subsequent swaps still find it.
           hx-post="{% url 'ui:add_note' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
           x-data="{ body: '' }">
       <input name="body" x-model="body" autocomplete="off" placeholder="Add a note…"
-             class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 placeholder-slate-500">
+             class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-base md:text-sm text-slate-100 placeholder-slate-500">
       <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm disabled:opacity-40"
               :disabled="!body.trim()">Add note</button>
     </form>
@@ -108,11 +108,11 @@ The root keeps id="incident-body" so subsequent swaps still find it.
       <form x-show="annotate" class="mt-1.5 flex flex-wrap gap-2"
             hx-post="{% url 'ui:annotate' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML">
         <input type="hidden" name="target" value="{{ e.target }}">
-        <select name="tag" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
+        <select name="tag" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-base md:text-xs text-slate-200">
           {% for val, label in annotation_tags %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
         </select>
         <input name="body" autocomplete="off" placeholder="annotation…"
-               class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 placeholder-slate-500">
+               class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-base md:text-xs text-slate-100 placeholder-slate-500">
         <button type="submit" class="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs">Save</button>
       </form>
     </li>
