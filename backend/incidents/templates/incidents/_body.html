@@ -7,7 +7,7 @@ The root keeps id="incident-body" so subsequent swaps still find it.
   <div class="bg-slate-900 border border-slate-800 rounded p-5">
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h1 class="text-lg font-semibold text-slate-100">{{ incident.title }}</h1>
+        <h1 class="text-lg font-semibold text-slate-100"><span class="font-mono text-indigo-400">{{ incident.number }}</span> {{ incident.title }}</h1>
         <p class="text-sm text-slate-500 mt-1">{{ incident.source }} · {{ incident.id }}</p>
       </div>
       <div class="flex gap-2 shrink-0">

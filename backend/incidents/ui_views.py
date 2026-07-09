@@ -509,14 +509,28 @@ def _record_detail_redirect(record):
 @login_required
 @require_POST
 def link_add(request):
-    """Link two records by their human numbers (INC-/PRB-/RCA-). Redirects back to the source record."""
+    """Link two records by their human numbers (INC-/PRB-/RCA-). Redirects back to the source record
+    with a success/error message so a bad or missing number isn't a silent no-op."""
+    to_number = request.POST.get("to_number", "").strip()
     src = services.record_for_number(request.POST.get("from_number", ""))
-    dst = services.record_for_number(request.POST.get("to_number", ""))
-    if src is not None and dst is not None:
-        services.link_records(src, dst, kind=request.POST.get("kind", ""), actor=request.user.username)
-    if src is not None:
+    dst = services.record_for_number(to_number)
+    if src is None:
+        return redirect("ui:incident_list")
+    if dst is None:
+        messages.error(
+            request,
+            f"No record found for “{to_number or '—'}”. Enter a record number like INC-0007 "
+            "(shown next to each incident/problem/RCA).",
+        )
         return _record_detail_redirect(src)
-    return redirect("ui:incident_list")
+    link, created = services.link_records(src, dst, kind=request.POST.get("kind", ""), actor=request.user.username)
+    if created:
+        messages.success(request, f"Linked {src.number} → {dst.number}.")
+    elif link is None:
+        messages.error(request, "A record can’t be linked to itself.")
+    else:
+        messages.info(request, f"{src.number} is already linked to {dst.number}.")
+    return _record_detail_redirect(src)
 
 
 @login_required

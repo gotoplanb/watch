@@ -10,12 +10,7 @@
   </form>
 </div>
 <p class="text-sm text-slate-500 mt-1">Signed in as <span class="text-slate-300">{{ user.username }}</span>.</p>
-
-{% if messages %}
-  {% for m in messages %}
-  <div class="mt-3 rounded p-2 text-sm {% if 'error' in m.tags %}bg-rose-500/10 text-rose-300{% else %}bg-emerald-500/10 text-emerald-300{% endif %}">{{ m }}</div>
-  {% endfor %}
-{% endif %}
+{# messages render globally in base.html #}
 
 <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Password</h2>
 <form method="post" action="{% url 'ui:change_password' %}" class="grid gap-2 max-w-sm">

@@ -75,6 +75,15 @@
       {% endif %}
     </nav>
   </header>
-  <main class="max-w-5xl mx-auto p-6">{% block content %}{% endblock %}</main>
+  <main class="max-w-5xl mx-auto p-6">
+    {% if messages %}
+    <div class="mb-4 space-y-2">
+      {% for m in messages %}
+      <div class="rounded p-2 text-sm {% if 'error' in m.tags %}bg-rose-500/10 text-rose-300{% elif 'success' in m.tags %}bg-emerald-500/10 text-emerald-300{% else %}bg-slate-700/40 text-slate-300{% endif %}">{{ m }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
 </body>
 </html>

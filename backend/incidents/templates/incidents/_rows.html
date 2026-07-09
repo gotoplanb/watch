@@ -2,6 +2,7 @@
   {% for inc in incidents %}
   <tr class="border-b border-slate-800 last:border-0 hover:bg-slate-800/60">
     <td class="p-3">
+      <span class="font-mono text-xs text-slate-500 mr-2">{{ inc.number }}</span>
       <a class="text-indigo-400 hover:text-indigo-300" href="{% url 'ui:incident_detail' inc.id %}">{{ inc.title }}</a>
     </td>
     <td class="p-3">

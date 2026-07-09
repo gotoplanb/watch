@@ -41,6 +41,16 @@ def test_record_for_number_bad_input():
     assert services.record_for_number("INC-9999") is None   # no such record
 
 
+@pytest.mark.django_db
+def test_record_for_number_is_forgiving_about_padding():
+    """Users type INC-7 or INC-007; normalize the numeric part to the canonical 4-digit form."""
+    inc = _incident()
+    n = int(inc.number.split("-")[1])
+    assert services.record_for_number(f"INC-{n}") == inc          # unpadded
+    assert services.record_for_number(f"inc-{n:03d}") == inc      # under-padded + lowercase
+    assert services.record_for_number(f"  INC-{n:04d}  ") == inc  # whitespace
+
+
 # --- linking --------------------------------------------------------------
 
 @pytest.mark.django_db
@@ -109,6 +119,23 @@ def test_link_add_bad_target_is_noop(client):
     inc = _incident()
     resp = client.post("/ui/links/add/", {"from_number": inc.number, "to_number": "PRB-9999", "kind": "relates_to"})
     assert resp["Location"] == f"/ui/incidents/{inc.id}/" and not RecordLink.objects.exists()
+
+
+@pytest.mark.django_db
+def test_link_add_flashes_feedback_for_every_outcome(client):
+    """Success / not-found / already-linked / self-link each flash a message (no silent no-ops)."""
+    client.force_login(_user())
+    inc, rca = _incident(), Rca.objects.create(title="w")
+
+    def msgs(to_number):
+        r = client.post("/ui/links/add/",
+                        {"from_number": inc.number, "to_number": to_number, "kind": "relates_to"}, follow=True)
+        return [m.message for m in r.context["messages"]]
+
+    assert any("Linked" in m for m in msgs(rca.number.lower()))      # success (+ forgiving case)
+    assert any("already linked" in m for m in msgs(rca.number))      # duplicate
+    assert any("itself" in m for m in msgs(inc.number))              # self-link
+    assert any("No record found" in m for m in msgs("PRB-9999"))     # not found
 
 
 @pytest.mark.django_db

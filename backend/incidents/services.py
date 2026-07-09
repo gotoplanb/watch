@@ -376,12 +376,20 @@ _LINK_MODELS = {"INC": Incident, "PRB": Problem, "RCA": Rca}
 
 
 def record_for_number(number: str):
-    """Resolve a human record number (INC-/PRB-/RCA-) to its record, or None. Case-insensitive."""
+    """Resolve a human record number (INC-/PRB-/RCA-) to its record, or None.
+
+    Forgiving: case-insensitive, and the numeric part is normalized to the canonical 4-digit
+    zero-padded form (numbering.py uses ``:04d``), so ``inc-7`` / ``INC-007`` / ``INC-0007`` all
+    resolve to ``INC-0007``.
+    """
     number = (number or "").strip().upper()
-    prefix = number.split("-", 1)[0]
+    prefix, _, num = number.partition("-")
     model = _LINK_MODELS.get(prefix)
     if model is None:
         return None
+    num = num.strip()
+    if num.isdigit():
+        number = f"{prefix}-{int(num):04d}"
     return model.objects.filter(number=number).first()
 
 
