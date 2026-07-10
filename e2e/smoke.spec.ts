@@ -14,6 +14,9 @@ import { test, expect } from "@playwright/test";
 const BASE = process.env.BASE_URL || "http://localhost:8010";
 const STATUS = process.env.STATUS_URL || BASE;
 const SECRET = process.env.INTAKE_WEBHOOK_SECRET || "";
+// The checks webhook validates its OWN secret (distinct from intake on real envs; equal locally).
+// Fall back to SECRET so the local loop, where both are the same dev value, still works.
+const CHECKS_SECRET = process.env.CHECKS_WEBHOOK_SECRET || SECRET;
 const USER = process.env.SMOKE_USER || "t1a";
 const PASS = process.env.SMOKE_PASSWORD || "watch";
 
@@ -103,7 +106,7 @@ test("session check dogfood: report the session for an error-span check", { tag:
 
   // fire it at the inbound Session Check webhook (source=e2e) — the round-trip health check
   const resp = await page.request.post(`${BASE}/api/checks/webhook`, {
-    headers: { "X-Watch-Webhook-Secret": SECRET },
+    headers: { "X-Watch-Webhook-Secret": CHECKS_SECRET },
     data: { subject_kind: "session", subject: sessionId, source: "e2e" },
   });
   expect(resp.status(), "session check accepted").toBe(201);
