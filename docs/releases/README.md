@@ -69,6 +69,16 @@ so far (fill in the rest when we cut the first major):
    *worse* — it dropped state entries without deleting the resources, leaving billable orphans — and
    was reverted; the real fix was **pinning OpenTofu to 1.11.11** and asserting the pin in the scripts
    and CI. See ADR-032 and `docs/releases/v0.9.md`.) Record the pinned versions in the release notes.
+5. **AWS IAM policy audit — least privilege + completeness.** Review the estate's roles/policies
+   (platform `modules/**`) so every principal has **exactly** what it needs: **no more** (drop
+   `Resource = "*"` and unused actions in favour of scoped ARNs + conditions; document any intentional
+   wildcard) and **no less** (no missing grants that only fail the first time a code path actually
+   runs). A major is when to tighten the broad grants taken for build-velocity **and** to shake out
+   latent gaps. (Real example: the CodeBuild build role was missing `kms:Decrypt` on the artifact CMK
+   and tried to `update-function-code` cross-account prod Lambdas in-account — both invisible for
+   months because the new-account CodeBuild hold meant **Build never ran**; the fallback-account
+   cutover unblocked CodeBuild and surfaced them. See platform `docs/architecture/accounts.md`.)
+   Cross-account trust policies (`watch-prod-deploy`, OIDC providers) get the same review.
 
 > Still forming — expand this as we learn what a major actually needs.
 
