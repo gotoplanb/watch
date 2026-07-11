@@ -6,9 +6,10 @@ The root keeps id="incident-body" so subsequent swaps still find it.
 <div id="incident-body" class="mt-3">
   <div class="bg-slate-900 border border-slate-800 rounded p-5">
     <div class="flex items-start justify-between gap-4">
-      <div>
-        <h1 class="text-lg font-semibold text-slate-100"><span class="font-mono text-indigo-400">{{ incident.number }}</span> {{ incident.title }}</h1>
-        <p class="text-sm text-slate-400 mt-1">{{ incident.source }} · {{ incident.id }}</p>
+      <div class="min-w-0">
+        <div class="font-mono text-sm text-indigo-400">{{ incident.number }}</div>
+        <h1 class="text-xl font-semibold text-slate-100 leading-snug mt-0.5 break-words">{{ incident.title }}</h1>
+        <p class="text-xs text-slate-400 mt-1.5">{{ incident.source }}<span class="hidden md:inline"> · {{ incident.id }}</span></p>
       </div>
       <div class="flex gap-2 shrink-0">
         {% if incident.status == 'RESOLVED' %}
@@ -41,24 +42,6 @@ The root keeps id="incident-body" so subsequent swaps still find it.
       {% endif %}
     {% endif %}
   </div>
-
-  {# mobile-first: the note form + export link wrap on narrow screens instead of overflowing #}
-  <div class="mt-4 flex flex-wrap items-center gap-2">
-    <form class="flex-1 flex gap-2"
-          hx-post="{% url 'ui:add_note' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
-          x-data="{ body: '' }">
-      <input name="body" x-model="body" autocomplete="off" placeholder="Add a note…"
-             class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-base md:text-sm text-slate-100 placeholder-slate-400">
-      <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm disabled:opacity-40"
-              :disabled="!body.trim()">Add note</button>
-    </form>
-    <a href="{% url 'ui:rca' incident.id %}"
-       class="px-3 py-2 rounded border border-slate-700 text-slate-300 hover:bg-slate-800 text-sm whitespace-nowrap">
-      Export RCA
-    </a>
-  </div>
-
-  {% include "incidents/_links.html" %}
 
   <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Timeline</h2>
   <ol class="space-y-2">
@@ -105,6 +88,24 @@ The root keeps id="incident-body" so subsequent swaps still find it.
     <li class="text-sm text-slate-400">No activity yet.</li>
     {% endfor %}
   </ol>
+  {# participation follows reading: the note entry sits right under the timeline #}
+  <div class="mt-4 flex flex-wrap items-center gap-2">
+    <form class="flex-1 flex gap-2"
+          hx-post="{% url 'ui:add_note' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
+          x-data="{ body: '' }">
+      <input name="body" x-model="body" autocomplete="off" placeholder="Add a note…"
+             class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-base md:text-sm text-slate-100 placeholder-slate-400">
+      <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm disabled:opacity-40"
+              :disabled="!body.trim()">Add note</button>
+    </form>
+  </div>
+
+
+  {% include "incidents/_links.html" %}
+  <a href="{% url 'ui:rca' incident.id %}"
+     class="mt-4 inline-flex px-3 py-2 rounded border border-slate-700 text-slate-300 hover:bg-slate-800 text-sm transition-colors">
+    Export RCA
+  </a>
   {% if incident.status == 'OPEN' and can_act %}
   <div class="h-20 md:hidden"></div>
   {# floating action cluster (watch#47): lifted off the edge, thumb reach, all actions visible #}

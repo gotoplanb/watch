@@ -9,6 +9,7 @@ from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.models import User
+from django.db.models import Q
 from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -78,14 +79,19 @@ def incident_list(request):
     qs = Incident.objects.all().order_by("-created_at")
     status = request.GET.get("status") or ""
     tier = request.GET.get("tier") or ""
+    q = (request.GET.get("q") or "").strip()
     if status:
         qs = qs.filter(status=status)
     if tier:
         qs = qs.filter(current_tier=tier)
+    if q:
+        # one box, both human keys: free text matches the title, INC-… matches the number
+        qs = qs.filter(Q(title__icontains=q) | Q(number__icontains=q))
     ctx = {
         "incidents": list(qs[:200]),
         "status": status,
         "tier": tier,
+        "q": q,
         "statuses": Status.choices,
         "tiers": Tier.choices,
     }

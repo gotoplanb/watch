@@ -202,6 +202,18 @@ def test_list_htmx_returns_rows_partial_with_filters(client):
 
 
 @pytest.mark.django_db
+def test_list_search_filters_by_title_and_number(client):
+    """The q box matches either human key: free text on the title, INC-… on the number (#47)."""
+    a = Incident.objects.create(source="t", title="Checkout latency spike", dedupe_key="q1")
+    b = Incident.objects.create(source="t", title="Login errors", dedupe_key="q2")
+    client.force_login(User.objects.create(username="searcher"))
+    html = client.get("/ui/incidents/?q=checkout").content.decode()
+    assert a.title in html and b.title not in html
+    html = client.get(f"/ui/incidents/?q={b.number}").content.decode()
+    assert b.title in html and a.title not in html
+
+
+@pytest.mark.django_db
 def test_detail_renders_body(client):
     inc = _incident()
     client.force_login(_user("viewer3"))

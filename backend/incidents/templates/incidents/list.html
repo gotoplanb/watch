@@ -3,9 +3,15 @@
 {% block content %}
 <h1 class="text-xl font-semibold text-slate-100 mb-4">Incidents</h1>
 
-<form class="flex gap-3 mb-4 text-sm"
+<form class="flex flex-wrap gap-2 md:gap-3 mb-4 text-sm"
       hx-get="{% url 'ui:incident_list' %}" hx-target="#incident-results" hx-swap="outerHTML"
-      hx-trigger="change">
+      hx-trigger="change, input delay:300ms">
+  {# search first, full-width on mobile — the list gets long (watch#47) #}
+  <input type="search" name="q" value="{{ q }}" autocomplete="off"
+         placeholder="Search title or number…" aria-label="Search incidents"
+         class="w-full md:w-72 bg-slate-800 border border-slate-700 rounded px-3 py-2 md:py-1
+                text-base md:text-sm text-slate-100 placeholder-slate-400
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition">
   <select name="status" aria-label="Filter by status" class="border border-slate-700 rounded px-2 py-1 bg-slate-800 text-slate-200">
     <option value="">all statuses</option>
     {% for value, label in statuses %}
