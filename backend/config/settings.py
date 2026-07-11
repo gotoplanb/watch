@@ -193,6 +193,10 @@ TIER_SLA_SECONDS = {
 #   RCA_AI_PROVIDER=conduct — local models via the conduct project (local dev; sync HTTP, no AWS).
 RCA_AI_PROVIDER = _env("RCA_AI_PROVIDER", "stub")
 
+# T1 triage assistant (ADR-036) — same provider discipline as RCA (stub | bedrock | conduct);
+# the assistant only classifies, disposition stays deterministic (triage.dispose).
+TRIAGE_AI_PROVIDER = _env("TRIAGE_AI_PROVIDER", "stub")
+
 # Bedrock backend
 BEDROCK_REGION = _env("BEDROCK_REGION", AWS_REGION)
 BEDROCK_MODEL_ID = _env("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0")

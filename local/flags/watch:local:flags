@@ -1,5 +1,6 @@
 {
   "new_triage_ui": false,
   "auto_route_on_escalation": true,
-  "rca_ai_draft": true
+  "rca_ai_draft": true,
+  "check_incident_bridge": true
 }

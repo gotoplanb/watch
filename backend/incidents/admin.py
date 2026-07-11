@@ -9,9 +9,11 @@ from .models import (
     ErrorSpan,
     Incident,
     OnCallShift,
+    OperatingModeWindow,
     SessionCheck,
     TimelineEvent,
     Transition,
+    TriageDecision,
     WebhookDelivery,
     WebhookSubscription,
 )
@@ -71,6 +73,28 @@ class SessionCheckAdmin(admin.ModelAdmin):
     list_filter = ["subject_kind", "status", "source"]
     search_fields = ["subject_hash"]
     inlines = [ErrorSpanInline]
+
+
+@admin.register(OperatingModeWindow)
+class OperatingModeWindowAdmin(admin.ModelAdmin):
+    """The v1 admin-only race-mode toggle (ADR-035): open/close windows here until the
+    working surface grows a control."""
+    list_display = ["mode", "actor", "reason", "started_at", "ended_at"]
+    list_filter = ["mode"]
+
+
+@admin.register(TriageDecision)
+class TriageDecisionAdmin(admin.ModelAdmin):
+    """Append-only (ADR-036) — the escalation-correctness audit trail; read-only in admin."""
+    list_display = [
+        "incident", "verdict", "responsibility", "fault_domain", "disposition", "mode",
+        "actor", "provider", "created_at",
+    ]
+    list_filter = ["verdict", "responsibility", "fault_domain", "disposition", "provider"]
+    readonly_fields = [f.name for f in TriageDecision._meta.fields]
+
+    def has_delete_permission(self, request, obj=None):
+        return False  # append-only audit (ADR-036)
 
 
 @admin.register(WebhookSubscription)

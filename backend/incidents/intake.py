@@ -31,7 +31,8 @@ def compute_dedupe_key(payload: dict, source_event_id: str | None) -> str:
 
 
 def create_incident_idempotent(
-    *, source: str, payload: dict, title: str, source_event_id: str | None = None
+    *, source: str, payload: dict, title: str, source_event_id: str | None = None,
+    dedupe_key: str | None = None
 ) -> tuple[Incident, bool]:
     """
     Returns (incident, created).
@@ -39,8 +40,12 @@ def create_incident_idempotent(
     `created=False` means a retry/redelivery hit an already-open incident with the
     same key — an idempotent no-op (ADR-009). A re-fire after RESOLVED is not
     blocked by the partial constraint, so it creates a new incident.
+
+    `dedupe_key` overrides the computed key for callers whose identity isn't the
+    payload — the check bridge dedupes on the check subject (ADR-036).
     """
-    dedupe_key = compute_dedupe_key(payload, source_event_id)
+    if dedupe_key is None:
+        dedupe_key = compute_dedupe_key(payload, source_event_id)
 
     # The UUID PK is generated client-side (default=uuid4), so we keep our candidate
     # id to tell "we inserted it" from "we hit an existing open row".

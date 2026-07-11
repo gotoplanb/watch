@@ -95,7 +95,19 @@ def _finish(check: SessionCheck, status: str, verdict: str) -> SessionCheck:
         "check_id": str(check.id), "subject_kind": check.subject_kind,
         "status": status, "verdict": verdict,
     })
+    _bridge(check)
     return check
+
+
+def _bridge(check: SessionCheck) -> None:
+    """T0 bridge (ADR-036): an `errors_found` check opens an incident (flag-gated, idempotent).
+    Guarded — a bridge failure must never break or roll back the check's own completion."""
+    try:
+        from . import triage  # lazy: triage imports intake/services; keep this module light
+        triage.bridge_check(check)
+    except Exception:  # pragma: no cover - defensive: bridging must never break the check
+        import logging
+        logging.getLogger(__name__).warning("check bridge failed check=%s", check.id, exc_info=True)
 
 
 def create_and_run(**kwargs) -> SessionCheck:

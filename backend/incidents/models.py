@@ -42,6 +42,35 @@ def next_tier(tier: str):
     return TIER_ORDER[idx + 1] if idx + 1 < len(TIER_ORDER) else None
 
 
+# --- Operating mode + T1 triage taxonomy (ADR-035 / ADR-036) ---
+
+class OperatingMode(models.TextChoices):
+    HIGHWAY = "highway", "Highway"  # default posture: healthy until proven otherwise
+    RACE = "race", "Race"           # release window: healthy must be proven; declared start + all-clear
+
+
+class Responsibility(models.TextChoices):
+    CLIENT = "client", "Client"      # the customer's side (their config, their usage)
+    INTERNAL = "internal", "Internal"  # our code / our infra
+    VENDOR = "vendor", "Vendor"      # a third-party dependency we sit on
+
+
+class FaultDomain(models.TextChoices):
+    ENVIRONMENT = "environment", "Environment"
+    SOFTWARE = "software", "Software"
+
+
+class TriageVerdict(models.TextChoices):
+    REAL = "real", "Real"
+    FALSE_POSITIVE = "false_positive", "False positive"
+    UNDETERMINED = "undetermined", "Undetermined"
+
+
+class TriageDisposition(models.TextChoices):
+    AUTO_RESOLVE = "auto_resolve", "Auto-resolve"  # false positive in highway mode (ADR-036)
+    NO_ACTION = "no_action", "No action"           # classification is advisory; SLA engine unchanged
+
+
 class Incident(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     number = models.CharField(max_length=20, unique=True, null=True, blank=True)  # INC-0142 (ADR-031)
@@ -67,6 +96,18 @@ class Incident(models.Model):
     sla_deadline_at = models.DateTimeField(null=True, blank=True)
     escalation_execution_arn = models.CharField(max_length=256, blank=True, default="")
     current_task_token = models.TextField(blank=True, default="")
+
+    # Latest T1 triage classification (ADR-036) — denormalized for display only; the
+    # append-only TriageDecision rows are the audit record.
+    triage_responsibility = models.CharField(
+        max_length=16, choices=Responsibility.choices, blank=True, default=""
+    )
+    triage_fault_domain = models.CharField(
+        max_length=16, choices=FaultDomain.choices, blank=True, default=""
+    )
+    triage_verdict = models.CharField(
+        max_length=16, choices=TriageVerdict.choices, blank=True, default=""
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -284,6 +325,59 @@ class ErrorSpan(models.Model):
 
     def __str__(self):
         return f"error span {self.name or self.span_id} ({self.trace_id[:12]})"
+
+
+class OperatingModeWindow(models.Model):
+    """A declared operating-mode window (ADR-035). Highway is the ambient state and needs no row;
+    race is the exception that must be declared — with an actor, a reason, and an all-clear.
+    Append-only: closing a window sets `ended_at`, never deletes."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    mode = models.CharField(max_length=8, choices=OperatingMode.choices, default=OperatingMode.RACE)
+    actor = models.CharField(max_length=128)
+    reason = models.CharField(max_length=512, blank=True, default="")
+    started_at = models.DateTimeField(default=timezone.now)
+    ended_at = models.DateTimeField(null=True, blank=True)  # null = window still open
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+
+    def __str__(self):
+        state = "open" if self.ended_at is None else "closed"
+        return f"{self.mode} window ({state}) by {self.actor}"
+
+
+class TriageDecision(models.Model):
+    """Append-only T1 triage record (ADR-036) — one row per classification, human or assistant.
+    The substrate for the escalation-correctness audit: every automated decision, including
+    'did nothing', is a gradeable row. The AI only ever fills the classification; the disposition
+    is computed by the pure `triage.dispose()` — AI classifies, code disposes."""
+
+    ASSISTANT_ACTOR = "system:t1-assistant"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    incident = models.ForeignKey(Incident, related_name="triage_decisions", on_delete=models.CASCADE)
+    actor = models.CharField(max_length=128)  # a user id (str) or ASSISTANT_ACTOR
+    responsibility = models.CharField(max_length=16, choices=Responsibility.choices)
+    fault_domain = models.CharField(max_length=16, choices=FaultDomain.choices)
+    verdict = models.CharField(max_length=16, choices=TriageVerdict.choices)
+    confidence = models.FloatField(null=True, blank=True)  # 0..1; null for human decisions
+    rationale = models.TextField(blank=True, default="")
+    evidence = models.JSONField(default=dict)  # snapshot of what was consulted (check, spans)
+    disposition = models.CharField(
+        max_length=16, choices=TriageDisposition.choices, default=TriageDisposition.NO_ACTION
+    )
+    mode = models.CharField(max_length=8, choices=OperatingMode.choices, default=OperatingMode.HIGHWAY)
+    provider = models.CharField(max_length=16, blank=True, default="")  # stub | bedrock | conduct
+    model = models.CharField(max_length=128, blank=True, default="")   # the model that actually ran
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"triage {self.verdict} ({self.responsibility}/{self.fault_domain}) by {self.actor}"
 
 
 class WebhookSubscription(models.Model):
@@ -547,6 +641,8 @@ class LinkKind(models.TextChoices):
     CAUSED_BY = "caused_by", "caused by"
     DUPLICATE_OF = "duplicate_of", "duplicate of"
     BLOCKS = "blocks", "blocks"
+    # ADR-036: incident `created_from` check — the check *found* the problem, it didn't cause it.
+    CREATED_FROM = "created_from", "created from"
 
 
 class RecordLink(models.Model):

@@ -57,7 +57,12 @@ class TempoProvider:
         attr = _ATTR.get(subject_kind)
         if not attr or not subject_hash:
             return []
-        query = '{ span.%s = "%s" && status = error }' % (attr, subject_hash)
+        # select() pulls attributes the search response otherwise omits (Tempo returns only the
+        # queried attrs): parse_search reads name/http.status_code, and triage (ADR-036) needs the
+        # status code to tell a server-side fault from noise.
+        query = '{ span.%s = "%s" && status = error } | select(span.http.status_code, name)' % (
+            attr, subject_hash
+        )
         params = {"q": query, "limit": 200}
         if window_from:
             params["start"] = int(window_from.timestamp())
