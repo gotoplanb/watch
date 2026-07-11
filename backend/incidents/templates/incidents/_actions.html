@@ -1,0 +1,19 @@
+{# Ack/Escalate/Resolve — ONE definition, two placements (watch#47): desktop inline row + mobile floating bar (bar=True); same endpoints/permissions, only sizing differs #}
+{% if not incident.acknowledged_at %}
+<button class="{% if bar %}flex-1 justify-center py-2.5 font-medium active:scale-[0.98]{% else %}px-3 py-1.5{% endif %} inline-flex items-center rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm transition"
+        hx-post="{% url 'ui:ack' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML">
+  Acknowledge
+</button>
+{% endif %}
+{% if next_tier %}
+<button class="{% if bar %}flex-1 justify-center py-2.5 font-medium active:scale-[0.98]{% else %}px-3 py-1.5{% endif %} inline-flex items-center rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-sm transition"
+        hx-post="{% url 'ui:escalate' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
+        hx-confirm="Escalate to {{ next_tier.label }}?">
+  Escalate to {{ next_tier.value }}
+</button>
+{% endif %}
+<button class="{% if bar %}flex-1 justify-center py-2.5 font-medium active:scale-[0.98]{% else %}px-3 py-1.5{% endif %} inline-flex items-center rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-sm transition"
+        hx-post="{% url 'ui:resolve' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
+        hx-confirm="Resolve this incident?">
+  Resolve
+</button>

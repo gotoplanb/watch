@@ -89,7 +89,7 @@ def incident_list(request):
         "statuses": Status.choices,
         "tiers": Tier.choices,
     }
-    template = "incidents/_rows.html" if request.headers.get("HX-Request") else "incidents/list.html"
+    template = "incidents/_results.html" if request.headers.get("HX-Request") else "incidents/list.html"
     return render(request, template, ctx)
 
 

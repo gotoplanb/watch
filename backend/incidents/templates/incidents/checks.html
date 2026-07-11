@@ -21,8 +21,8 @@
 
 <ul class="mt-6 space-y-2">
   {% for c in checks %}
-  <li class="bg-slate-900 border border-slate-800 rounded p-3 text-sm flex items-center justify-between gap-4">
-    <a href="{% url 'ui:check_detail' c.id %}" class="hover:underline truncate">
+  <li class="relative bg-slate-900 border border-slate-800 rounded p-3 transition hover:border-slate-700 active:scale-[0.99] text-sm flex items-center justify-between gap-4">
+    <a href="{% url 'ui:check_detail' c.id %}" class="hover:underline truncate after:absolute after:inset-0">
       <span class="text-slate-300">{{ c.get_subject_kind_display }}</span>
       <span class="font-mono text-slate-400">{{ c.subject_hash|slice:":16" }}…</span>
     </a>

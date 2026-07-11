@@ -32,25 +32,9 @@ The root keeps id="incident-body" so subsequent swaps still find it.
 
     {% if incident.status == 'OPEN' %}
       {% if can_act %}
-      <div class="flex flex-wrap gap-2 mt-4">
-        {% if not incident.acknowledged_at %}
-        <button class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm"
-                hx-post="{% url 'ui:ack' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML">
-          Acknowledge
-        </button>
-        {% endif %}
-        {% if next_tier %}
-        <button class="px-3 py-1.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-sm"
-                hx-post="{% url 'ui:escalate' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
-                hx-confirm="Escalate to {{ next_tier.label }}?">
-          Escalate to {{ next_tier.value }}
-        </button>
-        {% endif %}
-        <button class="px-3 py-1.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-sm"
-                hx-post="{% url 'ui:resolve' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
-                hx-confirm="Resolve this incident?">
-          Resolve
-        </button>
+      {# desktop inline actions; on mobile the same partial renders as the fixed thumb bar below #}
+      <div class="hidden md:flex flex-wrap gap-2 mt-4">
+        {% include "incidents/_actions.html" %}
       </div>
       {% else %}
       <p class="text-xs text-slate-400 mt-4">You need the {{ incident.current_tier }} role (or higher) to act.</p>
@@ -121,4 +105,13 @@ The root keeps id="incident-body" so subsequent swaps still find it.
     <li class="text-sm text-slate-400">No activity yet.</li>
     {% endfor %}
   </ol>
+  {% if incident.status == 'OPEN' and can_act %}
+  <div class="h-20 md:hidden"></div>
+  {# floating action cluster (watch#47): lifted off the edge, thumb reach, all actions visible #}
+  <div class="md:hidden fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-40
+              rounded-xl border border-slate-700 bg-slate-900/95 backdrop-blur shadow-lg shadow-black/40
+              p-2 flex gap-2">
+    {% include "incidents/_actions.html" with bar=True %}
+  </div>
+  {% endif %}
 </div>

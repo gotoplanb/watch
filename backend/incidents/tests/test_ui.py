@@ -198,7 +198,7 @@ def test_list_htmx_returns_rows_partial_with_filters(client):
     client.force_login(_user("viewer2"))
     resp = client.get("/ui/incidents/?status=OPEN&tier=T1", HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
-    assert b'id="incident-rows"' in resp.content and b"<html" not in resp.content
+    assert b'id="incident-results"' in resp.content and b"<html" not in resp.content
 
 
 @pytest.mark.django_db
