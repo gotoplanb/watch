@@ -15,20 +15,21 @@ estate/observability was verified to run this app," even when those repos have n
 Per-release notes live here as `docs/releases/vX.Y.md` — **one file per minor line**, with a
 **summary at the very top** followed by the detailed description.
 
-**The tiers are additive: `patch ⊂ minor ⊂ major`.** Each section below lists what that tier **adds**
-over the lighter one; a release does what its tier names (plus the lighter tiers' steps) and nothing
-more. So a step that isn't listed at or below your tier simply isn't part of the release — no section
-needs to enumerate what it *excludes*. (Example: demo clips appear only under **Major**, so they're
-inherently not part of a patch or minor; we don't restate that in those sections.)
+**The tiers build on each other: `patch ⊂ minor ⊂ major`.** Each tier does **everything the lighter
+tier does, plus** the extra steps its own section lists. A **minor** is a patch **plus** the notes +
+lockstep ceremony; a **major** is a minor **plus** the audit/communication ceremony. So each section
+states only what its tier *adds* — nothing needs to spell out what it excludes.
 
 ---
 
-## Patch — `vX.Y.Z`
+## Patch — `vX.Y.Z`  ·  *the base every release includes*
 
-**No ceremony required.** Ship the fix; tag only if you want a marker. No detailed notes doc, no
-lockstep — a watch-only patch doesn't drag platform/watchtower along.
+Ship the fix; tag it only if you want a marker. That's the whole of a patch — it's watch-only, so it
+doesn't drag platform/watchtower along.
 
 ## Minor — `vX.Y.0`  ·  *current cadence*
+
+**Everything a patch does, plus:**
 
 1. **Write the detailed release note** — `docs/releases/vX.Y.md`: a **summary at the very top**, then
    a thorough account of everything in the release (themes, ADRs delivered, DB migrations, operator
@@ -56,8 +57,8 @@ gh release create v0.8.0 --repo gotoplanb/watchtower --title "…" --notes-file 
 
 ## Major — `vX.0.0`  ·  *forming — not yet exercised*
 
-Everything in the minor checklist, **plus** the extra ceremony a major warrants. Known requirements
-so far (fill in the rest when we cut the first major):
+**Everything a patch and minor do, plus** the extra ceremony a major warrants. Known requirements so
+far (fill in the rest when we cut the first major):
 
 1. **Documentation & ADR audit** — a thorough review of **all ADRs** (`watch-adrs.md`) and the
    architecture/design docs (spec, `docs/`, platform `docs/architecture/*`) to confirm they reflect
