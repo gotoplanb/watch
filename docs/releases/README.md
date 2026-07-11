@@ -33,6 +33,9 @@ lockstep — a watch-only patch doesn't drag platform/watchtower along.
 3. **Create the GitHub release on each repo and post the summary as the release body** — watch gets
    the full summary; platform/watchtower get a short attestation that links back to watch's notes doc.
 
+**Not in a minor:** no **demo clips** (a **major**-only action — see below), no full ADR/doc audit,
+no dependency-pinning pass, no IAM audit. A minor is notes + lockstep tags + releases; that's it.
+
 Worked example (v0.8):
 
 ```bash
@@ -57,8 +60,10 @@ so far (fill in the rest when we cut the first major):
    architecture/design docs (spec, `docs/`, platform `docs/architecture/*`) to confirm they reflect
    the shipped reality. Reconcile any drift **in the same release** — per the "code follows the ADRs"
    discipline, a major is the checkpoint where the written record must catch up to the code.
-2. **Demo clips** — record clips of the user-facing features (`make demo` storyboards) and attach
-   them to the GitHub release.
+2. **Demo clips (major-only).** Record clips of the user-facing features (`make demo` storyboards) and
+   attach them to the GitHub release. This is deliberately a **major**-release action, **not** a minor
+   one — minors ship without demo videos (a per-minor UI clip would be churn; a major is the milestone
+   worth a visual walkthrough of the accumulated user-facing surface).
 3. **Breaking-change / upgrade / migration communication** — call out anything that isn't a
    drop-in upgrade (schema, config, API, or cross-repo contract changes).
 4. **Pin dependencies aggressively.** During rapid build we float versions for velocity; a major is
