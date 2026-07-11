@@ -73,7 +73,7 @@ dev: venv infra ## PRIMARY local loop — infra in Docker + backend on host (:80
 	@for i in $$(seq 1 30); do nc -z localhost 5433 && break; sleep 1; done
 	cd backend && $(HOSTENV) .venv/bin/python manage.py migrate
 	$(SEED_CMD)
-	cd backend && { set -a; test -f ../.env && . ../.env; set +a; } && $(HOSTENV) .venv/bin/python manage.py runserver --noreload 0.0.0.0:8010
+	cd backend && { set -a; test -f ../.env && . ../.env; set +a; } && $(HOSTENV) .venv/bin/python manage.py runserver 0.0.0.0:8010
 
 test: venv ## Run hermetic unit tests (no Docker)
 	cd backend && .venv/bin/pytest
