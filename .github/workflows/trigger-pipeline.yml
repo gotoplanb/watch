@@ -7,6 +7,11 @@
 #   on:
 #     push:
 #       tags: ['v*']
+#
+# ON/OFF FLAG — gated on the `CD_ENABLED` repo variable so this doesn't fail on every push when the
+# AWS estate is torn down (no `watch` pipeline to start). When CD_ENABLED != 'true' the job SKIPS
+# (a neutral/grey run, not a red failure). Re-enable after standing the estate back up with:
+#   gh variable set CD_ENABLED --body true      # disable again: gh variable set CD_ENABLED --body false
 name: Trigger deploy pipeline
 
 on:
@@ -24,6 +29,8 @@ concurrency:
 
 jobs:
   start:
+    # Skip (don't fail) while CD is off — the estate/pipeline may not exist. See the header comment.
+    if: vars.CD_ENABLED == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS credentials (OIDC)
