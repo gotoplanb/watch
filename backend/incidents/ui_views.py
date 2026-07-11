@@ -19,7 +19,7 @@ from django.contrib import messages
 
 from . import apikeys
 from . import checks as checks_svc
-from . import escalation, services, session_index
+from . import bedrock, escalation, flags, services, session_index
 from .models import (
     AnnotationTag,
     CheckSource,
@@ -450,6 +450,7 @@ def rca_detail(request, pk):
         "links": services.links_for(rca),
         "link_kinds": LinkKind.choices,
         "record_number": rca.number,
+        "ai_draft_enabled": flags.is_enabled(services.RCA_AI_FLAG),
     })
 
 
@@ -459,6 +460,22 @@ def rca_save_document(request, pk):
     rca = get_object_or_404(Rca, pk=pk)
     rca.document = request.POST.get("document") or ""
     rca.save(update_fields=["document", "updated_at"])
+    return redirect(_RCA_DETAIL, pk=pk)
+
+
+@login_required
+@require_POST
+def rca_ai_draft(request, pk):
+    """Replace the RCA document with a Bedrock-drafted narrative (ADR-021/031/033). Flag-gated:
+    404-adjacent 403 when off so the endpoint can't be driven while the control is hidden."""
+    if not flags.is_enabled(services.RCA_AI_FLAG):
+        return HttpResponseForbidden("AI RCA drafting is not enabled")
+    rca = get_object_or_404(Rca, pk=pk)
+    try:
+        services.draft_rca(rca, actor=request.user.username)
+        messages.success(request, "AI draft generated — review and edit before finalising.")
+    except bedrock.DraftError as exc:
+        messages.error(request, f"AI draft failed: {exc}")
     return redirect(_RCA_DETAIL, pk=pk)
 
 

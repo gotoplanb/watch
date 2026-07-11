@@ -1,10 +1,12 @@
 """Unit tests for the RCA record (ADR-031 Cluster 3): a stored root-cause writeup whose document is
 assembly-seeded from an incident timeline (services.rca_markdown) then hand-edited — hermetic."""
+from unittest import mock
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 
-from incidents import services
+from incidents import bedrock, flags, services
 from incidents.models import Incident, Rca, RcaStatus, Status, Tier
 
 
@@ -137,3 +139,95 @@ def test_blank_note_is_noop(client):
     r = Rca.objects.create(title="x")
     client.post(f"/ui/rcas/{r.id}/note/", {"body": "   "})
     assert r.events.count() == 0
+
+
+# --- AI draft (ADR-021/031/033) — Bedrock, flag-gated -------------------------
+
+@pytest.fixture(autouse=True)
+def _reset_flags():
+    yield
+    flags.set_provider_for_tests(None)
+
+
+def _flag(on):
+    flags.set_provider_for_tests(flags.InMemoryProvider({services.RCA_AI_FLAG: on}))
+
+
+@pytest.mark.django_db
+def test_draft_rca_service_replaces_document_and_posts_provenance(settings):
+    settings.BEDROCK_LOCAL_MODE = True  # deterministic stub, no AWS
+    inc = _incident(title="cache stampede")
+    r = services.seed_rca(incident=inc, actor="alice")
+    services.draft_rca(r, actor="bob")
+    r.refresh_from_db()
+    assert "BEDROCK_LOCAL_MODE" in r.document and "## Root cause" in r.document
+    assert r.events.filter(type="system", body__contains="AI-drafted via Bedrock").exists()
+    assert r.events.filter(body__contains="by bob").exists()
+
+
+@pytest.mark.django_db
+def test_draft_rca_service_surfaces_bedrock_failure(settings):
+    settings.BEDROCK_LOCAL_MODE = False
+    settings.BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    r = Rca.objects.create(title="will fail", document="src")
+    with mock.patch.object(bedrock, "draft_rca", side_effect=bedrock.DraftError("boom")):
+        with pytest.raises(bedrock.DraftError):
+            services.draft_rca(r)
+    r.refresh_from_db()
+    assert r.document == "src"  # unchanged on failure
+
+
+@pytest.mark.django_db
+def test_ai_draft_view_drafts_when_flag_on(client, settings):
+    settings.BEDROCK_LOCAL_MODE = True
+    _flag(True)
+    client.force_login(_user("drafter"))
+    r = Rca.objects.create(title="draft me", document="# assembly\n\n- boom")
+    resp = client.post(f"/ui/rcas/{r.id}/ai-draft/")
+    assert resp.status_code == 302 and resp["Location"] == f"/ui/rcas/{r.id}/"
+    r.refresh_from_db()
+    assert "## Root cause" in r.document
+    assert r.events.filter(type="system", body__contains="AI-drafted via Bedrock").exists()
+
+
+@pytest.mark.django_db
+def test_ai_draft_view_forbidden_when_flag_off(client):
+    _flag(False)
+    client.force_login(_user("nodraft"))
+    r = Rca.objects.create(title="off", document="orig")
+    resp = client.post(f"/ui/rcas/{r.id}/ai-draft/")
+    assert resp.status_code == 403
+    r.refresh_from_db()
+    assert r.document == "orig"  # untouched
+
+
+@pytest.mark.django_db
+def test_ai_draft_view_requires_login(client):
+    _flag(True)
+    r = Rca.objects.create(title="anon")
+    resp = client.post(f"/ui/rcas/{r.id}/ai-draft/")
+    assert resp.status_code == 302 and "/api-auth/login/" in resp["Location"]
+
+
+@pytest.mark.django_db
+def test_ai_draft_view_reports_bedrock_failure(client, settings):
+    settings.BEDROCK_LOCAL_MODE = False
+    settings.BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    _flag(True)
+    client.force_login(_user("failer"))
+    r = Rca.objects.create(title="fail", document="orig")
+    with mock.patch.object(bedrock, "draft_rca", side_effect=bedrock.DraftError("access denied")):
+        resp = client.post(f"/ui/rcas/{r.id}/ai-draft/", follow=True)
+    assert "AI draft failed" in resp.content.decode()
+    r.refresh_from_db()
+    assert r.document == "orig"
+
+
+@pytest.mark.django_db
+def test_detail_shows_ai_button_only_when_flag_on(client):
+    client.force_login(_user("viewer"))
+    r = Rca.objects.create(title="button?")
+    _flag(True)
+    assert "AI draft" in client.get(f"/ui/rcas/{r.id}/").content.decode()
+    _flag(False)
+    assert "AI draft" not in client.get(f"/ui/rcas/{r.id}/").content.decode()

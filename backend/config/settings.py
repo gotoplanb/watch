@@ -184,6 +184,19 @@ TIER_SLA_SECONDS = {
     "T3": int(_env("SLA_T3_SECONDS", "3600")),
 }
 
+# --- AI-drafted RCA via Amazon Bedrock (ADR-021/031, refined ADR-033) ---
+# The draft is flag-gated (`rca_ai_draft`, ADR-003) and consumes the same rca_markdown assembly a
+# human reviews. We call Bedrock (not the Anthropic API the original ADR sketched) so the model call
+# stays inside the account's IAM/VPC/logging boundary — deviation recorded in ADR-033.
+#   - BEDROCK_MODEL_ID: the on-account model/inference-profile id. Sonnet by default; Bedrock model
+#     access must be granted in-console per account (a manual step, like the CloudFront hold).
+#   - BEDROCK_LOCAL_MODE: skip the AWS call and return a clearly-marked deterministic stub so
+#     `make dev` (and hermetic tests) can exercise the feature without Bedrock credentials/access.
+BEDROCK_REGION = _env("BEDROCK_REGION", AWS_REGION)
+BEDROCK_MODEL_ID = _env("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0")
+BEDROCK_LOCAL_MODE = _bool("BEDROCK_LOCAL_MODE", True)
+BEDROCK_MAX_TOKENS = int(_env("BEDROCK_MAX_TOKENS", "2000"))
+
 # --- Escalation paging (ADR-013): page the on-call via ntfy on a real tier entry ---
 # The `paging_enabled` control itself is a rollout mode read via the flags seam (ADR-014), not here.
 PAGING_ENV = _env("PAGING_ENV", "local")  # topic namespace: watch-<env>-user-<id> / -tier-<T>

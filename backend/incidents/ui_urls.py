@@ -29,6 +29,7 @@ urlpatterns = [
     path("rcas/create/", ui_views.rca_create, name="rca_create"),
     path("rcas/<uuid:pk>/", ui_views.rca_detail, name="rca_detail"),
     path("rcas/<uuid:pk>/document/", ui_views.rca_save_document, name="rca_save_document"),
+    path("rcas/<uuid:pk>/ai-draft/", ui_views.rca_ai_draft, name="rca_ai_draft"),
     path("rcas/<uuid:pk>/note/", ui_views.rca_add_note, name="rca_add_note"),
     path("rcas/<uuid:pk>/update/", ui_views.rca_update, name="rca_update"),
     path("links/add/", ui_views.link_add, name="link_add"),
