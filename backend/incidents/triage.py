@@ -7,11 +7,13 @@ from the check SUBJECT (`check:{subject_kind}:{subject_hash}`), so a flapping su
 while its incident is OPEN is an ON-CONFLICT no-op, not an incident flood; a re-fire after
 RESOLVED opens a fresh incident (existing partial-unique semantics, unchanged).
 
-Triage then classifies the new incident: the assistant (triage_ai, ADR-034-style seam) returns
-ONLY (responsibility, fault_domain, verdict, confidence, rationale); `dispose()` — a pure
-function of (classification, verdict, mode) — picks the action in tested Python. v1 is the
-minimal false-positive gate: FALSE_POSITIVE in highway mode auto-resolves (audited); everything
-else is advisory metadata and the incident rides the SLA/escalation engine unchanged.
+Triage then classifies the new incident — deterministic first (ADR-037): the routing matrix
+(`triage-matrix.yaml` via routing_matrix) classifies span evidence by status code and origin;
+the assistant (triage_ai, ADR-034-style seam) is the FALLBACK for evidence no rule matches,
+returning ONLY (responsibility, fault_domain, verdict, confidence, rationale). Disposition is
+always the matrix's (verdict × cell × mode) table: FALSE_POSITIVE auto-resolves in highway
+mode; internal cells auto-escalate T1→T2 in race mode (escaped-defect / deploy-induced-fault
+presumption); everything else is advisory and rides the SLA/escalation engine unchanged.
 
 Failure posture: any assistant failure soft-fails — the incident stays open and untriaged, a
 system event records why, and the deterministic engine remains the backstop (never the AI).
@@ -20,10 +22,9 @@ import logging
 
 from django.conf import settings
 
-from . import escalation, events, flags, intake, services, triage_ai
+from . import escalation, events, flags, intake, routing_matrix, services, triage_ai
 from .models import (
     LinkKind,
-    OperatingMode,
     SessionCheck,
     TriageDecision,
     TriageDisposition,
@@ -73,20 +74,8 @@ def bridge_check(check: SessionCheck):
     return incident
 
 
-def dispose(verdict: str, mode: str) -> str:
-    """The deterministic disposition — AI classifies, THIS decides (ADR-036). Pure on purpose:
-    every action is reproducible from the TriageDecision row. v1: only the false-positive gate
-    acts, and only in highway mode; race mode will require a human confirm (ADR-035, deferred).
-    The responsibility/fault_domain dimensions join this signature when cell-specific actions
-    land (deferred by ADR-036 §4)."""
-    if verdict == TriageVerdict.FALSE_POSITIVE and mode == OperatingMode.HIGHWAY:
-        return TriageDisposition.AUTO_RESOLVE
-    return TriageDisposition.NO_ACTION
-
-
-def _evidence(incident, check: SessionCheck) -> tuple[str, dict]:
+def _evidence(incident, check: SessionCheck, spans) -> tuple[str, dict]:
     """Render what the assistant may consult — and snapshot it for the audit row."""
-    spans = list(check.error_spans.all())
     lines = [
         f"# Triage evidence for {incident.number}",
         f"Incident: {incident.title} (source: {incident.source}, tier: {incident.current_tier})",
@@ -111,6 +100,7 @@ def _evidence(incident, check: SessionCheck) -> tuple[str, dict]:
             {
                 "trace_id": s.trace_id, "span_id": s.span_id, "name": s.name,
                 "service": s.service, "status": s.status, "http_status": s.http_status,
+                "kind": s.kind,
             }
             for s in spans
         ],
@@ -119,24 +109,43 @@ def _evidence(incident, check: SessionCheck) -> tuple[str, dict]:
 
 
 def run_triage(incident, check: SessionCheck) -> TriageDecision | None:
-    """T1 assistant pass: classify, record the append-only TriageDecision, denormalize onto the
-    incident, then apply the deterministic disposition. Soft-fails on any assistant error."""
+    """T1 triage pass (ADR-037): the routing matrix classifies deterministically; the AI
+    assistant is the fallback for unmatched evidence. Records the append-only TriageDecision,
+    denormalizes onto the incident, then applies the matrix disposition. Soft-fails on any
+    assistant error."""
     from . import modes
 
-    evidence_markdown, snapshot = _evidence(incident, check)
-    try:
-        result = triage_ai.classify(evidence_markdown)
-    except triage_ai.TriageError as exc:
-        logger.warning("triage failed incident=%s: %s", incident.id, exc)
-        services.post_system_event(
-            incident,
-            body=f"T1 triage failed ({exc}) — incident stays open; SLA engine is the backstop.",
-            data={"error": str(exc)},
+    spans = list(check.error_spans.all())
+    evidence_markdown, snapshot = _evidence(incident, check, spans)
+    cell = routing_matrix.classify(spans)
+    if cell:
+        responsibility, fault_domain = cell
+        result = triage_ai.TriageResult(
+            responsibility=responsibility,
+            fault_domain=fault_domain,
+            verdict=TriageVerdict.REAL,  # a matrix match IS a real error, even someone else's
+            confidence=1.0,
+            rationale=f"Deterministic matrix classification ({responsibility}/{fault_domain}) "
+                      f"from span status/origin evidence.",
+            provider="matrix",
+            model="triage-matrix.yaml",
         )
-        return None
+    else:
+        try:
+            result = triage_ai.classify(evidence_markdown)
+        except triage_ai.TriageError as exc:
+            logger.warning("triage failed incident=%s: %s", incident.id, exc)
+            services.post_system_event(
+                incident,
+                body=f"T1 triage failed ({exc}) — incident stays open; SLA engine is the backstop.",
+                data={"error": str(exc)},
+            )
+            return None
 
     mode = modes.current_mode()
-    disposition = dispose(result.verdict, mode)
+    disposition = routing_matrix.dispose(
+        result.responsibility, result.fault_domain, result.verdict, mode
+    )
     decision = TriageDecision.objects.create(
         incident=incident,
         actor=TriageDecision.ASSISTANT_ACTOR,
@@ -175,10 +184,11 @@ def run_triage(incident, check: SessionCheck) -> TriageDecision | None:
         "disposition": str(disposition), "mode": str(mode),
     })
 
+    # Both actions ride the normal engine paths (ADR-007): the token is consumed via
+    # send_outcome so no zombie timer survives. At bridge time the tier token may not be
+    # recorded yet in the cloud path — send_outcome no-ops on an empty token and the verdict
+    # stays advisory there; the local path applies the service call directly.
     if disposition == TriageDisposition.AUTO_RESOLVE:
-        # Normal resolve path (ADR-007): consume the token so no zombie timer survives. At bridge
-        # time the tier token may not be recorded yet in the cloud path — send_outcome no-ops on
-        # an empty token and the verdict stays advisory there; the local path resolves directly.
         escalation.send_outcome(
             incident, escalation.OUTCOME_RESOLVE, actor=TriageDecision.ASSISTANT_ACTOR
         )
@@ -187,5 +197,15 @@ def run_triage(incident, check: SessionCheck) -> TriageDecision | None:
                 incident.id,
                 actor=TriageDecision.ASSISTANT_ACTOR,
                 reason="false_positive (T1 triage)",
+            )
+    elif disposition == TriageDisposition.AUTO_ESCALATE:
+        escalation.send_outcome(
+            incident, escalation.OUTCOME_ESCALATE, actor=TriageDecision.ASSISTANT_ACTOR
+        )
+        if settings.ESCALATION_LOCAL_MODE:
+            services.escalate(
+                incident.id,
+                actor=TriageDecision.ASSISTANT_ACTOR,
+                reason="race-mode policy: internal fault during release window (ADR-037)",
             )
     return decision

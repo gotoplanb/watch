@@ -43,9 +43,10 @@ def test_grafana_cloud_queries_with_auth_and_parses(settings, monkeypatch):
     spans = trace_store.GrafanaCloudProvider().find_error_spans("session", "abc", None, None)
     assert cap["url"] == "https://tempo-prod.grafana.net/api/search"
     assert cap["auth"] == ("123456", "glc_secret")
-    # select() pulls name/http.status_code into the response — triage consumes them (ADR-036)
+    # select() pulls name/http.status_code/kind into the response — the routing matrix (ADR-037)
+    # classifies on status and reads kind=client as third-party origin
     assert cap["params"]["q"] == (
-        '{ span.session.id = "abc" && status = error } | select(span.http.status_code, name)'
+        '{ span.session.id = "abc" && status = error } | select(span.http.status_code, name, kind)'
     )
     assert spans[0]["trace_id"] == "t1" and spans[0]["service"] == "web" and spans[0]["http_status"] == 500
 

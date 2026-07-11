@@ -194,8 +194,11 @@ TIER_SLA_SECONDS = {
 RCA_AI_PROVIDER = _env("RCA_AI_PROVIDER", "stub")
 
 # T1 triage assistant (ADR-036) — same provider discipline as RCA (stub | bedrock | conduct);
-# the assistant only classifies, disposition stays deterministic (triage.dispose).
+# the assistant is the FALLBACK: the routing matrix classifies deterministically first (ADR-037)
+# and disposition is always the matrix table lookup.
 TRIAGE_AI_PROVIDER = _env("TRIAGE_AI_PROVIDER", "stub")
+# The declarative triage policy document (ADR-037) — human-readable AND machine-loaded.
+TRIAGE_MATRIX_PATH = _env("TRIAGE_MATRIX_PATH", str(BASE_DIR / "triage-matrix.yaml"))
 
 # Bedrock backend
 BEDROCK_REGION = _env("BEDROCK_REGION", AWS_REGION)

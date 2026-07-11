@@ -58,9 +58,9 @@ class TempoProvider:
         if not attr or not subject_hash:
             return []
         # select() pulls attributes the search response otherwise omits (Tempo returns only the
-        # queried attrs): parse_search reads name/http.status_code, and triage (ADR-036) needs the
-        # status code to tell a server-side fault from noise.
-        query = '{ span.%s = "%s" && status = error } | select(span.http.status_code, name)' % (
+        # queried attrs): parse_search reads name/http.status_code/kind — the routing matrix
+        # (ADR-037) classifies on status code and reads kind=client as third-party origin.
+        query = '{ span.%s = "%s" && status = error } | select(span.http.status_code, name, kind)' % (
             attr, subject_hash
         )
         params = {"q": query, "limit": 200}
@@ -103,6 +103,7 @@ def parse_search(data: dict) -> list[dict]:
                         "service": attrs.get("service.name") or root_service,
                         "status": "ERROR",
                         "http_status": _as_int(attrs.get("http.status_code")),
+                        "kind": attrs.get("kind", ""),
                         "ts": _as_ts(span.get("startTimeUnixNano")),
                     }
                 )

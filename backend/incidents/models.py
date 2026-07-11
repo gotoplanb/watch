@@ -67,8 +67,9 @@ class TriageVerdict(models.TextChoices):
 
 
 class TriageDisposition(models.TextChoices):
-    AUTO_RESOLVE = "auto_resolve", "Auto-resolve"  # false positive in highway mode (ADR-036)
-    NO_ACTION = "no_action", "No action"           # classification is advisory; SLA engine unchanged
+    AUTO_RESOLVE = "auto_resolve", "Auto-resolve"    # false positive in highway mode (ADR-036)
+    AUTO_ESCALATE = "auto_escalate", "Auto-escalate"  # internal fault in race mode (ADR-037)
+    NO_ACTION = "no_action", "No action"             # classification is advisory; SLA engine unchanged
 
 
 class Incident(models.Model):
@@ -318,6 +319,9 @@ class ErrorSpan(models.Model):
     service = models.CharField(max_length=128, blank=True, default="")
     status = models.CharField(max_length=32, blank=True, default="")
     http_status = models.IntegerField(null=True, blank=True)
+    # OTel span kind ("server" | "client" | …): `client` marks an outbound call, which the
+    # routing matrix reads as third-party origin (ADR-037).
+    kind = models.CharField(max_length=16, blank=True, default="")
     ts = models.DateTimeField(null=True, blank=True)
 
     class Meta:

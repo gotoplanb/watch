@@ -78,6 +78,7 @@ def run_session_check(check: SessionCheck) -> SessionCheck:
                 service=s.get("service", ""),
                 status=s.get("status", "ERROR"),
                 http_status=s.get("http_status"),
+                kind=s.get("kind", ""),
                 ts=s.get("ts"),
             )
             for s in spans

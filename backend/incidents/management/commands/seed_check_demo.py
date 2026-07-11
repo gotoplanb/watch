@@ -1,14 +1,18 @@
 """
-Synthetic-data fuel for the check→incident→triage loop (ADR-036 §6, manual use):
+Synthetic-data fuel for the check→incident→triage loop (ADR-036 §6 / ADR-037, manual use):
 
-    python manage.py seed_check_demo                     # 5xx spans → REAL → incident stays open
-    python manage.py seed_check_demo --false-positive    # 4xx spans → auto-resolved (highway)
+    python manage.py seed_check_demo                   # our 500s → matrix internal/software
+                                                       #   (highway: stays open; race: auto-escalates T2)
+    python manage.py seed_check_demo --client-noise    # 404s → matrix client/software, advisory
+    python manage.py seed_check_demo --vendor          # outbound client-kind 502s → vendor/environment
+    python manage.py seed_check_demo --false-positive  # 418s match no rule → AI fallback → stub
+                                                       #   says false positive → auto-resolved (highway)
 
 Emits OTLP error spans (tagged `session.id`, the attribute session_tagging stamps) straight to
 the local Alloy/collector as a hand-built OTLP-JSON POST — no SDK wiring needed — then creates
 and runs a real SessionCheck for that session, which exercises the whole slice against real
-Tempo queries: check → T0 bridge → T1 triage → dispose. Retries the check a few times to ride
-out Tempo ingest lag. Local/dev only — needs TRACE_STORE_PROVIDER=tempo and Watchtower up.
+Tempo queries: check → T0 bridge → matrix/AI triage → dispose. Retries the check a few times to
+ride out Tempo ingest lag. Local/dev only — needs TRACE_STORE_PROVIDER=tempo and Watchtower up.
 """
 import secrets
 import time
@@ -24,12 +28,12 @@ from incidents.models import CheckSubjectKind
 OTLP_URL = "http://localhost:4318/v1/traces"
 
 
-def _span(session_id: str, name: str, http_status: int, now_ns: int) -> dict:
+def _span(session_id: str, name: str, http_status: int, now_ns: int, kind: int = 2) -> dict:
     return {
         "traceId": secrets.token_hex(16),
         "spanId": secrets.token_hex(8),
         "name": name,
-        "kind": 2,  # SERVER
+        "kind": kind,  # OTLP span kind: 2 = SERVER (ours), 3 = CLIENT (outbound → vendor, ADR-037)
         "startTimeUnixNano": str(now_ns - 50_000_000),
         "endTimeUnixNano": str(now_ns),
         "attributes": [
@@ -45,8 +49,14 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--false-positive", action="store_true",
-                            help="Emit 4xx (not 5xx) error spans — the stub triages these as a "
-                                 "false positive and auto-resolves in highway mode.")
+                            help="Emit 418s — no matrix rule matches, so the AI fallback runs; "
+                                 "the stub reads no-5xx as a false positive (auto-resolves in "
+                                 "highway mode).")
+        parser.add_argument("--client-noise", action="store_true",
+                            help="Emit 404s — matrix classifies client/software, advisory only.")
+        parser.add_argument("--vendor", action="store_true",
+                            help="Emit outbound (client-kind) 502s — matrix classifies "
+                                 "vendor/environment.")
         parser.add_argument("--session", default=None, help="Session correlation id to tag/check.")
         parser.add_argument("--otlp-url", default=OTLP_URL)
         parser.add_argument("--retries", type=int, default=6,
@@ -54,7 +64,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         session_id = opts["session"] or uuid.uuid4().hex
-        http_status = 404 if opts["false_positive"] else 503
+        kind = 2
+        if opts["false_positive"]:
+            http_status = 418  # matches no matrix rule → exercises the AI fallback
+        elif opts["client_noise"]:
+            http_status = 404
+        elif opts["vendor"]:
+            http_status, kind = 502, 3  # outbound CLIENT span → third-party origin
+        else:
+            http_status = 500  # our unhandled exception → internal/software
         now_ns = time.time_ns()
         payload = {
             "resourceSpans": [{
@@ -64,8 +82,8 @@ class Command(BaseCommand):
                 "scopeSpans": [{
                     "scope": {"name": "watch.seed_check_demo"},
                     "spans": [
-                        _span(session_id, "GET /demo/orders", http_status, now_ns),
-                        _span(session_id, "GET /demo/cart", http_status, now_ns),
+                        _span(session_id, "GET /demo/orders", http_status, now_ns, kind),
+                        _span(session_id, "GET /demo/cart", http_status, now_ns, kind),
                     ],
                 }],
             }]

@@ -1,0 +1,67 @@
+# Triage routing matrix (ADR-037) — the single source of truth for deterministic triage.
+#
+# This document is BOTH the human-readable policy and the machine-loaded config: the backend
+# (incidents/routing_matrix.py) loads and validates it at first use, and unit tests assert every
+# cell is covered — so what you read here is exactly what runs. Change policy by editing this
+# file in a reviewed commit.
+#
+# Two mappings:
+#   1. classification — evidence (HTTP status + span kind) → responsibility/fault_domain.
+#      Rules are evaluated IN ORDER per error span; first match wins. A span's `origin` is
+#      `third_party` when its kind is `client` (an outbound call — the failure surface is the
+#      party we called), else `ours`. Spans matching no rule leave classification to the AI
+#      assistant (the fallback, not the front door — ADR-036/037).
+#   2. disposition — (verdict × cell × operating mode) → action. The race column encodes one
+#      principle: DURING A RELEASE WINDOW, ANYTHING INTERNAL IS PRESUMED RELEASE-RELATED —
+#      escaped defect (software) or deploy-induced fault (environment) — and auto-escalates to
+#      T2, who owns the release watch and the rollback threshold. Vendor/client cells don't
+#      change because *we* shipped.
+#
+# Verdict note: a matrix match always classifies verdict `real` — these ARE real errors, even
+# when they're someone else's (client 4xx noise is advisory, not auto-resolved). A
+# `false_positive` verdict can only come from the AI fallback weighing ambiguous evidence.
+
+classification:
+  # Third-party first: an outbound (client-kind) error span points at the party we called.
+  - match: { origin: third_party, statuses: [400, 401, 403, 404, 405, 409, 422, 429] }
+    cell: vendor/software        # their contract (or our usage of it) — the AI/humans refine
+  - match: { origin: third_party }
+    cell: vendor/environment     # their 5xx / timeouts / connection failures
+
+  # Our serving surface.
+  - match: { origin: ours, statuses: [500] }
+    cell: internal/software      # unhandled exception — code
+  - match: { origin: ours, statuses: [502, 503, 504] }
+    cell: internal/environment   # capacity / upstream path / infra
+  - match: { origin: ours, no_status: true }
+    cell: internal/environment   # DNS / connection / timeout errors carry no HTTP status
+
+  # Client-side errors on our surface: real, low-stakes, advisory.
+  - match: { statuses: [400, 404, 405, 422] }
+    cell: client/software        # malformed or wrong requests
+  - match: { statuses: [401, 403] }
+    cell: client/environment     # credentials / access configuration
+  - match: { statuses: [429] }
+    cell: client/environment     # their usage vs. quota
+
+# Mixed evidence in one check aggregates to the FIRST cell listed here (worst wins).
+precedence:
+  - internal/software
+  - internal/environment
+  - vendor/environment
+  - vendor/software
+  - client/software
+  - client/environment
+
+disposition:
+  real:
+    internal/software:    { highway: no_action, race: auto_escalate }  # escaped-defect presumption
+    internal/environment: { highway: no_action, race: auto_escalate }  # deploy-induced-fault presumption
+    vendor/environment:   { highway: no_action, race: no_action }
+    vendor/software:      { highway: no_action, race: no_action }
+    client/software:      { highway: no_action, race: no_action }
+    client/environment:   { highway: no_action, race: no_action }
+  false_positive:
+    "*":                  { highway: auto_resolve, race: no_action }   # race: a human confirms
+  undetermined:
+    "*":                  { highway: no_action, race: no_action }
