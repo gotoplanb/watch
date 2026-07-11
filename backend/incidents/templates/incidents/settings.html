@@ -28,7 +28,7 @@
   <h2 class="text-sm font-semibold text-slate-400">Your ops-ingest API key</h2>
   {% if api_key_set %}
   <form method="post" action="{% url 'ui:rotate_keys' %}"
-        onsubmit="return confirm('Rotate your keys? Your API key AND your ntfy paging topic will change — you\'ll need to re-copy both (and update any tooling / re-subscribe on your phone).');">
+        onsubmit="return confirm('Rotate your keys? Your API key, MCP key, AND your ntfy paging topic will all change — you\'ll need to re-copy them (and update any tooling / reconnect assistants / re-subscribe on your phone).');">
     {% csrf_token %}
     <button type="submit" class="px-2 py-1 rounded text-xs bg-rose-500/15 text-rose-300 hover:bg-rose-500/25">Rotate my keys</button>
   </form>
@@ -75,6 +75,51 @@
               @click="navigator.clipboard.writeText($refs.curlDigest.textContent); copied = 'digest'; setTimeout(() => copied = '', 1200)"
               :class="copied === 'digest' && 'text-emerald-400'"
               x-text="copied === 'digest' ? 'copied!' : 'copy curl'"></button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if api_key_set %}
+<h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Connect an AI assistant (MCP)</h2>
+<p class="text-sm text-slate-500 mb-3">
+  Watch is an <span class="text-slate-300">MCP server</span> (ADR-038): an assistant connected with your key acts <span class="text-slate-300">as you</span> —
+  it can view incidents and act on those at your tier or below, and every action lands in the audit trail under your name.
+  This MCP key is separate from your ops-ingest key; rotating rolls both.
+</p>
+<div class="bg-slate-900 border border-slate-800 rounded p-3" x-data="{ copied: '' }">
+  <div class="flex items-center justify-between gap-4">
+    <div class="min-w-0">
+      <div class="text-xs text-slate-500">MCP endpoint</div>
+      <div class="font-mono text-sm text-slate-200 truncate">{{ mcp_url }}</div>
+    </div>
+    <button type="button" class="shrink-0 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
+            @click="navigator.clipboard.writeText('{{ mcp_url }}'); copied = 'mcpurl'; setTimeout(() => copied = '', 1200)"
+            :class="copied === 'mcpurl' && 'text-emerald-400'"
+            x-text="copied === 'mcpurl' ? 'copied!' : 'copy URL'"></button>
+  </div>
+  <div class="flex items-center justify-between gap-4 mt-3 pt-3 border-t border-slate-800">
+    <div class="min-w-0">
+      <div class="text-xs text-slate-500">MCP key (bearer)</div>
+      <div class="font-mono text-sm text-slate-200 truncate">{{ mcp_key }}</div>
+    </div>
+    <button type="button" class="shrink-0 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
+            @click="navigator.clipboard.writeText('{{ mcp_key }}'); copied = 'mcpkey'; setTimeout(() => copied = '', 1200)"
+            :class="copied === 'mcpkey' && 'text-emerald-400'"
+            x-text="copied === 'mcpkey' ? 'copied!' : 'copy key'"></button>
+  </div>
+  <div class="mt-3 pt-3 border-t border-slate-800">
+    <div class="text-xs text-slate-500 mb-1">Claude Code — one command:</div>
+    <pre class="font-mono text-xs text-slate-300 whitespace-pre-wrap" x-ref="mcpAdd">claude mcp add --transport http watch {{ mcp_url }} \
+  --header "Authorization: Bearer {{ mcp_key }}"</pre>
+    <button type="button" class="mt-2 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
+            @click="navigator.clipboard.writeText($refs.mcpAdd.textContent); copied = 'mcpadd'; setTimeout(() => copied = '', 1200)"
+            :class="copied === 'mcpadd' && 'text-emerald-400'"
+            x-text="copied === 'mcpadd' ? 'copied!' : 'copy command'"></button>
+    <div class="text-xs text-slate-500 mt-3">
+      claude.ai custom connectors use OAuth instead of the key: add the endpoint URL as a connector and sign in
+      with your Watch account when prompted (an admin must first mint a client with
+      <span class="font-mono">manage.py create_oauth_client</span>).
     </div>
   </div>
 </div>

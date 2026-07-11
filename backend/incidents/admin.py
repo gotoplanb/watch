@@ -8,6 +8,8 @@ from .models import (
     Annotation,
     ErrorSpan,
     Incident,
+    OAuthClient,
+    OAuthToken,
     OnCallShift,
     OperatingModeWindow,
     SessionCheck,
@@ -73,6 +75,21 @@ class SessionCheckAdmin(admin.ModelAdmin):
     list_filter = ["subject_kind", "status", "source"]
     search_fields = ["subject_hash"]
     inlines = [ErrorSpanInline]
+
+
+@admin.register(OAuthClient)
+class OAuthClientAdmin(admin.ModelAdmin):
+    """Deactivating a client is the kill switch for every token it issued (ADR-038)."""
+    list_display = ["name", "client_id", "is_active", "created_at"]
+    list_filter = ["is_active"]
+    readonly_fields = ["client_id", "client_secret_hash"]
+
+
+@admin.register(OAuthToken)
+class OAuthTokenAdmin(admin.ModelAdmin):
+    list_display = ["user", "client", "scope", "revoked", "access_expires_at", "created_at"]
+    list_filter = ["revoked", "client"]
+    readonly_fields = [f.name for f in OAuthToken._meta.fields]
 
 
 @admin.register(OperatingModeWindow)

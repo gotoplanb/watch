@@ -273,6 +273,8 @@ def settings_view(request):
     return render(request, "incidents/settings.html", {
         "api_key": apikeys.api_key_for(request.user),
         "api_key_set": bool(settings.API_KEY_SECRET),
+        "mcp_key": apikeys.mcp_key_for(request.user),
+        "mcp_url": f"{settings.MCP_PUBLIC_BASE_URL.rstrip('/')}/mcp",
         "ingest_base": request.build_absolute_uri("/api/environments").rstrip("/"),
         "ntfy_base": base,
         "user_topic": user_topic,

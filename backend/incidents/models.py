@@ -384,6 +384,59 @@ class TriageDecision(models.Model):
         return f"triage {self.verdict} ({self.responsibility}/{self.fault_domain}) by {self.actor}"
 
 
+class OAuthClient(models.Model):
+    """A registered OAuth client (ADR-038) — e.g. the claude.ai custom connector. Manually
+    created (management command / admin), conduct-style: no dynamic registration. Deactivating
+    a client is the kill switch for every token it ever issued."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    client_id = models.CharField(max_length=64, unique=True)
+    client_secret_hash = models.CharField(max_length=64)  # sha256; raw exists only at creation
+    name = models.CharField(max_length=128)
+    redirect_uris = models.JSONField(default=list)  # exact-match allowlist
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"oauth client {self.name} ({self.client_id[:12]}…)"
+
+
+class OAuthAuthorizationCode(models.Model):
+    """A single-use authorization code (ADR-038), bound to the USER who approved consent —
+    watch's principal is the human (tier authz, attribution), not the client app."""
+
+    id = models.BigAutoField(primary_key=True)
+    code_hash = models.CharField(max_length=64, unique=True)
+    client = models.ForeignKey(OAuthClient, on_delete=models.CASCADE, related_name="codes")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
+    redirect_uri = models.CharField(max_length=512)
+    code_challenge = models.CharField(max_length=128)  # PKCE S256 only
+    code_challenge_method = models.CharField(max_length=8, default="S256")
+    scope = models.CharField(max_length=64, default="mcp")
+    used = models.BooleanField(default=False)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class OAuthToken(models.Model):
+    """An access/refresh token pair (ADR-038). Hashes only — raw values exist in transit once.
+    Refresh rotates: the old pair is revoked when redeemed."""
+
+    id = models.BigAutoField(primary_key=True)
+    access_token_hash = models.CharField(max_length=64, unique=True)
+    refresh_token_hash = models.CharField(max_length=64, unique=True)
+    client = models.ForeignKey(OAuthClient, on_delete=models.CASCADE, related_name="tokens")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
+    scope = models.CharField(max_length=64, default="mcp")
+    access_expires_at = models.DateTimeField()
+    refresh_expires_at = models.DateTimeField()
+    revoked = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
 class WebhookSubscription(models.Model):
     """A registered receiver of Watch's outbound events (ADR-023). `event_types` empty = all."""
 

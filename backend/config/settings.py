@@ -200,6 +200,12 @@ TRIAGE_AI_PROVIDER = _env("TRIAGE_AI_PROVIDER", "stub")
 # The declarative triage policy document (ADR-037) — human-readable AND machine-loaded.
 TRIAGE_MATRIX_PATH = _env("TRIAGE_MATRIX_PATH", str(BASE_DIR / "triage-matrix.yaml"))
 
+# MCP server (ADR-038) — a separate process from the same image (manage.py mcp, :8011 local).
+# MCP_PUBLIC_BASE_URL is the resource origin (metadata + transport-security allowlist);
+# WATCH_PUBLIC_BASE_URL is the OAuth authorization server (this Django app).
+MCP_PUBLIC_BASE_URL = _env("MCP_PUBLIC_BASE_URL", "http://localhost:8011")
+WATCH_PUBLIC_BASE_URL = _env("WATCH_PUBLIC_BASE_URL", "http://localhost:8010")
+
 # Bedrock backend
 BEDROCK_REGION = _env("BEDROCK_REGION", AWS_REGION)
 BEDROCK_MODEL_ID = _env("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0")
