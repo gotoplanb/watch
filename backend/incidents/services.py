@@ -16,7 +16,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from . import apikeys, bedrock, events, flags, notify
+from . import apikeys, events, flags, notify, rca_ai
 from .models import (
     Annotation,
     EventType,
@@ -372,19 +372,21 @@ RCA_AI_FLAG = "rca_ai_draft"
 
 
 def draft_rca(rca, *, actor: str = "system"):
-    """AI-draft an RCA's document from its assembled timeline (ADR-021/031, Bedrock per ADR-033).
+    """AI-draft an RCA's document from its assembled timeline via the configured provider
+    (ADR-033/034: stub | bedrock | conduct).
 
     The draft consumes whatever is in the RCA document — on a freshly seeded RCA that's the
     `rca_markdown` assembly; on a re-draft it's the current working copy. The model output
     *replaces* the document (a reviewable starting point the human then edits), and provenance
-    lands as a system timeline event. Flag-gating (`RCA_AI_FLAG`) is the caller's job — the UI
-    hides the control and the view rejects when the flag is off (ADR-003). Propagates
-    bedrock.DraftError so the view can surface a friendly message instead of a 500.
+    (the provider + the model that actually ran) lands as a system timeline event. Flag-gating
+    (`RCA_AI_FLAG`) is the caller's job — the UI hides the control and the view rejects when the
+    flag is off (ADR-003). Propagates rca_ai.DraftError so the view can surface a friendly
+    message instead of a 500.
     """
-    drafted = bedrock.draft_rca(rca.document or "")
-    rca.document = drafted
+    result = rca_ai.draft(rca.document or "")
+    rca.document = result.text
     rca.save(update_fields=["document", "updated_at"])
-    post_system_event(rca, f"AI-drafted via Bedrock ({settings.BEDROCK_MODEL_ID}) by {actor}")
+    post_system_event(rca, f"AI-drafted via {result.provider} ({result.model}) by {actor}")
     return rca
 
 

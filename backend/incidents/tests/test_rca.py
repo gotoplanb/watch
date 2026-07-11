@@ -6,7 +6,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 
-from incidents import bedrock, flags, services
+from incidents import flags, rca_ai, services
 from incidents.models import Incident, Rca, RcaStatus, Status, Tier
 
 
@@ -141,7 +141,7 @@ def test_blank_note_is_noop(client):
     assert r.events.count() == 0
 
 
-# --- AI draft (ADR-021/031/033) — Bedrock, flag-gated -------------------------
+# --- AI draft (ADR-033/034) — pluggable provider, flag-gated ------------------
 
 @pytest.fixture(autouse=True)
 def _reset_flags():
@@ -155,23 +155,22 @@ def _flag(on):
 
 @pytest.mark.django_db
 def test_draft_rca_service_replaces_document_and_posts_provenance(settings):
-    settings.BEDROCK_LOCAL_MODE = True  # deterministic stub, no AWS
+    settings.RCA_AI_PROVIDER = "stub"  # deterministic, no network
     inc = _incident(title="cache stampede")
     r = services.seed_rca(incident=inc, actor="alice")
     services.draft_rca(r, actor="bob")
     r.refresh_from_db()
-    assert "BEDROCK_LOCAL_MODE" in r.document and "## Root cause" in r.document
-    assert r.events.filter(type="system", body__contains="AI-drafted via Bedrock").exists()
+    assert "RCA_AI_PROVIDER=stub" in r.document and "## Root cause" in r.document
+    # provenance names the provider + the model that actually ran
+    assert r.events.filter(type="system", body__contains="AI-drafted via stub (local-stub)").exists()
     assert r.events.filter(body__contains="by bob").exists()
 
 
 @pytest.mark.django_db
-def test_draft_rca_service_surfaces_bedrock_failure(settings):
-    settings.BEDROCK_LOCAL_MODE = False
-    settings.BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+def test_draft_rca_service_surfaces_provider_failure(settings):
     r = Rca.objects.create(title="will fail", document="src")
-    with mock.patch.object(bedrock, "draft_rca", side_effect=bedrock.DraftError("boom")):
-        with pytest.raises(bedrock.DraftError):
+    with mock.patch.object(rca_ai, "draft", side_effect=rca_ai.DraftError("boom")):
+        with pytest.raises(rca_ai.DraftError):
             services.draft_rca(r)
     r.refresh_from_db()
     assert r.document == "src"  # unchanged on failure
@@ -179,7 +178,7 @@ def test_draft_rca_service_surfaces_bedrock_failure(settings):
 
 @pytest.mark.django_db
 def test_ai_draft_view_drafts_when_flag_on(client, settings):
-    settings.BEDROCK_LOCAL_MODE = True
+    settings.RCA_AI_PROVIDER = "stub"
     _flag(True)
     client.force_login(_user("drafter"))
     r = Rca.objects.create(title="draft me", document="# assembly\n\n- boom")
@@ -187,7 +186,7 @@ def test_ai_draft_view_drafts_when_flag_on(client, settings):
     assert resp.status_code == 302 and resp["Location"] == f"/ui/rcas/{r.id}/"
     r.refresh_from_db()
     assert "## Root cause" in r.document
-    assert r.events.filter(type="system", body__contains="AI-drafted via Bedrock").exists()
+    assert r.events.filter(type="system", body__contains="AI-drafted via stub").exists()
 
 
 @pytest.mark.django_db
@@ -210,13 +209,11 @@ def test_ai_draft_view_requires_login(client):
 
 
 @pytest.mark.django_db
-def test_ai_draft_view_reports_bedrock_failure(client, settings):
-    settings.BEDROCK_LOCAL_MODE = False
-    settings.BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+def test_ai_draft_view_reports_provider_failure(client, settings):
     _flag(True)
     client.force_login(_user("failer"))
     r = Rca.objects.create(title="fail", document="orig")
-    with mock.patch.object(bedrock, "draft_rca", side_effect=bedrock.DraftError("access denied")):
+    with mock.patch.object(rca_ai, "draft", side_effect=rca_ai.DraftError("access denied")):
         resp = client.post(f"/ui/rcas/{r.id}/ai-draft/", follow=True)
     assert "AI draft failed" in resp.content.decode()
     r.refresh_from_db()

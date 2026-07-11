@@ -35,6 +35,7 @@ HOSTENV := DJANGO_SECRET_KEY=dev DJANGO_DEBUG=1 \
   POSTGRES_HOST=localhost POSTGRES_PORT=5433 \
   VALKEY_URL=redis://localhost:6380/0 \
   APPCONFIG_AGENT_URL=http://localhost:2772 FLAGS_PROVIDER=appconfig \
+  CONDUCT_BASE_URL=http://localhost:8000 \
   INTAKE_WEBHOOK_SECRET=dev-webhook-secret CHECKS_WEBHOOK_SECRET=dev-webhook-secret \
   WEBHOOK_ECHO_SECRET=dev-echo-secret SESSION_USER_HMAC_KEY=dev-hmac-key API_KEY_SECRET=dev-api-key-secret \
   OTEL_ENABLED=1 OTEL_SERVICE_NAME=watch-backend OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
@@ -72,7 +73,7 @@ dev: venv infra ## PRIMARY local loop — infra in Docker + backend on host (:80
 	@for i in $$(seq 1 30); do nc -z localhost 5433 && break; sleep 1; done
 	cd backend && $(HOSTENV) .venv/bin/python manage.py migrate
 	$(SEED_CMD)
-	cd backend && $(HOSTENV) .venv/bin/python manage.py runserver --noreload 0.0.0.0:8010
+	cd backend && { set -a; test -f ../.env && . ../.env; set +a; } && $(HOSTENV) .venv/bin/python manage.py runserver --noreload 0.0.0.0:8010
 
 test: venv ## Run hermetic unit tests (no Docker)
 	cd backend && .venv/bin/pytest

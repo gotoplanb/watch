@@ -19,7 +19,7 @@ from django.contrib import messages
 
 from . import apikeys
 from . import checks as checks_svc
-from . import bedrock, escalation, flags, services, session_index
+from . import escalation, flags, rca_ai, services, session_index
 from .models import (
     AnnotationTag,
     CheckSource,
@@ -451,6 +451,7 @@ def rca_detail(request, pk):
         "link_kinds": LinkKind.choices,
         "record_number": rca.number,
         "ai_draft_enabled": flags.is_enabled(services.RCA_AI_FLAG),
+        "ai_provider": settings.RCA_AI_PROVIDER,
     })
 
 
@@ -474,7 +475,7 @@ def rca_ai_draft(request, pk):
     try:
         services.draft_rca(rca, actor=request.user.username)
         messages.success(request, "AI draft generated — review and edit before finalising.")
-    except bedrock.DraftError as exc:
+    except rca_ai.DraftError as exc:
         messages.error(request, f"AI draft failed: {exc}")
     return redirect(_RCA_DETAIL, pk=pk)
 

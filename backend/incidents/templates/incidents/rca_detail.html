@@ -37,7 +37,7 @@
     {% csrf_token %}
     <button class="px-3 py-1.5 rounded bg-violet-600 hover:bg-violet-500 text-white text-sm">✨ AI draft</button>
   </form>
-  <span class="text-base md:text-xs text-slate-500">Bedrock · Sonnet — review before finalising</span>
+  <span class="text-base md:text-xs text-slate-500">via {{ ai_provider }} — review before finalising</span>
   {% endif %}
 </div>
 

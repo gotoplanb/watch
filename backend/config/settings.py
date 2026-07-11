@@ -184,18 +184,28 @@ TIER_SLA_SECONDS = {
     "T3": int(_env("SLA_T3_SECONDS", "3600")),
 }
 
-# --- AI-drafted RCA via Amazon Bedrock (ADR-021/031, refined ADR-033) ---
-# The draft is flag-gated (`rca_ai_draft`, ADR-003) and consumes the same rca_markdown assembly a
-# human reviews. We call Bedrock (not the Anthropic API the original ADR sketched) so the model call
-# stays inside the account's IAM/VPC/logging boundary — deviation recorded in ADR-033.
-#   - BEDROCK_MODEL_ID: the on-account model/inference-profile id. Sonnet by default; Bedrock model
-#     access must be granted in-console per account (a manual step, like the CloudFront hold).
-#   - BEDROCK_LOCAL_MODE: skip the AWS call and return a clearly-marked deterministic stub so
-#     `make dev` (and hermetic tests) can exercise the feature without Bedrock credentials/access.
+# --- AI-drafted RCA: pluggable provider (ADR-033/034) ---
+# Flag-gated (`rca_ai_draft`, ADR-003); consumes the same rca_markdown assembly a human reviews.
+# One instruction prompt (incidents.rca_ai.SYSTEM_PROMPT) is handed to whichever backend runs:
+#   RCA_AI_PROVIDER=stub    — deterministic local draft, no network (default; hermetic tests).
+#   RCA_AI_PROVIDER=bedrock — Claude Sonnet on Bedrock (deployed; inside the account boundary,
+#                             ADR-033). Needs per-account Bedrock model access (manual console step).
+#   RCA_AI_PROVIDER=conduct — local models via the conduct project (local dev; sync HTTP, no AWS).
+RCA_AI_PROVIDER = _env("RCA_AI_PROVIDER", "stub")
+
+# Bedrock backend
 BEDROCK_REGION = _env("BEDROCK_REGION", AWS_REGION)
 BEDROCK_MODEL_ID = _env("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0")
-BEDROCK_LOCAL_MODE = _bool("BEDROCK_LOCAL_MODE", True)
 BEDROCK_MAX_TOKENS = int(_env("BEDROCK_MAX_TOKENS", "2000"))
+
+# Conduct backend (watch#41). Key comes from .env locally; SSM/Secrets Manager if ever used in cloud.
+# Default targets the host-side loop (localhost); .env / HOSTENV set the real value per context
+# (host.docker.internal in-compose). Kept as localhost so the local dev endpoint isn't flagged as
+# a clear-text-http risk — Conduct is a same-host dev dependency, never a remote plaintext call.
+CONDUCT_BASE_URL = _env("CONDUCT_BASE_URL", "http://localhost:8000")
+CONDUCT_API_KEY = _env("CONDUCT_API_KEY", "")
+CONDUCT_TASK_TYPE = _env("CONDUCT_TASK_TYPE", "tier_2")  # routing rule → model tier in Conduct
+CONDUCT_TIMEOUT = int(_env("CONDUCT_TIMEOUT", "60"))
 
 # --- Escalation paging (ADR-013): page the on-call via ntfy on a real tier entry ---
 # The `paging_enabled` control itself is a rollout mode read via the flags seam (ADR-014), not here.
