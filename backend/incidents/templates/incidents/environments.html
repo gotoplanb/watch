@@ -1,31 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Environments · Watch{% endblock %}
 {% block content %}
-<style>
-  /* Schema-less ops-status renderer (ADR-028) — the posted JSON drives the groupings. */
-  .ops-map { display: grid; gap: 0.4rem; }
-  .ops-row { display: grid; grid-template-columns: minmax(9rem, 14rem) 1fr; gap: 0.75rem; align-items: start; }
-  .ops-row.ops-map, .ops-row.ops-list { grid-template-columns: 1fr; gap: 0.25rem; }
-  .ops-key { color: #94a3b8; font-size: 0.8rem; }
-  .ops-row.ops-map > .ops-key, .ops-row.ops-list > .ops-key { color: #cbd5e1; font-weight: 600; font-size: 0.85rem; margin-top: 0.4rem; }
-  .ops-val > .ops-map, .ops-val > .ops-list { border-left: 1px solid #1e293b; padding-left: 0.75rem; margin-left: 0.1rem; }
-  .ops-list { list-style: none; display: grid; gap: 0.35rem; }
-  .ops-list > li { background: #0b1220; border: 1px solid #1e293b; border-radius: 0.4rem; padding: 0.5rem 0.65rem; }
-  .ops-scalar { color: #e2e8f0; font-size: 0.9rem; }
-  .ops-link { color: #818cf8; font-size: 0.85rem; word-break: break-all; }
-  .ops-badge { display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-  .ops-good { background: rgba(16,185,129,.15); color: #6ee7b7; }
-  .ops-warn { background: rgba(245,158,11,.15); color: #fcd34d; }
-  .ops-crit { background: rgba(244,63,94,.15); color: #fda4af; }
-  .ops-muted { background: #1e293b; color: #cbd5e1; }
-  .ops-raw { background: #0b1220; border: 1px solid #1e293b; border-radius: 0.4rem; padding: 0.6rem; font-size: 0.75rem; color: #cbd5e1; overflow-x: auto; }
-  .digest-body { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.82rem; color: #cbd5e1; background: #0b1220; border: 1px solid #1e293b; border-radius: 0.4rem; padding: 0.75rem; overflow-x: auto; }
-</style>
-
+{# Ops-renderer styling lives as Tailwind utilities in _json_node.html (ADR-039 — no hand-written CSS) #}
 <div class="flex items-center justify-between mb-4">
   <div>
     <h1 class="text-lg font-semibold text-slate-100">Environments</h1>
-    <p class="text-sm text-slate-500 mt-1">Detailed ops status + digests, per environment (ADR-028). Ingested from tooling; ops-only.</p>
+    <p class="text-sm text-slate-400 mt-1">Detailed ops status + digests, per environment (ADR-028). Ingested from tooling; ops-only.</p>
   </div>
   <div class="flex gap-1">
     {% for e in environments %}
@@ -38,12 +18,12 @@
 <section class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-5">
   <div class="flex items-baseline justify-between mb-3">
     <h2 class="text-sm font-semibold text-slate-300">Status — <span class="font-mono">{{ env }}</span></h2>
-    {% if status %}<span class="text-xs text-slate-500">updated {{ status.created_at|date:"M j, H:i:s" }}</span>{% endif %}
+    {% if status %}<span class="text-xs text-slate-400">updated {{ status.created_at|date:"M j, H:i:s" }}</span>{% endif %}
   </div>
   {% if status %}
     {% include "incidents/_json_node.html" with node=status.payload label="" depth=0 %}
   {% else %}
-    <p class="text-sm text-slate-500">No status posted for <span class="font-mono">{{ env }}</span> yet.</p>
+    <p class="text-sm text-slate-400">No status posted for <span class="font-mono">{{ env }}</span> yet.</p>
   {% endif %}
 </section>
 
@@ -57,7 +37,7 @@
           {% if d.special %}<span class="px-2 py-0.5 rounded text-xs bg-amber-500/15 text-amber-300 font-semibold">SPECIAL</span>
           {% else %}<span class="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">ROUTINE</span>{% endif %}
           {% if d.title %}<span class="text-sm text-slate-200 truncate">{{ d.title }}</span>{% endif %}
-          <span class="text-xs text-slate-500">{{ d.created_at|date:"M j, H:i:s" }}</span>
+          <span class="text-xs text-slate-400">{{ d.created_at|date:"M j, H:i:s" }}</span>
         </div>
         <button type="button"
                 class="shrink-0 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
@@ -65,10 +45,10 @@
                 :class="copied && 'text-emerald-400'"
                 x-text="copied ? 'copied!' : 'Copy for Slack'"></button>
       </div>
-      <pre class="digest-body" x-ref="body">{{ d.content }}</pre>
+      <pre class="whitespace-pre-wrap font-mono text-sm text-slate-300 bg-slate-950/50 border border-slate-800 rounded-md p-3 overflow-x-auto" x-ref="body">{{ d.content }}</pre>
     </div>
     {% empty %}
-    <p class="text-sm text-slate-500">No digests for <span class="font-mono">{{ env }}</span> yet.</p>
+    <p class="text-sm text-slate-400">No digests for <span class="font-mono">{{ env }}</span> yet.</p>
     {% endfor %}
   </div>
 </section>

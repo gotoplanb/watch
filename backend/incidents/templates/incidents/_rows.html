@@ -2,7 +2,7 @@
   {% for inc in incidents %}
   <tr class="border-b border-slate-800 last:border-0 hover:bg-slate-800/60">
     <td class="p-3">
-      <span class="font-mono text-xs text-slate-500 mr-2">{{ inc.number }}</span>
+      <span class="font-mono text-xs text-slate-400 mr-2">{{ inc.number }}</span>
       <a class="text-indigo-400 hover:text-indigo-300" href="{% url 'ui:incident_detail' inc.id %}">{{ inc.title }}</a>
     </td>
     <td class="p-3">
@@ -14,9 +14,9 @@
     </td>
     <td class="p-3"><span class="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">{{ inc.current_tier }}</span></td>
     <td class="p-3 text-slate-400">{{ inc.source }}</td>
-    <td class="p-3 text-slate-500">{{ inc.created_at|date:"M j, H:i" }}</td>
+    <td class="p-3 text-slate-400">{{ inc.created_at|date:"M j, H:i" }}</td>
   </tr>
   {% empty %}
-  <tr><td class="p-6 text-center text-slate-500" colspan="5">No incidents match.</td></tr>
+  <tr><td class="p-6 text-center text-slate-400" colspan="5">No incidents match.</td></tr>
   {% endfor %}
 </tbody>

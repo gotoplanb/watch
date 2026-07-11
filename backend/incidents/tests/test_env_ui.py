@@ -30,7 +30,7 @@ def test_dashboard_renders_status_and_digests(client):
     client.force_login(User.objects.create(username="ops"))
     html = client.get("/ui/environments/?env=prod").content.decode()
     assert "Gibraltar" in html and "5xx from Expedia" in html
-    assert "ops-badge" in html and "ops-crit" in html          # squall -> crit badge
+    assert "rounded-full" in html and "bg-rose-500/15" in html  # squall -> crit badge (Tailwind, ADR-039)
     assert "SPECIAL" in html and "ROUTINE" in html             # digest badges
     assert "System Health" in html and "INCIDENT digest" in html
 
@@ -58,12 +58,12 @@ def _render(node):
 
 def test_renderer_services_shape():
     out = _render({"services": [{"display_name": "Gib", "state": "calm", "url": "https://x/y"}]})
-    assert "Gib" in out and "ops-good" in out and 'href="https://x/y"' in out
+    assert "Gib" in out and "bg-emerald-500/15" in out and 'href="https://x/y"' in out
 
 
 def test_renderer_totally_different_shape():
     out = _render({"teams": {"payments": {"health": "green"}}, "score": 97, "note": "ok"})
-    assert "Payments" in out and "ops-good" in out and "97" in out  # no services-shaped assumptions
+    assert "Payments" in out and "bg-emerald-500/15" in out and "97" in out  # no services-shaped assumptions
 
 
 def test_renderer_scalars_bool_and_none():
@@ -77,4 +77,5 @@ def test_renderer_depth_cap_falls_back_to_raw():
         cur["k"] = {}
         cur = cur["k"]
     cur["k"] = "deep"
-    assert "ops-raw" in _render(node)  # past the depth cap -> raw JSON, never infinite recursion
+    out = _render(node)
+    assert "<pre" in out and "deep" in out  # past the depth cap -> raw JSON, never infinite recursion

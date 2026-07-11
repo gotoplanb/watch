@@ -10,7 +10,7 @@ PY := python3.12
 VENV := backend/.venv
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: help venv test e2e demo dev infra status-page up down logs seed seed-dev smoke \
+.PHONY: help venv test e2e a11y demo dev infra status-page up down logs seed seed-dev smoke \
         coverage sonar-scan sonar-scan-only install-hooks integration clean \
         tunnel-domain tunnel-up tunnel-down tunnel-status
 
@@ -115,6 +115,9 @@ e2e: ## Playwright post-deploy smoke (defaults to the make-dev loop; override E2
 	  && { [ "$(E2E_INSTALL)" != 1 ] || npx playwright install chromium chromium-headless-shell; } \
 	  && SMOKE_USER=$(E2E_USER) SMOKE_PASSWORD='$(E2E_PASSWORD)' \
 	     BASE_URL=$(E2E_BASE) STATUS_URL=$(E2E_STATUS) INTAKE_WEBHOOK_SECRET=$(E2E_SECRET) npx playwright test $(E2E_GREP)
+
+a11y: ## Accessibility scan only (axe-core vs WCAG 2.1 AA, mobile + desktop — ADR-039)
+	@$(MAKE) e2e E2E_GREP=--grep=@a11y
 
 # Run hermetic units under coverage; writes backend/coverage.xml (Cobertura) and a
 # terminal summary. Fails if total coverage < 90% (the gate, in pyproject.toml).

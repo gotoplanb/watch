@@ -9,18 +9,18 @@
     <button type="submit" class="px-2 py-1 rounded text-xs bg-rose-500/15 text-rose-300 hover:bg-rose-500/25">Sign out everywhere</button>
   </form>
 </div>
-<p class="text-sm text-slate-500 mt-1">Signed in as <span class="text-slate-300">{{ user.username }}</span>.</p>
+<p class="text-sm text-slate-400 mt-1">Signed in as <span class="text-slate-300">{{ user.username }}</span>.</p>
 {# messages render globally in base.html #}
 
 <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Password</h2>
 <form method="post" action="{% url 'ui:change_password' %}" class="grid gap-2 max-w-sm">
   {% csrf_token %}
   <input type="password" name="old_password" autocomplete="current-password" required placeholder="Current password"
-         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-500">
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-400">
   <input type="password" name="new_password1" autocomplete="new-password" required placeholder="New password"
-         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-500">
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-400">
   <input type="password" name="new_password2" autocomplete="new-password" required placeholder="New password (again)"
-         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-500">
+         class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-400">
   <div><button class="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm">Change password</button></div>
 </form>
 
@@ -34,7 +34,7 @@
   </form>
   {% endif %}
 </div>
-<p class="text-sm text-slate-500 mb-3">Post per-environment status + digests with this key — it authenticates as <span class="text-slate-300">you</span> (ADR-029). Keep it secret; treat it like a password. Rotating rolls this key <em>and</em> your paging topic together (ADR-030).</p>
+<p class="text-sm text-slate-400 mb-3">Post per-environment status + digests with this key — it authenticates as <span class="text-slate-300">you</span> (ADR-029). Keep it secret; treat it like a password. Rotating rolls this key <em>and</em> your paging topic together (ADR-030).</p>
 
 {% if not api_key_set %}
 <div class="bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded p-3 text-sm mb-3">
@@ -44,7 +44,7 @@
 <div class="bg-slate-900 border border-slate-800 rounded p-3" x-data="{ copied: '' }">
   <div class="flex items-center justify-between gap-4">
     <div class="min-w-0">
-      <div class="text-xs text-slate-500">API key</div>
+      <div class="text-xs text-slate-400">API key</div>
       <div class="font-mono text-sm text-slate-200 truncate">{{ api_key }}</div>
     </div>
     <button type="button" class="shrink-0 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
@@ -53,10 +53,10 @@
             x-text="copied === 'key' ? 'copied!' : 'copy key'"></button>
   </div>
   <div class="mt-3 pt-3 border-t border-slate-800 space-y-4">
-    <div class="text-xs text-slate-500">Replace <span class="font-mono">&lt;env&gt;</span> with e.g. <span class="font-mono">prod</span>. Same key + auth header for both.</div>
+    <div class="text-xs text-slate-400">Replace <span class="font-mono">&lt;env&gt;</span> with e.g. <span class="font-mono">prod</span>. Same key + auth header for both.</div>
     <div>
-      <div class="text-xs text-slate-500 mb-1">post a <strong class="text-slate-300">status</strong> — the whole body is your JSON (any shape; it drives the display)</div>
-      <pre class="font-mono text-xs text-slate-300 whitespace-pre-wrap" x-ref="curlStatus">curl -X POST {{ ingest_base }}/&lt;env&gt;/status \
+      <div class="text-xs text-slate-400 mb-1">post a <strong class="text-slate-300">status</strong> — the whole body is your JSON (any shape; it drives the display)</div>
+      <pre class="font-mono text-xs text-slate-300 whitespace-pre-wrap break-all" x-ref="curlStatus">curl -X POST {{ ingest_base }}/&lt;env&gt;/status \
   -H "Authorization: Bearer {{ api_key }}" \
   -H "Content-Type: application/json" \
   -d '{ ...your status JSON... }'</pre>
@@ -66,8 +66,8 @@
               x-text="copied === 'status' ? 'copied!' : 'copy curl'"></button>
     </div>
     <div>
-      <div class="text-xs text-slate-500 mb-1">post a <strong class="text-slate-300">digest</strong> — markdown goes in <span class="font-mono">content</span>; <span class="font-mono">title</span> + <span class="font-mono">special</span> optional</div>
-      <pre class="font-mono text-xs text-slate-300 whitespace-pre-wrap" x-ref="curlDigest">curl -X POST {{ ingest_base }}/&lt;env&gt;/digest \
+      <div class="text-xs text-slate-400 mb-1">post a <strong class="text-slate-300">digest</strong> — markdown goes in <span class="font-mono">content</span>; <span class="font-mono">title</span> + <span class="font-mono">special</span> optional</div>
+      <pre class="font-mono text-xs text-slate-300 whitespace-pre-wrap break-all" x-ref="curlDigest">curl -X POST {{ ingest_base }}/&lt;env&gt;/digest \
   -H "Authorization: Bearer {{ api_key }}" \
   -H "Content-Type: application/json" \
   -d '{"content": "## System Health\n\n…markdown…", "title": "Hourly digest", "special": false}'</pre>
@@ -82,7 +82,7 @@
 
 {% if api_key_set %}
 <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Connect an AI assistant (MCP)</h2>
-<p class="text-sm text-slate-500 mb-3">
+<p class="text-sm text-slate-400 mb-3">
   Watch is an <span class="text-slate-300">MCP server</span> (ADR-038): an assistant connected with your key acts <span class="text-slate-300">as you</span> —
   it can view incidents and act on those at your tier or below, and every action lands in the audit trail under your name.
   This MCP key is separate from your ops-ingest key; rotating rolls both.
@@ -90,7 +90,7 @@
 <div class="bg-slate-900 border border-slate-800 rounded p-3" x-data="{ copied: '' }">
   <div class="flex items-center justify-between gap-4">
     <div class="min-w-0">
-      <div class="text-xs text-slate-500">MCP endpoint</div>
+      <div class="text-xs text-slate-400">MCP endpoint</div>
       <div class="font-mono text-sm text-slate-200 truncate">{{ mcp_url }}</div>
     </div>
     <button type="button" class="shrink-0 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
@@ -100,7 +100,7 @@
   </div>
   <div class="flex items-center justify-between gap-4 mt-3 pt-3 border-t border-slate-800">
     <div class="min-w-0">
-      <div class="text-xs text-slate-500">MCP key (bearer)</div>
+      <div class="text-xs text-slate-400">MCP key (bearer)</div>
       <div class="font-mono text-sm text-slate-200 truncate">{{ mcp_key }}</div>
     </div>
     <button type="button" class="shrink-0 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
@@ -109,14 +109,14 @@
             x-text="copied === 'mcpkey' ? 'copied!' : 'copy key'"></button>
   </div>
   <div class="mt-3 pt-3 border-t border-slate-800">
-    <div class="text-xs text-slate-500 mb-1">Claude Code — one command:</div>
-    <pre class="font-mono text-xs text-slate-300 whitespace-pre-wrap" x-ref="mcpAdd">claude mcp add --transport http watch {{ mcp_url }} \
+    <div class="text-xs text-slate-400 mb-1">Claude Code — one command:</div>
+    <pre class="font-mono text-xs text-slate-300 whitespace-pre-wrap break-all" x-ref="mcpAdd">claude mcp add --transport http watch {{ mcp_url }} \
   --header "Authorization: Bearer {{ mcp_key }}"</pre>
     <button type="button" class="mt-2 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
             @click="navigator.clipboard.writeText($refs.mcpAdd.textContent); copied = 'mcpadd'; setTimeout(() => copied = '', 1200)"
             :class="copied === 'mcpadd' && 'text-emerald-400'"
             x-text="copied === 'mcpadd' ? 'copied!' : 'copy command'"></button>
-    <div class="text-xs text-slate-500 mt-3">
+    <div class="text-xs text-slate-400 mt-3">
       claude.ai custom connectors use OAuth instead of the key: add the endpoint URL as a connector and sign in
       with your Watch account when prompted (an admin must first mint a client with
       <span class="font-mono">manage.py create_oauth_client</span>).
@@ -126,8 +126,8 @@
 {% endif %}
 
 <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Your paging subscription</h2>
-<p class="text-sm text-slate-500 mb-3">
-  Subscribe on your phone via the <a class="text-indigo-400 hover:text-indigo-300" href="https://ntfy.sh/app" target="_blank" rel="noopener">ntfy app</a>
+<p class="text-sm text-slate-400 mb-3">
+  Subscribe on your phone via the <a class="text-indigo-400 hover:text-indigo-300 underline" href="https://ntfy.sh/app" target="_blank" rel="noopener">ntfy app</a>
   (add the topic name), or open the link below. You're paged here when an incident reaches a tier you're on call for (ADR-013).
 </p>
 
@@ -140,7 +140,7 @@
 <div class="bg-slate-900 border border-slate-800 rounded p-3" x-data="{ copied: '' }">
   <div class="flex items-center justify-between gap-4">
     <div class="min-w-0">
-      <div class="text-xs text-slate-500">your topic</div>
+      <div class="text-xs text-slate-400">your topic</div>
       <div class="font-mono text-sm text-slate-200 truncate">{{ user_topic }}</div>
     </div>
     <button type="button"
@@ -150,7 +150,7 @@
             x-text="copied === 'topic' ? 'copied!' : 'copy topic'"></button>
   </div>
   <div class="flex items-center justify-between gap-4 mt-3 pt-3 border-t border-slate-800">
-    <a class="font-mono text-sm text-indigo-400 hover:text-indigo-300 truncate" href="{{ user_topic_url }}" target="_blank" rel="noopener">{{ user_topic_url }}</a>
+    <a class="min-w-0 font-mono text-sm text-indigo-400 hover:text-indigo-300 truncate" href="{{ user_topic_url }}" target="_blank" rel="noopener">{{ user_topic_url }}</a>
     <button type="button"
             class="shrink-0 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"
             @click="navigator.clipboard.writeText('{{ user_topic_url }}'); copied = 'url'; setTimeout(() => copied = '', 1200)"
@@ -161,13 +161,13 @@
 
 {% if tier_topics %}
 <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Tier fallback topics</h2>
-<p class="text-sm text-slate-500 mb-3">Subscribe to these too — a page falls back to the tier topic when the rota has a gap (no one scheduled).</p>
+<p class="text-sm text-slate-400 mb-3">Subscribe to these too — a page falls back to the tier topic when the rota has a gap (no one scheduled).</p>
 <ul class="space-y-2" x-data="{ copied: '' }">
   {% for t in tier_topics %}
   <li class="bg-slate-900 border border-slate-800 rounded p-3 text-sm flex items-center justify-between gap-4">
     <div class="min-w-0">
       <span class="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300 mr-2">{{ t.tier }}</span>
-      <a class="font-mono text-indigo-400 hover:text-indigo-300 truncate" href="{{ t.url }}" target="_blank" rel="noopener">{{ t.topic }}</a>
+      <a class="min-w-0 font-mono text-indigo-400 hover:text-indigo-300 truncate" href="{{ t.url }}" target="_blank" rel="noopener">{{ t.topic }}</a>
     </div>
     <button type="button"
             class="shrink-0 px-2 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"

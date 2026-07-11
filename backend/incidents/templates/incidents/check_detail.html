@@ -5,7 +5,7 @@
 
 <div class="mt-3 bg-slate-900 border border-slate-800 rounded p-5">
   <h1 class="text-lg font-semibold text-slate-100">Session Check</h1>
-  <p class="text-sm text-slate-500 mt-1">{{ check.get_subject_kind_display }} · <span class="font-mono">{{ check.subject_hash }}</span></p>
+  <p class="text-sm text-slate-400 mt-1">{{ check.get_subject_kind_display }} · <span class="font-mono">{{ check.subject_hash }}</span></p>
   <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
     <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300">{{ check.get_status_display }}</span>
     {% if "errors_found" in check.verdict %}
@@ -15,9 +15,9 @@
     {% elif check.verdict %}
       <span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300">{{ check.verdict }}</span>
     {% endif %}
-    <span class="text-slate-500">{{ check.get_source_display }} · {{ check.created_at|date:"M j, H:i" }}</span>
+    <span class="text-slate-400">{{ check.get_source_display }} · {{ check.created_at|date:"M j, H:i" }}</span>
   </div>
-  <p class="text-xs text-slate-500 mt-2">window {{ check.window_from|date:"M j, H:i" }} – {{ check.window_to|date:"M j, H:i" }}</p>
+  <p class="text-xs text-slate-400 mt-2">window {{ check.window_from|date:"M j, H:i" }} – {{ check.window_to|date:"M j, H:i" }}</p>
 </div>
 
 <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Error spans ({{ spans|length }})</h2>
@@ -25,11 +25,11 @@
   {% for s in spans %}
   <li class="bg-slate-900 border border-slate-800 rounded p-3 text-sm">
     <span class="text-rose-300">{{ s.name|default:s.span_id }}</span>
-    <span class="text-slate-500 text-xs"> · {{ s.service }}{% if s.http_status %} · HTTP {{ s.http_status }}{% endif %}{% if s.ts %} · {{ s.ts|date:"M j, H:i:s" }}{% endif %}</span>
-    <p class="mt-1 font-mono text-xs text-slate-500">trace {{ s.trace_id }}</p>
+    <span class="text-slate-400 text-xs"> · {{ s.service }}{% if s.http_status %} · HTTP {{ s.http_status }}{% endif %}{% if s.ts %} · {{ s.ts|date:"M j, H:i:s" }}{% endif %}</span>
+    <p class="mt-1 font-mono text-xs text-slate-400">trace {{ s.trace_id }}</p>
   </li>
   {% empty %}
-  <li class="text-sm text-slate-500">No error spans — this session looks clean{% if check.status != "done" %} (check is {{ check.status }}){% endif %}.</li>
+  <li class="text-sm text-slate-400">No error spans — this session looks clean{% if check.status != "done" %} (check is {{ check.status }}){% endif %}.</li>
   {% endfor %}
 </ul>
 {% endblock %}

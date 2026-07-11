@@ -46,7 +46,8 @@ test("smoke: health → status → login → create → escalate → T2", { tag:
     .filter({ has: page.locator("#id_username") })
     .first()
     .evaluate((f: HTMLFormElement) => f.requestSubmit());
-  await expect(page, "logged in → incidents").toHaveURL(/\/ui\/incidents\/?$/);
+  // path-anchored: the old regex also matched the login page's ?next=… query
+  await page.waitForURL((u) => u.pathname === "/ui/incidents/");
 
   // 4. Create an incident via intake (intake logic + RDS write + Step Functions start).
   const eid = `smoke-${Date.now()}`;
@@ -98,7 +99,8 @@ test("session check dogfood: report the session for an error-span check", { tag:
     .filter({ has: page.locator("#id_username") })
     .first()
     .evaluate((f: HTMLFormElement) => f.requestSubmit());
-  await expect(page, "logged in").toHaveURL(/\/ui\/incidents\/?$/);
+  // path-anchored: the old regex also matched the login page's ?next=… query
+  await page.waitForURL((u) => u.pathname === "/ui/incidents/");
 
   // the middleware minted a non-secret session correlation id, exposed in the header to self-report
   const sessionId = await page.locator("[data-session-id]").first().getAttribute("data-session-id");

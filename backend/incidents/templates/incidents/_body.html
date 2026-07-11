@@ -8,7 +8,7 @@ The root keeps id="incident-body" so subsequent swaps still find it.
     <div class="flex items-start justify-between gap-4">
       <div>
         <h1 class="text-lg font-semibold text-slate-100"><span class="font-mono text-indigo-400">{{ incident.number }}</span> {{ incident.title }}</h1>
-        <p class="text-sm text-slate-500 mt-1">{{ incident.source }} · {{ incident.id }}</p>
+        <p class="text-sm text-slate-400 mt-1">{{ incident.source }} · {{ incident.id }}</p>
       </div>
       <div class="flex gap-2 shrink-0">
         {% if incident.status == 'RESOLVED' %}
@@ -20,14 +20,14 @@ The root keeps id="incident-body" so subsequent swaps still find it.
       </div>
     </div>
 
-    <p class="text-xs text-slate-500 mt-2">
-      Assigned to {% if incident.assignee %}<span class="font-medium text-slate-200">{{ incident.assignee.username }}</span>{% else %}<span class="text-slate-500">unassigned</span>{% endif %}
+    <p class="text-xs text-slate-400 mt-2">
+      Assigned to {% if incident.assignee %}<span class="font-medium text-slate-200">{{ incident.assignee.username }}</span>{% else %}<span class="text-slate-400">unassigned</span>{% endif %}
     </p>
     {% if incident.acknowledged_at %}
       <p class="text-xs text-emerald-400 mt-1">Acknowledged {{ incident.acknowledged_at|date:"M j, H:i" }}</p>
     {% endif %}
     {% if incident.sla_deadline_at and incident.status == 'OPEN' %}
-      <p class="text-xs text-slate-500 mt-1">SLA deadline {{ incident.sla_deadline_at|date:"M j, H:i" }}</p>
+      <p class="text-xs text-slate-400 mt-1">SLA deadline {{ incident.sla_deadline_at|date:"M j, H:i" }}</p>
     {% endif %}
 
     {% if incident.status == 'OPEN' %}
@@ -53,17 +53,18 @@ The root keeps id="incident-body" so subsequent swaps still find it.
         </button>
       </div>
       {% else %}
-      <p class="text-xs text-slate-500 mt-4">You need the {{ incident.current_tier }} role (or higher) to act.</p>
+      <p class="text-xs text-slate-400 mt-4">You need the {{ incident.current_tier }} role (or higher) to act.</p>
       {% endif %}
     {% endif %}
   </div>
 
-  <div class="mt-4 flex items-center gap-2">
+  {# mobile-first: the note form + export link wrap on narrow screens instead of overflowing #}
+  <div class="mt-4 flex flex-wrap items-center gap-2">
     <form class="flex-1 flex gap-2"
           hx-post="{% url 'ui:add_note' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
           x-data="{ body: '' }">
       <input name="body" x-model="body" autocomplete="off" placeholder="Add a note…"
-             class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-base md:text-sm text-slate-100 placeholder-slate-500">
+             class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-base md:text-sm text-slate-100 placeholder-slate-400">
       <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm disabled:opacity-40"
               :disabled="!body.trim()">Add note</button>
     </form>
@@ -88,12 +89,12 @@ The root keeps id="incident-body" so subsequent swaps still find it.
         {% else %}
           <span class="font-medium text-slate-200">{{ e.obj.actor|default:'unknown' }}</span>
         {% endif %}
-        <span class="text-slate-500 text-xs"> · {{ e.at|date:"M j, H:i" }}</span>
+        <span class="text-slate-400 text-xs"> · {{ e.at|date:"M j, H:i" }}</span>
         <p class="mt-1 whitespace-pre-wrap text-slate-300">{{ e.obj.body }}</p>
       {% else %}
         <span class="text-slate-300">{{ e.obj.from_tier }} → {{ e.obj.to_tier }}{% if e.obj.to_status == 'RESOLVED' %} · resolved{% endif %}</span>
-        <span class="text-slate-500 text-xs"> · {{ e.obj.actor }} · {{ e.at|date:"M j, H:i" }}</span>
-        {% if e.obj.reason %}<span class="text-slate-500 text-xs"> — {{ e.obj.reason }}</span>{% endif %}
+        <span class="text-slate-400 text-xs"> · {{ e.obj.actor }} · {{ e.at|date:"M j, H:i" }}</span>
+        {% if e.obj.reason %}<span class="text-slate-400 text-xs"> — {{ e.obj.reason }}</span>{% endif %}
       {% endif %}
 
       {% for a in e.obj.annotations.all %}
@@ -104,20 +105,20 @@ The root keeps id="incident-body" so subsequent swaps still find it.
       </div>
       {% endfor %}
 
-      <button type="button" class="mt-1.5 text-xs text-slate-500 hover:text-slate-300" @click="annotate = !annotate">+ annotate</button>
+      <button type="button" class="mt-1.5 text-xs text-slate-400 hover:text-slate-300" @click="annotate = !annotate">+ annotate</button>
       <form x-show="annotate" class="mt-1.5 flex flex-wrap gap-2"
             hx-post="{% url 'ui:annotate' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML">
         <input type="hidden" name="target" value="{{ e.target }}">
-        <select name="tag" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-base md:text-xs text-slate-200">
+        <select name="tag" aria-label="Annotation tag" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-base md:text-xs text-slate-200">
           {% for val, label in annotation_tags %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
         </select>
         <input name="body" autocomplete="off" placeholder="annotation…"
-               class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-base md:text-xs text-slate-100 placeholder-slate-500">
+               class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-base md:text-xs text-slate-100 placeholder-slate-400">
         <button type="submit" class="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs">Save</button>
       </form>
     </li>
     {% empty %}
-    <li class="text-sm text-slate-500">No activity yet.</li>
+    <li class="text-sm text-slate-400">No activity yet.</li>
     {% endfor %}
   </ol>
 </div>

@@ -1,1 +1,33 @@
-{% load opsrender %}{% with kind=node|classify %}{% if depth >= 8 %}<pre class="ops-raw">{{ node|as_json }}</pre>{% elif kind == "map" %}<div class="ops-map">{% for k, v in node.items %}<div class="ops-row ops-{{ v|classify }}"><span class="ops-key">{{ k|humanize_key }}</span><div class="ops-val">{% include "incidents/_json_node.html" with node=v label=k depth=depth|add:1 %}</div></div>{% endfor %}</div>{% elif kind == "list" %}<ul class="ops-list">{% for item in node %}<li>{% include "incidents/_json_node.html" with node=item label="" depth=depth|add:1 %}</li>{% endfor %}</ul>{% else %}{% if label|is_state_key %}<span class="ops-badge ops-{{ node|state_class }}">{{ node|scalar_text }}</span>{% elif node|is_url %}<a class="ops-link" href="{{ node }}" target="_blank" rel="noopener">{{ node }}</a>{% else %}<span class="ops-scalar">{{ node|scalar_text }}</span>{% endif %}{% endif %}{% endwith %}
+{% load opsrender %}{% with kind=node|classify %}
+{% if depth >= 8 %}
+<pre class="bg-slate-950/50 border border-slate-800 rounded-md p-2.5 text-xs text-slate-300 overflow-x-auto">{{ node|as_json }}</pre>
+{% elif kind == "map" %}
+{# Schema-less ops renderer (ADR-028), Tailwind-only (ADR-039): nested depth>0 gets the guide-line #}
+<div class="grid gap-1.5 {% if depth %}border-l border-slate-800 pl-3 ml-0.5{% endif %}">
+  {% for k, v in node.items %}
+    {% with vkind=v|classify %}
+    <div class="grid items-start {% if vkind == 'map' or vkind == 'list' %}grid-cols-1 gap-1{% else %}grid-cols-[minmax(9rem,14rem)_1fr] gap-3{% endif %}">
+      <span class="{% if vkind == 'map' or vkind == 'list' %}text-slate-300 font-semibold text-sm mt-1.5{% else %}text-slate-400 text-sm{% endif %}">{{ k|humanize_key }}</span>
+      <div class="min-w-0">{% include "incidents/_json_node.html" with node=v label=k depth=depth|add:1 %}</div>
+    </div>
+    {% endwith %}
+  {% endfor %}
+</div>
+{% elif kind == "list" %}
+<ul class="list-none grid gap-1.5 {% if depth %}border-l border-slate-800 pl-3 ml-0.5{% endif %}">
+  {% for item in node %}
+  <li class="bg-slate-950/50 border border-slate-800 rounded-md px-2.5 py-2">{% include "incidents/_json_node.html" with node=item label="" depth=depth|add:1 %}</li>
+  {% endfor %}
+</ul>
+{% else %}
+{% if label|is_state_key %}
+  {% with state=node|state_class %}
+  <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold {% if state == 'good' %}bg-emerald-500/15 text-emerald-300{% elif state == 'warn' %}bg-amber-500/15 text-amber-300{% elif state == 'crit' %}bg-rose-500/15 text-rose-300{% else %}bg-slate-800 text-slate-300{% endif %}">{{ node|scalar_text }}</span>
+  {% endwith %}
+{% elif node|is_url %}
+  <a class="text-indigo-400 hover:text-indigo-300 text-sm break-all" href="{{ node }}" target="_blank" rel="noopener">{{ node }}</a>
+{% else %}
+  <span class="text-slate-200 text-sm">{{ node|scalar_text }}</span>
+{% endif %}
+{% endif %}
+{% endwith %}

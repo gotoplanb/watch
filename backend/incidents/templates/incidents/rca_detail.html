@@ -12,10 +12,10 @@
 
 <form method="post" action="{% url 'ui:rca_update' rca.id %}" class="mt-4 flex flex-wrap items-center gap-2">
   {% csrf_token %}
-  <select name="status" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-base md:text-sm text-slate-100">
+  <select name="status" aria-label="RCA status" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-base md:text-sm text-slate-100">
     {% for value, label in statuses %}<option value="{{ value }}" {% if value == rca.status %}selected{% endif %}>{{ label }}</option>{% endfor %}
   </select>
-  <select name="assignee" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-base md:text-sm text-slate-100">
+  <select name="assignee" aria-label="RCA assignee" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-base md:text-sm text-slate-100">
     <option value="">— unassigned —</option>
     {% for u in users %}<option value="{{ u.id }}" {% if u.id == rca.assignee_id %}selected{% endif %}>{{ u.username }}</option>{% endfor %}
   </select>
@@ -23,10 +23,10 @@
 </form>
 
 <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Document
-  <span class="font-normal text-slate-600">— Markdown, assembly-seeded then hand-edited</span></h2>
+  <span class="font-normal text-slate-400">— Markdown, assembly-seeded then hand-edited</span></h2>
 <form id="rca-doc-form" method="post" action="{% url 'ui:rca_save_document' rca.id %}">
   {% csrf_token %}
-  <textarea name="document" rows="22" spellcheck="false"
+  <textarea name="document" rows="22" spellcheck="false" aria-label="RCA document (Markdown)"
             class="w-full font-mono text-base md:text-xs leading-relaxed bg-slate-950 border border-slate-800 rounded p-3 text-slate-200">{{ rca.document }}</textarea>
 </form>
 <div class="mt-2 flex items-center gap-2">
@@ -37,7 +37,7 @@
     {% csrf_token %}
     <button class="px-3 py-1.5 rounded bg-violet-600 hover:bg-violet-500 text-white text-sm">✨ AI draft</button>
   </form>
-  <span class="text-base md:text-xs text-slate-500">via {{ ai_provider }} — review before finalising</span>
+  <span class="text-base md:text-xs text-slate-400">via {{ ai_provider }} — review before finalising</span>
   {% endif %}
 </div>
 
@@ -47,17 +47,17 @@
 <form method="post" action="{% url 'ui:rca_add_note' rca.id %}" class="mb-3 flex gap-2">
   {% csrf_token %}
   <input name="body" autocomplete="off" placeholder="Add a work note…"
-         class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-500">
+         class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-base md:text-sm text-slate-100 placeholder-slate-400">
   <button class="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-100 text-sm">Add note</button>
 </form>
 <ul class="space-y-2">
   {% for e in timeline %}
   <li class="bg-slate-900 border border-slate-800 rounded p-3 text-sm">
-    <div class="text-xs text-slate-500">{{ e.obj.type }} · {{ e.obj.actor|default:"system" }} · {{ e.at|date:"M j, H:i:s" }}</div>
+    <div class="text-xs text-slate-400">{{ e.obj.type }} · {{ e.obj.actor|default:"system" }} · {{ e.at|date:"M j, H:i:s" }}</div>
     {% if e.obj.body %}<p class="text-slate-200 mt-1 whitespace-pre-wrap">{{ e.obj.body }}</p>{% endif %}
   </li>
   {% empty %}
-  <li class="text-sm text-slate-500">No timeline entries yet.</li>
+  <li class="text-sm text-slate-400">No timeline entries yet.</li>
   {% endfor %}
 </ul>
 {% endblock %}
