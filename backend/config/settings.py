@@ -197,6 +197,9 @@ RCA_AI_PROVIDER = _env("RCA_AI_PROVIDER", "stub")
 # the assistant is the FALLBACK: the routing matrix classifies deterministically first (ADR-037)
 # and disposition is always the matrix table lookup.
 TRIAGE_AI_PROVIDER = _env("TRIAGE_AI_PROVIDER", "stub")
+# Tier handoff briefs (ADR-040) — same provider discipline; the stub is a real deterministic
+# brief from incident data, so the feature needs no model to be useful.
+HANDOFF_AI_PROVIDER = _env("HANDOFF_AI_PROVIDER", "stub")
 # The declarative triage policy document (ADR-037) — human-readable AND machine-loaded.
 TRIAGE_MATRIX_PATH = _env("TRIAGE_MATRIX_PATH", str(BASE_DIR / "triage-matrix.yaml"))
 

@@ -63,7 +63,9 @@ def _resolve_target(incident, target):
 def _detail_ctx(request, incident):
     return {
         "incident": incident,
-        "timeline": services.timeline(incident),
+        # Newest-first (ADR-040): the incoming responder reads the handoff brief, then history.
+        # RCA assembly (rca_markdown) stays chronological — this reversal is display-only.
+        "timeline": list(reversed(services.timeline(incident))),
         "can_act": can_act_on(request.user, incident),
         "next_tier": next_tier(incident.current_tier),
         "annotation_tags": AnnotationTag.choices,

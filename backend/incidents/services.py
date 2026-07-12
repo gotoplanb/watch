@@ -16,7 +16,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from . import apikeys, events, flags, notify, rca_ai
+from . import apikeys, events, flags, handoff_ai, notify, rca_ai
 from .models import (
     Annotation,
     EventType,
@@ -187,6 +187,14 @@ def escalate(incident_id, actor: str, reason: str = "") -> Incident:
         "from_tier": from_tier, "to_tier": target.value, "actor": actor, "auto": auto,
     })
     page_on_tier_entry(incident, target.value)  # page the new tier's on-call (ADR-013)
+    # Tier handoff brief (ADR-040): the incoming responder's first read, posted as the NEWEST
+    # timeline event. Post-commit so the model call can never delay or roll back the
+    # escalation itself; soft-fail inside.
+    if flags.is_enabled(HANDOFF_FLAG, default=False):
+        transaction.on_commit(
+            lambda pk=incident.id, ft=from_tier, tt=target.value, a=actor, au=auto, r=reason:
+                _post_handoff_brief(pk, ft, tt, a, au, r)
+        )
     return incident
 
 
@@ -369,6 +377,49 @@ def seed_rca(*, title: str = "", incident=None, actor: str = "system"):
 
 
 RCA_AI_FLAG = "rca_ai_draft"
+HANDOFF_FLAG = "handoff_brief"
+
+
+def _humanize_since(dt) -> str:
+    mins = int((timezone.now() - dt).total_seconds() // 60)
+    if mins < 60:
+        return f"{mins} min"
+    return f"{mins // 60} h {mins % 60} min"
+
+
+def _post_handoff_brief(incident_id, from_tier, to_tier, actor, auto, reason) -> None:
+    """Write the ADR-040 handoff brief onto the timeline. Best-effort by contract: any failure
+    is logged and swallowed — the escalation already committed and pages already went out."""
+    try:
+        incident = Incident.objects.get(pk=incident_id)
+        from django.contrib.auth.models import User  # lazy: services stays light at import
+
+        actor_label = "the SLA clock"
+        if not auto:
+            user = User.objects.filter(pk=actor).first() if str(actor).isdigit() else None
+            actor_label = user.username if user else str(actor)
+        triage = ""
+        if incident.triage_verdict:
+            triage = (f"{incident.triage_verdict} "
+                      f"({incident.triage_responsibility}/{incident.triage_fault_domain})")
+        ctx = {
+            "from_tier": from_tier, "to_tier": to_tier, "auto": auto,
+            "actor_label": actor_label, "reason": reason or "",
+            "source": incident.source, "triage": triage,
+            "open_for": _humanize_since(incident.created_at),
+            "event_count": len(timeline(incident)),
+        }
+        result = handoff_ai.brief(ctx, rca_markdown(incident))
+        post_ai_event(
+            incident,
+            body=result.text,
+            actor="system:handoff",
+            data={"kind": "handoff", "to_tier": to_tier,
+                  "provider": result.provider, "model": result.model},
+        )
+    except Exception:
+        logger.warning("handoff brief failed for incident %s -> %s", incident_id, to_tier,
+                       exc_info=True)
 
 
 def draft_rca(rca, *, actor: str = "system"):
