@@ -362,3 +362,18 @@ def test_rca_no_events_section():
     inc = _incident(Tier.T1)
     md = services.rca_markdown(inc)
     assert "_(no events)_" in md and "_(none flagged)_" in md
+
+
+def test_no_multiline_template_comments():
+    """Django {# #} comments are SINGLE-LINE — a multi-line one renders as literal page text.
+    This has shipped visible comment-text to the browser three separate times; never again."""
+    import pathlib
+    import re
+
+    base = pathlib.Path(__file__).resolve().parent.parent / "templates"
+    bad = []
+    for path in base.rglob("*.html"):
+        for m in re.finditer(r"\{#.*?#\}", path.read_text(), re.S):
+            if "\n" in m.group(0):
+                bad.append(f"{path.name}: {m.group(0)[:60]!r}")
+    assert bad == [], f"multi-line {{# #}} comments render as page text: {bad}"

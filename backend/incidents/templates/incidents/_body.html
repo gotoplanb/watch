@@ -113,13 +113,45 @@ The root keeps id="incident-body" so subsequent swaps still find it.
      class="mt-4 inline-flex px-3 py-2 rounded border border-slate-700 text-slate-300 hover:bg-slate-800 text-sm transition-colors">
     Export RCA
   </a>
-  {% if incident.status == 'OPEN' and can_act %}
-  <div class="h-20 md:hidden"></div>
-  {# floating action cluster (watch#47): lifted off the edge, thumb reach, all actions visible #}
-  <div class="md:hidden fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-40
-              rounded-xl border border-slate-700 bg-slate-900/95 backdrop-blur shadow-lg shadow-black/40
-              p-2 flex gap-2">
-    {% include "incidents/_actions.html" with bar=True %}
+  {# Material-style FAB (watch#47): bottom-right, out of the scroll path — tap to expand the contextual action menu. Actions vary by state/role, so the menu renders only what applies; mutations swap #incident-body, which re-renders this whole block with fresh affordances. #}
+  <div class="md:hidden fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40"
+       x-data="{ open: false }" @keydown.escape.window="open = false">
+    <div x-show="open" x-cloak @click="open = false" class="fixed inset-0 bg-slate-950/40"></div>
+    <div x-show="open" x-cloak @click.outside="open = false"
+         x-transition:enter="transition ease-out duration-150 origin-bottom-right"
+         x-transition:enter-start="opacity-0 scale-90 translate-y-2"
+         x-transition:enter-end="opacity-100 scale-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-100"
+         x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0 scale-95"
+         id="incident-fab-menu"
+         class="absolute bottom-16 right-0 w-64 rounded-xl border border-slate-700 bg-slate-900
+                shadow-xl shadow-black/50 py-1.5 divide-y divide-slate-800">
+      {% if incident.status == 'OPEN' and can_act %}
+      <div class="pb-1.5">
+        {% include "incidents/_actions.html" with menu=True %}
+      </div>
+      {% endif %}
+      <div class="pt-1.5">
+        <button type="button" @click="open = false; $dispatch('open-link-form')"
+                class="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-200 hover:bg-slate-800 active:bg-slate-800 transition-colors">
+          <span aria-hidden="true" class="text-slate-400">🔗</span> Add link
+        </button>
+        <a href="{% url 'ui:rca' incident.id %}"
+           class="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-200 hover:bg-slate-800 active:bg-slate-800 transition-colors">
+          <span aria-hidden="true" class="text-slate-400">📄</span> Export RCA
+        </a>
+      </div>
+    </div>
+    <button type="button" @click="open = !open"
+            :aria-expanded="open.toString()" aria-controls="incident-fab-menu" aria-label="Incident actions"
+            class="relative w-14 h-14 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white
+                   shadow-lg shadow-indigo-950/60 flex items-center justify-center
+                   transition active:scale-95 focus-visible:outline-none focus-visible:ring-2
+                   focus-visible:ring-indigo-300">
+      <svg :class="open && 'rotate-45'" class="w-7 h-7 transition-transform duration-200"
+           viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path stroke-linecap="round" d="M12 5v14m-7-7h14"/>
+      </svg>
+    </button>
   </div>
-  {% endif %}
 </div>
