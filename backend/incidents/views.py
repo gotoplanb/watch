@@ -83,7 +83,8 @@ class IncidentViewSet(viewsets.ReadOnlyModelViewSet):
         data = self._validated(request)
         if (conflict := self._check_expected_tier(incident, data)) is not None:
             return conflict
-        escalation.send_outcome(incident, escalation.OUTCOME_ESCALATE, actor=str(request.user.pk))
+        escalation.send_outcome(incident, escalation.OUTCOME_ESCALATE,
+                                actor=str(request.user.pk), reason=data["reason"])
         if settings.ESCALATION_LOCAL_MODE:
             incident = services.escalate(incident.id, actor=str(request.user.pk),
                                          reason=data["reason"])
@@ -95,7 +96,8 @@ class IncidentViewSet(viewsets.ReadOnlyModelViewSet):
         data = self._validated(request)
         if (conflict := self._check_expected_tier(incident, data)) is not None:
             return conflict
-        escalation.send_outcome(incident, escalation.OUTCOME_RESOLVE, actor=str(request.user.pk))
+        escalation.send_outcome(incident, escalation.OUTCOME_RESOLVE,
+                                actor=str(request.user.pk), reason=data["reason"])
         if settings.ESCALATION_LOCAL_MODE:
             incident = services.resolve(incident.id, actor=str(request.user.pk),
                                         reason=data["reason"])

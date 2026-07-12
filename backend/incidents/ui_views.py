@@ -154,12 +154,16 @@ def act(request, pk, action):
         return HttpResponseForbidden("You must hold this incident's tier (or higher) to act.")
 
     actor = str(request.user.pk)
+    # The escalating human's stated reason (ADR-041) — optional by design: we want the signal,
+    # not a toll gate. It rides the same paths as the actor (cloud: SendTaskSuccess → commit
+    # Lambda; local: straight to services) and becomes the first thing the next tier reads.
+    reason = (request.POST.get("reason") or "").strip()
     if action == "ack":
         services.acknowledge(incident.id, actor=actor)
     elif action == "escalate":
-        escalation.send_outcome(incident, escalation.OUTCOME_ESCALATE, actor=actor)
+        escalation.send_outcome(incident, escalation.OUTCOME_ESCALATE, actor=actor, reason=reason)
         if settings.ESCALATION_LOCAL_MODE:
-            services.escalate(incident.id, actor=actor)
+            services.escalate(incident.id, actor=actor, reason=reason)
     elif action == "resolve":
         escalation.send_outcome(incident, escalation.OUTCOME_RESOLVE, actor=actor)
         if settings.ESCALATION_LOCAL_MODE:

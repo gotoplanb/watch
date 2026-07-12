@@ -51,11 +51,12 @@ def start_escalation(incident) -> str:
     return resp["executionArn"]
 
 
-def send_outcome(incident, outcome: str, actor: str = "") -> None:
+def send_outcome(incident, outcome: str, actor: str = "", reason: str = "") -> None:
     """
     Advance the incident's current tier via SendTaskSuccess, carrying the outcome
-    (ESCALATE / RESOLVE) and the acting user. The commit Lambda then writes the
-    Transition with that actor (ADR-001/007) — the API itself writes no state here.
+    (ESCALATE / RESOLVE), the acting user, and their stated reason. The commit Lambda then
+    writes the Transition with that actor + reason (ADR-001/007) — the API itself writes no
+    state here. (The Lambda already consumed `reason`; only this hop used to drop it — ADR-041.)
 
     Idempotent: a SendTaskSuccess on an already-consumed token raises TaskDoesNotExist,
     which we treat as a no-op (ADR-007).
@@ -69,7 +70,8 @@ def send_outcome(incident, outcome: str, actor: str = "") -> None:
     client = _client()
     try:
         client.send_task_success(
-            taskToken=token, output=json.dumps({"outcome": outcome, "actor": actor})
+            taskToken=token,
+            output=json.dumps({"outcome": outcome, "actor": actor, "reason": reason}),
         )
     except client.exceptions.TaskDoesNotExist:
         logger.warning("escalation.send_outcome token already consumed incident=%s", incident.id)

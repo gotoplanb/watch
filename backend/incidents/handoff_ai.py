@@ -11,6 +11,7 @@ feature works end-to-end with zero model calls.
 Free-text output (unlike triage_ai there is no JSON contract to hold a model to — the brief IS
 prose); provenance records which provider/model wrote it.
 """
+import re
 from dataclasses import dataclass
 
 from django.conf import settings
@@ -94,6 +95,12 @@ def _stub(ctx: dict) -> BriefResult:
     return BriefResult(text=text, provider="stub", model="local-stub")
 
 
+def _plain(text: str) -> str:
+    """Models reach for markdown even when told not to; the timeline renders plain text, so
+    literal ** / ## would show up as asterisks. Strip the emphasis markers, keep the words."""
+    return re.sub(r"\*\*|__|^#{1,6}\s*", "", text, flags=re.M).strip()
+
+
 def brief(ctx: dict, history_markdown: str) -> BriefResult:
     """Write the handoff brief via the configured provider. Raises HandoffError on failure."""
     provider = (settings.HANDOFF_AI_PROVIDER or "stub").strip().lower()
@@ -110,5 +117,5 @@ def brief(ctx: dict, history_markdown: str) -> BriefResult:
             result = backend.draft(prompt, source)
         except rca_ai.DraftError as exc:
             raise HandoffError(str(exc)) from exc
-        return BriefResult(text=result.text, provider=provider, model=result.model)
+        return BriefResult(text=_plain(result.text), provider=provider, model=result.model)
     raise HandoffError(f"unknown HANDOFF_AI_PROVIDER {provider!r} (expected stub|bedrock|conduct)")

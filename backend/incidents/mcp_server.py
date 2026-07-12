@@ -118,7 +118,7 @@ def _act(number: str, outcome: str, actor_user, reason: str) -> dict:
     if outcome == "ack":
         services.acknowledge(incident.id, actor=actor, reason=reason)
     else:
-        escalation.send_outcome(incident, outcome, actor=actor)
+        escalation.send_outcome(incident, outcome, actor=actor, reason=reason)
         if settings.ESCALATION_LOCAL_MODE:
             if outcome == escalation.OUTCOME_RESOLVE:
                 services.resolve(incident.id, actor=actor, reason=reason)

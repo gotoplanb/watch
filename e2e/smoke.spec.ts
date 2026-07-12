@@ -61,17 +61,25 @@ test("smoke: health → status → login → create → escalate → T2", { tag:
   expect(await tier(page, id), "new incident starts at T1").toBe("T1");
 
   // 5–6. Escalate via the UI (HTMX → real Step Functions SendTaskSuccess → commit Lambda), then
-  // wait for T2. The task token is registered a beat after creation, so a too-early click
-  // no-ops — retry the escalate WHILE still at T1 (the guard prevents a second escalate to T3).
-  page.on("dialog", (d) => d.accept()); // the escalate button has an hx-confirm
+  // wait for T2. Escalating is now TWO steps (ADR-041): the button opens a sheet carrying the
+  // optional reason textarea, and the sheet's submit posts. We leave the reason blank here —
+  // optional must stay optional, so the smoke asserts the empty path still escalates.
+  // The task token is registered a beat after creation, so a too-early click no-ops — retry the
+  // escalate WHILE still at T1 (the guard prevents a second escalate to T3).
   await page.goto(`${BASE}/ui/incidents/${id}/`);
   await expect
     .poll(
       async () => {
         if ((await tier(page, id)) === "T1") {
+          // open the escalate sheet (first match = the action button, not the sheet's submit)
           await page
-            .getByRole("button", { name: /escalate/i })
+            .getByRole("button", { name: /escalate to/i })
             .first()
+            .click({ timeout: 5_000 })
+            .catch(() => {});
+          // submit it with no reason — optional must stay optional (the sheet's own confirm)
+          await page
+            .getByTestId("escalate-confirm")
             .click({ timeout: 5_000 })
             .catch(() => {});
           await page.waitForTimeout(3_000); // let the async escalate commit before re-checking

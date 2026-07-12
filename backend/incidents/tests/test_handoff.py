@@ -69,11 +69,12 @@ def test_brief_dispatches_to_model_providers(settings, monkeypatch, provider, mo
     def fake_draft(prompt, source):
         seen["prompt"] = prompt
         seen["source"] = source
-        return DraftResult(text="BRIEF", provider=provider, model="m1")
+        return DraftResult(text="**WHAT HAS HAPPENED**\nBRIEF", provider=provider, model="m1")
 
     monkeypatch.setattr(module, "draft", fake_draft)
     result = handoff_ai.brief(dict(BASE_CTX), "THE HISTORY")
-    assert result.text == "BRIEF" and result.model == "m1"
+    # models reach for markdown even when told not to; the timeline is plain text
+    assert result.text == "WHAT HAS HAPPENED\nBRIEF" and result.model == "m1"
     assert "T3" in seen["prompt"] and "shop foreman" in seen["prompt"]  # tier + role in prompt
     assert "THE HISTORY" in seen["source"] and "SLA clock expired" in seen["source"]
 
@@ -150,3 +151,61 @@ def test_detail_renders_brief_first(settings, django_capture_on_commit_callbacks
     assert "Handoff brief — T2 engaged" in html
     # newest-first: the brief appears before the earlier human note in the document
     assert html.index("Handoff brief") < html.index("looked at the dashboards early on")
+
+# --- the human's stated reason (ADR-041) reaches the brief ---
+
+@pytest.mark.django_db(transaction=True)
+def test_ui_escalate_captures_optional_reason(settings, django_capture_on_commit_callbacks):
+    """The escalation sheet's textarea is optional, but when filled it flows all the way into
+    the next tier's handoff brief — the whole point of asking."""
+    settings.HANDOFF_AI_PROVIDER = "stub"
+    user = _mk_user("t2b", Tier.T2)
+    incident = _mk_incident()
+    client = Client()
+    client.force_login(user)
+    with django_capture_on_commit_callbacks(execute=True):
+        client.post(f"/ui/incidents/{incident.id}/escalate/",
+                    {"reason": "swapped the SDK back, no change — needs a vendor call"})
+    transition = incident.transitions.get(to_tier=Tier.T2)
+    assert transition.reason == "swapped the SDK back, no change — needs a vendor call"
+    brief = incident.events.get(data__kind="handoff")
+    assert "needs a vendor call" in brief.body      # quoted verbatim to the incoming responder
+    assert "t2b deliberately escalated" in brief.body
+
+
+@pytest.mark.django_db(transaction=True)
+def test_ui_escalate_without_reason_still_escalates(settings, django_capture_on_commit_callbacks):
+    """Optional means optional — an empty reason never blocks the escalation (ADR-041)."""
+    settings.HANDOFF_AI_PROVIDER = "stub"
+    user = _mk_user("t2c", Tier.T2)
+    incident = _mk_incident()
+    client = Client()
+    client.force_login(user)
+    with django_capture_on_commit_callbacks(execute=True):
+        client.post(f"/ui/incidents/{incident.id}/escalate/", {"reason": "   "})
+    incident.refresh_from_db()
+    assert incident.current_tier == Tier.T2
+    assert incident.events.filter(data__kind="handoff").exists()
+
+
+def test_send_outcome_carries_reason_to_the_engine(settings, monkeypatch):
+    """Cloud path: the commit Lambda already reads `reason` — send_outcome must ship it (ADR-041)."""
+    settings.ESCALATION_LOCAL_MODE = False
+    from incidents import escalation
+    sent = {}
+
+    class FakeClient:
+        class exceptions:
+            class TaskDoesNotExist(Exception):
+                pass
+
+        def send_task_success(self, taskToken, output):
+            sent["output"] = output
+
+    monkeypatch.setattr(escalation, "_client", lambda: FakeClient())
+    incident = Incident(current_task_token="tok")
+    escalation.send_outcome(incident, escalation.OUTCOME_ESCALATE, actor="7",
+                            reason="exhausted my runbooks")
+    assert '"reason": "exhausted my runbooks"' in sent["output"]
+    assert '"actor": "7"' in sent["output"]
+

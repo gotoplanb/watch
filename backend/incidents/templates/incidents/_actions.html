@@ -6,9 +6,9 @@
 </button>
 {% endif %}
 {% if next_tier %}
-<button class="{% if menu %}w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-amber-300 hover:bg-slate-800 active:bg-slate-800 transition-colors{% else %}px-3 py-1.5 inline-flex items-center rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-sm transition{% endif %}"
-        hx-post="{% url 'ui:escalate' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
-        hx-confirm="Escalate to {{ next_tier.label }}?">
+{# Escalate opens the reason sheet (ADR-041) — the sheet IS the confirm, and it asks WHY. #}
+<button type="button" @click="$dispatch('open-escalate-form')"
+        class="{% if menu %}w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-amber-300 hover:bg-slate-800 active:bg-slate-800 transition-colors{% else %}px-3 py-1.5 inline-flex items-center rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-sm transition{% endif %}">
   {% if menu %}<span aria-hidden="true">↑</span> {% endif %}Escalate to {{ next_tier.value }}
 </button>
 {% endif %}
