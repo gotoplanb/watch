@@ -88,6 +88,21 @@ far (fill in the rest when we cut the first major):
    cutover unblocked CodeBuild and surfaced them. See platform `docs/architecture/accounts.md`.)
    Cross-account trust policies (`watch-prod-deploy`, OIDC providers) get the same review.
 
+6. **Reconfirm the published IAM policies (ADR-044).** Platform `policies/*.json` + `docs/SECURITY.md`
+   are what an adopter hands their **security team** — a promise, in writing, that the deployment needs
+   *exactly* this and no more. A major must re-earn that promise, not assume it:
+   - `make policy-check` — documents valid, no `Allow *:*`, `iam:CreateRole` still fenced by the
+     permissions boundary, and **every** IAM role in the repo still carrying it. (Also runs per-commit
+     and per-PR, so this should be a formality — but a major is when the formality gets checked.)
+   - **Re-run the live rehearsal**: `make live` → `make live-verify` → `make teardown` as
+     `watch-provisioner`, **with no admin credential in the environment**, once per topology. A stack
+     added since the last major will have added AWS actions nobody wrote down, and the *teardown* is
+     where a missing `Delete*` surfaces. This is the step that makes the document true.
+   - Any action added → record it in `docs/SECURITY.md` **with the reason it was needed**, and say so
+     in the release notes. An adopter re-reviewing our policies must be able to diff them and see why.
+   - Re-render (`make policies`) and confirm the deny lists still hold: no IAM users/keys, no
+     Organizations/account/billing, no audit-trail deletion.
+
 > Still forming — expand this as we learn what a major actually needs.
 
 ---
