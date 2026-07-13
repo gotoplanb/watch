@@ -95,6 +95,69 @@ test("smoke: health → status → login → create → escalate → T2", { tag:
   expect(s1.incidents.by_tier.T2, "posture shows a T2").toBeGreaterThanOrEqual(1);
 });
 
+// The responder's journey through the two sheets (ADR-041/042): escalating states WHY, resolving
+// states WHAT FIXED IT, and both sentences must survive all the way into the RCA document — which is
+// the entire reason we ask for them. Deliberately env-agnostic: it asserts the human words land, not
+// which provider wrote the handoff brief or whether it was queued (that varies by env, and is
+// covered by units). Runs as t2a, who holds T2 and so can act on a T1 incident (tier-or-higher).
+test("responder journey: escalation reason + resolve reason reach the RCA", { tag: "@local" }, async ({ page }) => {
+  const t2user = process.env.SMOKE_T2_USER || "t2a";
+  await page.goto(`${BASE}/api-auth/login/?next=/ui/incidents/`);
+  await page.fill("#id_username", t2user);
+  await page.fill("#id_password", PASS);
+  await page
+    .locator("form")
+    .filter({ has: page.locator("#id_username") })
+    .first()
+    .evaluate((f: HTMLFormElement) => f.requestSubmit());
+  await page.waitForURL((u) => u.pathname === "/ui/incidents/");
+
+  const eid = `journey-${Date.now()}`;
+  const created = await page.request.post(`${BASE}/api/intake/webhook`, {
+    headers: { "X-Watch-Webhook-Secret": SECRET },
+    data: { source: "smoke", title: `Journey ${eid}`, source_event_id: eid, payload: {} },
+  });
+  const id = (await created.json()).id;
+  await page.goto(`${BASE}/ui/incidents/${id}/`);
+
+  const why = "Replayed the failing session; the errors are inside the vendor SDK, not our code.";
+  const fix = "Pinned the vendor SDK to 4.2.1 and redeployed; error rate back to baseline.";
+
+  // Escalate — the sheet IS the confirm, and it carries the optional reason. Retry while still at
+  // T1: the task token is registered a beat after creation, so a too-early click no-ops.
+  await expect
+    .poll(
+      async () => {
+        if ((await tier(page, id)) === "T1") {
+          await page.getByRole("button", { name: /escalate to/i }).first().click({ timeout: 5_000 }).catch(() => {});
+          await page.getByLabel(/why are you escalating/i).fill(why).catch(() => {});
+          await page.getByTestId("escalate-confirm").click({ timeout: 5_000 }).catch(() => {});
+          await page.waitForTimeout(3_000);
+        }
+        return tier(page, id);
+      },
+      { message: "escalated to T2 with a reason", timeout: 120_000, intervals: [5_000] }
+    )
+    .toBe("T2");
+  await expect(page.getByText(why, { exact: false })).toBeVisible();
+
+  // Resolve — same pattern, asking what actually fixed it.
+  await page.getByRole("button", { name: /^resolve$/i }).first().click();
+  await page.getByLabel(/what fixed it/i).fill(fix);
+  await page.getByTestId("resolve-confirm").click();
+  await expect
+    .poll(async () => (await (await page.request.get(`${BASE}/api/incidents/${id}/`)).json()).status, {
+      message: "incident resolved",
+      timeout: 30_000,
+    })
+    .toBe("RESOLVED");
+
+  // Both human sentences reach the RCA assembly — the point of asking.
+  const rca = await (await page.request.get(`${BASE}/ui/incidents/${id}/rca.md`)).text();
+  expect(rca, "escalation reason in the RCA").toContain(why);
+  expect(rca, "resolve reason in the RCA").toContain(fix);
+});
+
 // Session Check dogfood (ADR-022/023): a passing browser session self-reports to the inbound
 // Session Check webhook — proving the outbound(from test)->inbound(check) round-trip AND, since the
 // check emits `check.completed` to any subscription, the outbound webhook path. Runs everywhere.
