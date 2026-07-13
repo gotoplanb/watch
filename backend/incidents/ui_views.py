@@ -20,7 +20,7 @@ from django.contrib import messages
 
 from . import apikeys
 from . import checks as checks_svc
-from . import escalation, flags, rca_ai, services, session_index
+from . import envview, escalation, flags, rca_ai, services, session_index
 from .models import (
     AnnotationTag,
     CheckSource,
@@ -343,12 +343,40 @@ def change_password(request):
     return redirect(_SETTINGS)
 
 
+def _history_index(request, param, count):
+    """Position in a newest-first history: 0 is now, higher is older. Clamped, so a stale bookmark or
+    a hand-typed index lands somewhere real instead of 404ing."""
+    try:
+        i = int(request.GET.get(param, 0))
+    except ValueError:
+        i = 0
+    return max(0, min(i, max(0, count - 1)))
+
+
+def _pager(request, param, index, count):
+    """Older/Newer links for one history, preserving every other query param — so paging the digest
+    doesn't yank the status snapshot (or the environment) out from under you."""
+    def at(i):
+        q = request.GET.copy()
+        q[param] = i
+        return f"?{q.urlencode()}"
+
+    return {
+        "index": index, "count": count,
+        "older": at(index + 1) if index + 1 < count else "",
+        "newer": at(index - 1) if index > 0 else "",
+    }
+
+
 @login_required
 @require_GET
 def env_dashboard(request):
-    """Detailed per-environment ops status + digests (ADR-028) — session-auth, ops-facing. The status
-    payload is arbitrary JSON rendered by the schema-less `_json_node` partial; digests are markdown
-    with a Copy-for-Slack button and a SPECIAL/ROUTINE (speci) badge."""
+    """Per-environment ops status + digests (ADR-028/043) — session-auth, ops-facing.
+
+    The store is schema-less; the *screen* is not. `envview.summarize` turns the posted payload into
+    a worst-first list of subsystem rows with a verdict and a staleness read, and both histories
+    (snapshots and digests) page independently — the stored history is what "what did it look like an
+    hour ago" needs, and it was previously written but never shown."""
     envs = sorted(
         set(EnvStatus.objects.values_list("environment", flat=True))
         | set(Digest.objects.values_list("environment", flat=True))
@@ -356,11 +384,28 @@ def env_dashboard(request):
     if not envs:
         envs = ["prod", "nonprod"]
     env = request.GET.get("env") or envs[0]
+
+    statuses = list(EnvStatus.objects.filter(environment=env)[:100])  # newest first (Meta ordering)
+    s_index = _history_index(request, "s", len(statuses))
+    status = statuses[s_index] if statuses else None
+
+    special_only = request.GET.get("special") == "1"
+    digest_qs = Digest.objects.filter(environment=env)
+    if special_only:
+        digest_qs = digest_qs.filter(special=True)
+    digests = list(digest_qs[:100])
+    d_index = _history_index(request, "d", len(digests))
+    digest = digests[d_index] if digests else None
+
     return render(request, "incidents/environments.html", {
         "environments": envs,
         "env": env,
-        "status": EnvStatus.objects.filter(environment=env).first(),
-        "digests": list(Digest.objects.filter(environment=env)[:50]),
+        "status": status,
+        "view": envview.summarize(status, historical=s_index > 0),
+        "status_pager": _pager(request, "s", s_index, len(statuses)),
+        "digest": digest,
+        "digest_pager": _pager(request, "d", d_index, len(digests)),
+        "special_only": special_only,
     })
 
 

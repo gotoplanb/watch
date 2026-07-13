@@ -831,3 +831,26 @@
 - *Guardrail:* `is_async()` keeps the no-op provider from stranding a card; idempotent write; failure is visible rather than silent; both queue branches and all three card states unit-tested; ≥90% coverage + green Sonar.
 
 **As built.** `queue.py` (`handoff` kind, `is_async()`, `thread` provider), `services.write_handoff_brief` + `_handoff_ctx` + the reserve-then-enqueue hook, `ui_views.incident_body` (+ `ui:incident_body`), the resolve sheet + pending/failed card states in `_body.html`, `_rca_line` quoting human reasons, `QUEUE_PROVIDER=thread` in local `.env`. **Verified live** at 390px: escalate → instant pending card → the brief swapped in by the poll, written by Conduct in a background thread and quoting the escalating human verbatim; resolve sheet → "Pinned the vendor SDK back to 4.2.1…" on the terminal transition and in the RCA export; polling stops on landing.
+
+---
+
+## ADR-043 — The environments screen is a status page, not a JSON viewer
+**Status:** Accepted · *Refines ADR-028 (schema-less ops status) on the render side only. The ingest contract and the store are unchanged.*
+
+**Context.** ADR-028 was right to keep the posted status payload **verbatim** and refuse to reason about its shape — the store must not break when the tooling changes. But the screen inherited that refusal: it rendered the newest payload as a generic key/value tree and stopped there. No verdict, no ordering, no staleness, and the *history it was already storing* — snapshots and digests both — was written and never shown. Dave's own tool (`hermit-watch-gen`, in daily use) is the counterexample: worst-first subsystem rows with real numbers, a digest as prose, staleness called out, and Older/Newer through 100 snapshots. The gap between them was entirely UI.
+
+**Decision.** Keep the schema-less **store**; drop the schema-less **screen**.
+1. **`incidents/envview.summarize()`** turns a payload into a view model at *render* time, where guessing wrong costs a dull row rather than a corrupted record. It reads the **service shape** (`{worst_state, triage, type, services:[{state, message}]}` — what the hermit agent posts) and, for anything else, **derives a row per top-level object**. A dull row beats a blank screen; the raw payload stays behind a `<details>` disclosure, so nothing that ADR-028 accepted is ever lost.
+2. **Worst-first ordering** on the hermit weather ladder (storm › squall › unsettled › calm › serene), with the synonyms real tooling posts folded in (`degraded`, `critical`, `green`…). This is the whole value of the list: the worst thing is where the eye already is.
+3. **Staleness outranks the payload.** No update in an hour ⇒ verdict `unknown` and grey dots, with a banner saying so. A dead reporter rendering as healthy green is the one lie a status page must never tell. *Corollary discovered in the browser:* a snapshot you deliberately **paged back to** is history, not staleness — greying it out would misrepresent what the tooling actually said at the time. `summarize(historical=True)` distinguishes them.
+4. **The declared verdict wins over the rollup.** "Calm despite one degraded canary" is a judgment a sender is entitled to make; we roll up worst-of only when they didn't say.
+5. **Both histories page independently** (`?s=`/`?d=`, clamped, links not buttons — paging is navigation: it survives a reload and a snapshot URL is a thing you paste to someone). Plus a *Special only* digest filter, and Copy-for-Slack retained.
+6. **`manage.py seed_env_ops`** (+ `make seed-env-dev`) seeds ~24h of hermit-shaped snapshots that degrade and recover, so the screen can be *seen* — a demo where everything is green teaches the eye nothing.
+
+**Consequences.**
+- *Gain:* the screen answers the questions it's for — is anything wrong, which thing, how bad, since when, and what did the tooling say an hour ago — instead of showing a nested blob and leaving all five to the reader.
+- *Gain:* no ingest change. Existing senders keep working (they get derived rows); a sender that adopts the service shape gets the good rendering for free.
+- *Cost:* the screen now knows *something* about shape. Contained to one pure module with both branches unit-tested, and the raw payload is always one click away when the heuristic reads the payload wrong.
+- *Guardrail:* mobile-first (rows stack under the name at phone width rather than wrapping into a ragged column), Tailwind-only, WCAG 2.1 AA via the axe gate; ≥90% coverage + green Sonar.
+
+**As built.** `incidents/envview.py`, `ui_views.env_dashboard` (+ `_history_index`/`_pager`), `templates/incidents/environments.html` + `_env_pager.html`, `management/commands/seed_env_ops.py`, `make seed-env-dev`. **Verified live** at 390px: the recovered-now view (SERENE, four green rows, 1 of 12) and the storm in the history (STORM, MANUAL badge, "looking at the past", payments red at 50.7% success and sorted to the top).
