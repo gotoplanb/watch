@@ -198,7 +198,19 @@ def test_list_htmx_returns_rows_partial_with_filters(client):
     client.force_login(_user("viewer2"))
     resp = client.get("/ui/incidents/?status=OPEN&tier=T1", HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
-    assert b'id="incident-rows"' in resp.content and b"<html" not in resp.content
+    assert b'id="incident-results"' in resp.content and b"<html" not in resp.content
+
+
+@pytest.mark.django_db
+def test_list_search_filters_by_title_and_number(client):
+    """The q box matches either human key: free text on the title, INC-… on the number (#47)."""
+    a = Incident.objects.create(source="t", title="Checkout latency spike", dedupe_key="q1")
+    b = Incident.objects.create(source="t", title="Login errors", dedupe_key="q2")
+    client.force_login(User.objects.create(username="searcher"))
+    html = client.get("/ui/incidents/?q=checkout").content.decode()
+    assert a.title in html and b.title not in html
+    html = client.get(f"/ui/incidents/?q={b.number}").content.decode()
+    assert b.title in html and a.title not in html
 
 
 @pytest.mark.django_db
@@ -350,3 +362,18 @@ def test_rca_no_events_section():
     inc = _incident(Tier.T1)
     md = services.rca_markdown(inc)
     assert "_(no events)_" in md and "_(none flagged)_" in md
+
+
+def test_no_multiline_template_comments():
+    """Django {# #} comments are SINGLE-LINE — a multi-line one renders as literal page text.
+    This has shipped visible comment-text to the browser three separate times; never again."""
+    import pathlib
+    import re
+
+    base = pathlib.Path(__file__).resolve().parent.parent / "templates"
+    bad = []
+    for path in base.rglob("*.html"):
+        for m in re.finditer(r"\{#.*?#\}", path.read_text(), re.S):
+            if "\n" in m.group(0):
+                bad.append(f"{path.name}: {m.group(0)[:60]!r}")
+    assert bad == [], f"multi-line {{# #}} comments render as page text: {bad}"

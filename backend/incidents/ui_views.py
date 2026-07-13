@@ -9,6 +9,7 @@ from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.models import User
+from django.db.models import Q
 from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -62,7 +63,9 @@ def _resolve_target(incident, target):
 def _detail_ctx(request, incident):
     return {
         "incident": incident,
-        "timeline": services.timeline(incident),
+        # Newest-first (ADR-040): the incoming responder reads the handoff brief, then history.
+        # RCA assembly (rca_markdown) stays chronological — this reversal is display-only.
+        "timeline": list(reversed(services.timeline(incident))),
         "can_act": can_act_on(request.user, incident),
         "next_tier": next_tier(incident.current_tier),
         "annotation_tags": AnnotationTag.choices,
@@ -78,18 +81,23 @@ def incident_list(request):
     qs = Incident.objects.all().order_by("-created_at")
     status = request.GET.get("status") or ""
     tier = request.GET.get("tier") or ""
+    q = (request.GET.get("q") or "").strip()
     if status:
         qs = qs.filter(status=status)
     if tier:
         qs = qs.filter(current_tier=tier)
+    if q:
+        # one box, both human keys: free text matches the title, INC-… matches the number
+        qs = qs.filter(Q(title__icontains=q) | Q(number__icontains=q))
     ctx = {
         "incidents": list(qs[:200]),
         "status": status,
         "tier": tier,
+        "q": q,
         "statuses": Status.choices,
         "tiers": Tier.choices,
     }
-    template = "incidents/_rows.html" if request.headers.get("HX-Request") else "incidents/list.html"
+    template = "incidents/_results.html" if request.headers.get("HX-Request") else "incidents/list.html"
     return render(request, template, ctx)
 
 
@@ -98,6 +106,16 @@ def incident_list(request):
 def incident_detail(request, pk):
     incident = get_object_or_404(Incident, pk=pk)
     return render(request, "incidents/detail.html", _detail_ctx(request, incident))
+
+
+@login_required
+@require_GET
+def incident_body(request, pk):
+    """The incident body on its own — what a pending handoff card polls while the model writes it
+    (ADR-042). Same partial every mutation swaps in, so the poll that lands the brief also refreshes
+    everything else; the swapped-in body has no poller, which is how the polling stops."""
+    incident = get_object_or_404(Incident, pk=pk)
+    return render(request, _BODY_PARTIAL, _detail_ctx(request, incident))
 
 
 @login_required
@@ -146,16 +164,21 @@ def act(request, pk, action):
         return HttpResponseForbidden("You must hold this incident's tier (or higher) to act.")
 
     actor = str(request.user.pk)
+    # The human's stated reason — why they escalated (ADR-041) or what actually fixed it (ADR-042).
+    # Optional by design in both cases: we want the signal, not a toll gate. It rides the same paths
+    # as the actor (cloud: SendTaskSuccess → commit Lambda; local: straight to services) and lands on
+    # the Transition, where the next tier's brief and the RCA both read it.
+    reason = (request.POST.get("reason") or "").strip()
     if action == "ack":
         services.acknowledge(incident.id, actor=actor)
     elif action == "escalate":
-        escalation.send_outcome(incident, escalation.OUTCOME_ESCALATE, actor=actor)
+        escalation.send_outcome(incident, escalation.OUTCOME_ESCALATE, actor=actor, reason=reason)
         if settings.ESCALATION_LOCAL_MODE:
-            services.escalate(incident.id, actor=actor)
+            services.escalate(incident.id, actor=actor, reason=reason)
     elif action == "resolve":
-        escalation.send_outcome(incident, escalation.OUTCOME_RESOLVE, actor=actor)
+        escalation.send_outcome(incident, escalation.OUTCOME_RESOLVE, actor=actor, reason=reason)
         if settings.ESCALATION_LOCAL_MODE:
-            services.resolve(incident.id, actor=actor)
+            services.resolve(incident.id, actor=actor, reason=reason)
 
     incident.refresh_from_db()
     return render(request, _BODY_PARTIAL, _detail_ctx(request, incident))

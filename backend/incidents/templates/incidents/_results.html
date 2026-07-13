@@ -1,0 +1,68 @@
+{# One swap target, two renderings (watch#47): cards are the BASE (whole card = tap target), table is the md: enhancement; the htmx filter swaps this block so both update #}
+<div id="incident-results">
+  <ul class="grid gap-2 md:hidden">
+    {% for inc in incidents %}
+    <li>
+      <a href="{% url 'ui:incident_detail' inc.id %}"
+         class="block rounded-lg bg-slate-900 border border-slate-800 p-4 transition
+                active:scale-[0.99] active:bg-slate-800/70 hover:border-slate-700
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+        <div class="flex items-center justify-between gap-3">
+          <span class="font-mono text-xs text-slate-400">{{ inc.number }}</span>
+          <span class="flex gap-1.5">
+            {% if inc.status == 'RESOLVED' %}
+              <span class="px-2 py-0.5 rounded text-xs bg-emerald-500/15 text-emerald-300">Resolved</span>
+            {% else %}
+              <span class="px-2 py-0.5 rounded text-xs bg-amber-500/15 text-amber-300">Open</span>
+            {% endif %}
+            <span class="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">{{ inc.current_tier }}</span>
+          </span>
+        </div>
+        <div class="mt-1.5 text-slate-100 font-medium leading-snug">{{ inc.title }}</div>
+        <div class="mt-2 flex items-center justify-between text-xs text-slate-400">
+          <span>{{ inc.source }}</span>
+          <span>{{ inc.created_at|date:"M j, H:i" }}</span>
+        </div>
+      </a>
+    </li>
+    {% empty %}
+    <li class="rounded-lg bg-slate-900 border border-slate-800 p-6 text-center text-sm text-slate-400">No incidents match.</li>
+    {% endfor %}
+  </ul>
+
+  <div class="hidden md:block overflow-x-auto rounded border border-slate-800">
+    <table class="w-full text-sm bg-slate-900 rounded overflow-hidden">
+      <thead class="text-left text-slate-400 border-b border-slate-800">
+        <tr>
+          <th class="p-3 font-medium">Title</th>
+          <th class="p-3 font-medium">Status</th>
+          <th class="p-3 font-medium">Tier</th>
+          <th class="p-3 font-medium">Source</th>
+          <th class="p-3 font-medium">Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inc in incidents %}
+        <tr class="border-b border-slate-800 last:border-0 hover:bg-slate-800/60 transition-colors">
+          <td class="p-3">
+            <span class="font-mono text-xs text-slate-400 mr-2">{{ inc.number }}</span>
+            <a class="text-indigo-400 hover:text-indigo-300" href="{% url 'ui:incident_detail' inc.id %}">{{ inc.title }}</a>
+          </td>
+          <td class="p-3">
+            {% if inc.status == 'RESOLVED' %}
+              <span class="px-2 py-0.5 rounded text-xs bg-emerald-500/15 text-emerald-300">Resolved</span>
+            {% else %}
+              <span class="px-2 py-0.5 rounded text-xs bg-amber-500/15 text-amber-300">Open</span>
+            {% endif %}
+          </td>
+          <td class="p-3"><span class="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">{{ inc.current_tier }}</span></td>
+          <td class="p-3 text-slate-400">{{ inc.source }}</td>
+          <td class="p-3 text-slate-400">{{ inc.created_at|date:"M j, H:i" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td class="p-6 text-center text-slate-400" colspan="5">No incidents match.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

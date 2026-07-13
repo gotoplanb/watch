@@ -197,6 +197,9 @@ RCA_AI_PROVIDER = _env("RCA_AI_PROVIDER", "stub")
 # the assistant is the FALLBACK: the routing matrix classifies deterministically first (ADR-037)
 # and disposition is always the matrix table lookup.
 TRIAGE_AI_PROVIDER = _env("TRIAGE_AI_PROVIDER", "stub")
+# Tier handoff briefs (ADR-040) — same provider discipline; the stub is a real deterministic
+# brief from incident data, so the feature needs no model to be useful.
+HANDOFF_AI_PROVIDER = _env("HANDOFF_AI_PROVIDER", "stub")
 # The declarative triage policy document (ADR-037) — human-readable AND machine-loaded.
 TRIAGE_MATRIX_PATH = _env("TRIAGE_MATRIX_PATH", str(BASE_DIR / "triage-matrix.yaml"))
 
@@ -298,7 +301,8 @@ WEBHOOKS_LOCAL_MODE = _bool("WEBHOOKS_LOCAL_MODE", True)
 WEBHOOK_ECHO_SECRET = _env("WEBHOOK_ECHO_SECRET", "")
 
 # --- Async job queue + worker (ADR-025) ---
-# Where the domain hands async work: local (no-op; work runs inline) | sqs (send to WATCH_QUEUE_URL).
+# Where the domain hands async work: local (no-op; work runs inline) | thread (local-dev async: a
+# daemon thread, not durable — ADR-042) | sqs (send to WATCH_QUEUE_URL).
 QUEUE_PROVIDER = _env("QUEUE_PROVIDER", "local")
 WATCH_QUEUE_URL = _env("WATCH_QUEUE_URL", "")
 # run_sqs_worker long-poll + visibility knobs (seconds) and batch size.

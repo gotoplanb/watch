@@ -13,8 +13,8 @@
 
 <ul class="space-y-2">
   {% for p in problems %}
-  <li class="bg-slate-900 border border-slate-800 rounded p-3 flex items-center justify-between gap-4">
-    <a href="{% url 'ui:problem_detail' p.id %}" class="min-w-0 truncate text-slate-100 hover:text-white">
+  <li class="relative bg-slate-900 border border-slate-800 rounded p-3 transition hover:border-slate-700 active:scale-[0.99] flex items-center justify-between gap-4">
+    <a href="{% url 'ui:problem_detail' p.id %}" class="min-w-0 truncate text-slate-100 hover:text-white after:absolute after:inset-0">
       <span class="font-mono text-xs text-slate-400">{{ p.number }}</span> {{ p.title }}
     </a>
     <span class="shrink-0 px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">{{ p.get_status_display }}</span>

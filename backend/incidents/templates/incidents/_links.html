@@ -18,7 +18,11 @@
   <li class="text-sm text-slate-400">No links yet.</li>
   {% endfor %}
 </ul>
-<form method="post" action="{% url 'ui:link_add' %}" class="mt-2 flex flex-wrap items-center gap-2">
+{# Mobile-first (watch#47): the add-link form lives behind the FAB's "Add link" on phones; desktop keeps it inline. show=true also scrolls it into view and focuses the target field. #}
+<form method="post" action="{% url 'ui:link_add' %}" id="link-add-form"
+      x-data="{ show: false }" @open-link-form.window="show = true; $nextTick(() => { $el.scrollIntoView({behavior: 'smooth', block: 'center'}); $el.querySelector('input[name=to_number]')?.focus() })"
+      :class="show ? 'flex' : 'hidden md:flex'"
+      class="mt-2 flex-wrap items-center gap-2">
   {% csrf_token %}
   <input type="hidden" name="from_number" value="{{ record_number }}">
   <select name="kind" aria-label="Link kind" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-base md:text-sm text-slate-100">

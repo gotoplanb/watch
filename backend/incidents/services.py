@@ -16,7 +16,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from . import apikeys, events, flags, notify, rca_ai
+from . import apikeys, events, flags, handoff_ai, notify, queue, rca_ai
 from .models import (
     Annotation,
     EventType,
@@ -187,6 +187,14 @@ def escalate(incident_id, actor: str, reason: str = "") -> Incident:
         "from_tier": from_tier, "to_tier": target.value, "actor": actor, "auto": auto,
     })
     page_on_tier_entry(incident, target.value)  # page the new tier's on-call (ADR-013)
+    # Tier handoff brief (ADR-040): the incoming responder's first read, posted as the NEWEST
+    # timeline event. Post-commit so the model call can never delay or roll back the
+    # escalation itself; soft-fail inside.
+    if flags.is_enabled(HANDOFF_FLAG, default=False):
+        transaction.on_commit(
+            lambda pk=incident.id, ft=from_tier, tt=target.value, a=actor, au=auto, r=reason:
+                _post_handoff_brief(pk, ft, tt, a, au, r)
+        )
     return incident
 
 
@@ -292,18 +300,30 @@ def timeline(record):
 _RCA_FLAG_TAGS = {"unexpected", "root-cause", "contributing"}
 
 
+_DEFAULT_REASONS = ("", "resolved", "escalated", "acknowledged")
+
+
+def _rca_transition_head(obj) -> str:
+    """The RCA row for a Transition. The human's own words (ADR-041/042: why they escalated, what
+    fixed it) are the most RCA-relevant thing on the row and are quoted; the default filler reasons
+    are not — an ack whose only content IS its reason renders that reason as the row itself."""
+    said = "" if obj.reason in _DEFAULT_REASONS else obj.reason
+    if obj.to_status == Status.RESOLVED and obj.from_status != Status.RESOLVED:
+        what = f"resolved (at {obj.to_tier})"
+    elif obj.from_tier != obj.to_tier:
+        what = f"escalated {obj.from_tier}→{obj.to_tier}"
+    else:
+        what, said = obj.reason or "updated", ""
+    quoted = f' — "{said}"' if said else ""
+    return f"**transition** — {what} · actor `{obj.actor}`{quoted}"
+
+
 def _rca_line(item) -> str:
     """One Markdown timeline row (event + its annotations) for the RCA assembly."""
     obj = item["obj"]
     ts = item["at"].strftime("%Y-%m-%d %H:%M:%S %Z").strip() if item["at"] else "?"
     if item["kind"] == "transition":
-        if obj.to_status == Status.RESOLVED and obj.from_status != Status.RESOLVED:
-            what = f"resolved (at {obj.to_tier})"
-        elif obj.from_tier != obj.to_tier:
-            what = f"escalated {obj.from_tier}→{obj.to_tier}"
-        else:
-            what = obj.reason or "updated"
-        head = f"**transition** — {what} · actor `{obj.actor}`"
+        head = _rca_transition_head(obj)
     else:
         head = f"**{obj.type}** · `{obj.actor or 'system'}` — {obj.body}"
     lines = [f"- `{ts}` {head}"]
@@ -369,6 +389,91 @@ def seed_rca(*, title: str = "", incident=None, actor: str = "system"):
 
 
 RCA_AI_FLAG = "rca_ai_draft"
+HANDOFF_FLAG = "handoff_brief"
+
+
+def _humanize_since(dt) -> str:
+    mins = int((timezone.now() - dt).total_seconds() // 60)
+    if mins < 60:
+        return f"{mins} min"
+    return f"{mins // 60} h {mins % 60} min"
+
+
+def _handoff_ctx(incident, from_tier, to_tier, actor, auto, reason) -> dict:
+    from django.contrib.auth.models import User  # lazy: services stays light at import
+
+    actor_label = "the SLA clock"
+    if not auto:
+        user = User.objects.filter(pk=actor).first() if str(actor).isdigit() else None
+        actor_label = user.username if user else str(actor)
+    triage = ""
+    if incident.triage_verdict:
+        triage = (f"{incident.triage_verdict} "
+                  f"({incident.triage_responsibility}/{incident.triage_fault_domain})")
+    return {
+        "from_tier": from_tier, "to_tier": to_tier, "auto": auto,
+        "actor_label": actor_label, "reason": reason or "",
+        "source": incident.source, "triage": triage,
+        "open_for": _humanize_since(incident.created_at),
+        "event_count": len(timeline(incident)),
+    }
+
+
+def _post_handoff_brief(incident_id, from_tier, to_tier, actor, auto, reason) -> None:
+    """Reserve the brief's place on the timeline, then get it written (ADR-042).
+
+    The card is created PENDING and immediately visible — the incoming responder sees "writing the
+    brief" rather than a timeline that silently grows an entry seconds later — and the model call
+    happens off the request: enqueued when a worker exists, inline when it doesn't (the `local`
+    queue provider is a no-op, and a pending card nobody will ever fill is worse than a slow
+    response). Best-effort by contract (ADR-040): the escalation already committed."""
+    try:
+        incident = Incident.objects.get(pk=incident_id)
+        event = post_ai_event(
+            incident,
+            body="",
+            actor="system:handoff",
+            data={"kind": "handoff", "status": "pending", "to_tier": to_tier,
+                  "ctx": _handoff_ctx(incident, from_tier, to_tier, actor, auto, reason)},
+        )
+    except Exception:
+        logger.warning("handoff brief could not be started for incident %s -> %s",
+                       incident_id, to_tier, exc_info=True)
+        return
+
+    if queue.is_async():
+        queue.enqueue("handoff", event.id)
+        return
+    try:
+        write_handoff_brief(event.id)
+    except Exception:
+        logger.warning("handoff brief failed for incident %s -> %s", incident_id, to_tier,
+                       exc_info=True)
+
+
+def write_handoff_brief(event_id) -> TimelineEvent:
+    """Fill in a pending handoff card (ADR-042) — the worker's half of the job, and the one
+    implementation both the inline and queued paths call.
+
+    Idempotent (at-least-once redelivery is safe): a card that already holds a brief is returned
+    untouched. On failure the card is marked `failed` — so the UI stops spinning and says so — and
+    the error re-raised, leaving the SQS message for redrive."""
+    event = TimelineEvent.objects.get(pk=event_id)
+    data = dict(event.data or {})
+    if data.get("status") != "pending":
+        return event  # already written (or not ours) — a redelivered message must not overwrite
+    try:
+        result = handoff_ai.brief(dict(data.get("ctx") or {}), rca_markdown(event.record))
+    except Exception:
+        data["status"] = "failed"
+        event.data = data
+        event.save(update_fields=["data"])
+        raise
+    event.body = result.text
+    event.data = {"kind": "handoff", "status": "ready", "to_tier": data.get("to_tier"),
+                  "provider": result.provider, "model": result.model}
+    event.save(update_fields=["body", "data"])
+    return event
 
 
 def draft_rca(rca, *, actor: str = "system"):

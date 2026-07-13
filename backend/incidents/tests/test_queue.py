@@ -1,6 +1,7 @@
 """Hermetic tests for the async queue seam + worker dispatch (ADR-025) — no boto3/SQS, both
 provider branches and both job kinds. `set_provider_for_tests` captures enqueues; the `sqs`
 branch is exercised with a fake boto3 client."""
+import threading
 from uuid import uuid4
 
 import boto3
@@ -74,6 +75,37 @@ def test_enqueue_guarded_swallows_send_failure(settings, monkeypatch):
 
     monkeypatch.setattr(boto3, "client", boom)
     queue.enqueue("check", "id-9")  # guarded — must not raise into the domain
+
+
+def test_is_async_is_false_only_for_the_noop_local_provider(settings):
+    """The predicate that keeps a pending card from being stranded (ADR-042)."""
+    settings.QUEUE_PROVIDER = "local"
+    assert queue.is_async() is False
+    settings.QUEUE_PROVIDER = "sqs"
+    assert queue.is_async() is True
+    settings.QUEUE_PROVIDER = "thread"
+    assert queue.is_async() is True
+    settings.QUEUE_PROVIDER = "local"
+    queue.set_provider_for_tests(Capture())
+    assert queue.is_async() is True
+
+
+def test_thread_provider_runs_the_job_off_the_caller(settings, monkeypatch):
+    """Local-dev async: the job runs, but not on the request thread."""
+    settings.QUEUE_PROVIDER = "thread"
+    done = threading.Event()
+    ran = {}
+
+    def fake_run_job(kind, obj_id):
+        ran["thread"] = threading.current_thread().name
+        ran["job"] = (kind, obj_id)
+        done.set()
+
+    monkeypatch.setattr(queue, "run_job", fake_run_job)
+    queue.enqueue("handoff", 12)
+    assert done.wait(timeout=5)
+    assert ran["job"] == ("handoff", 12)
+    assert ran["thread"] != threading.current_thread().name
 
 
 # --- run_job dispatch ---
