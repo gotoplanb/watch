@@ -59,18 +59,19 @@ The root keeps id="incident-body" so subsequent swaps still find it.
         </div>
         {% if e.obj.data.status == 'pending' %}
           {# Poll the body partial until the brief lands; the swapped-in body has no poller, so it stops itself. #}
-          <div hx-get="{% url 'ui:incident_body' incident.id %}" hx-trigger="every 2s"
+          <div data-testid="handoff-pending"
+               hx-get="{% url 'ui:incident_body' incident.id %}" hx-trigger="every 2s"
                hx-target="#incident-body" hx-swap="outerHTML"
                class="mt-2 flex items-center gap-2 text-slate-300" role="status">
             <span class="h-2 w-2 rounded-full bg-purple-400 animate-pulse" aria-hidden="true"></span>
             Writing the brief for {{ e.obj.data.to_tier }}…
           </div>
         {% elif e.obj.data.status == 'failed' %}
-          <p class="mt-2 text-slate-300">
+          <p data-testid="handoff-failed" class="mt-2 text-slate-300">
             The brief couldn’t be written — the timeline below is the full history.
           </p>
         {% else %}
-          <p class="mt-2 whitespace-pre-wrap text-slate-200">{{ e.obj.body }}</p>
+          <p data-testid="handoff-ready" class="mt-2 whitespace-pre-wrap text-slate-200">{{ e.obj.body }}</p>
         {% endif %}
       {% elif e.kind == 'event' %}
         {% if e.obj.type == 'ai' %}

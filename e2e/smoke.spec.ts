@@ -194,3 +194,66 @@ test("session check dogfood: report the session for an error-span check", { tag:
 test.fixme("auto-escalation walks T1 → T2 → T3 on SLA timeout", { tag: "@staging" }, async ({ page }) => {
   void page;
 });
+
+// The async worker actually RUNS (platform#61). Everything else in this suite can pass while the
+// queue seam is dead: the API answers, the page renders, the escalation commits. The handoff brief
+// is the one artifact NOTHING but the worker can produce — the card is reserved PENDING on the
+// escalate request and filled off the hot path (ADR-042) — so this asserts it reaches `ready`.
+//
+// This is the test that was missing. In the cloud the worker service ran the `bootstrap` placeholder
+// image, `manage.py` exited 0 on the unknown `run_sqs_worker` command, ECS read exit-0 as a clean
+// completion and reported "steady state" between restarts — so every count-and-health check we had
+// went green while the brief was never written. Only asking the UI for the worker's OUTPUT catches
+// that. Env-agnostic on purpose: whoever writes the brief (thread locally, SQS worker on staging),
+// it must appear — a brief stuck at PENDING is a dead worker, and that is exactly the failure.
+test("the handoff brief lands — proof the async worker is alive", { tag: "@local" }, async ({ page }) => {
+  const t2user = process.env.SMOKE_T2_USER || "t2a";
+  await page.goto(`${BASE}/api-auth/login/?next=/ui/incidents/`);
+  await page.fill("#id_username", t2user);
+  await page.fill("#id_password", PASS);
+  await page
+    .locator("form")
+    .filter({ has: page.locator("#id_username") })
+    .first()
+    .evaluate((f: HTMLFormElement) => f.requestSubmit());
+  await page.waitForURL((u) => u.pathname === "/ui/incidents/");
+
+  const eid = `brief-${Date.now()}`;
+  const created = await page.request.post(`${BASE}/api/intake/webhook`, {
+    headers: { "X-Watch-Webhook-Secret": SECRET },
+    data: { source: "smoke", title: `Brief ${eid}`, source_event_id: eid, payload: {} },
+  });
+  const id = (await created.json()).id;
+  await page.goto(`${BASE}/ui/incidents/${id}/`);
+
+  // Escalate to engage T2 — that is what reserves the handoff card.
+  await expect
+    .poll(
+      async () => {
+        if ((await tier(page, id)) === "T1") {
+          await page.getByRole("button", { name: /escalate to/i }).first().click({ timeout: 5_000 }).catch(() => {});
+          await page.getByTestId("escalate-confirm").click({ timeout: 5_000 }).catch(() => {});
+          await page.waitForTimeout(3_000);
+        }
+        return tier(page, id);
+      },
+      { message: "escalated to T2", timeout: 120_000, intervals: [5_000] }
+    )
+    .toBe("T2");
+
+  // The card must EXIST — the escalate path always reserves it, so its absence is a different bug.
+  await expect(
+    page.getByTestId("handoff-pending").or(page.getByTestId("handoff-ready")).first(),
+    "the handoff card is reserved on escalate"
+  ).toBeVisible({ timeout: 15_000 });
+
+  // ...and it must get FILLED. The page polls itself every 2s while pending (htmx), so a live worker
+  // flips this without a reload. Still pending when the clock runs out = the worker is not consuming.
+  await expect(
+    page.getByTestId("handoff-ready"),
+    "the brief was written — a worker consumed the job"
+  ).toBeVisible({ timeout: 90_000 });
+
+  await expect(page.getByTestId("handoff-failed"), "the brief did not fail").toHaveCount(0);
+  expect((await page.getByTestId("handoff-ready").innerText()).trim().length, "the brief has content").toBeGreaterThan(0);
+});
