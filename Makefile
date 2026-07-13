@@ -173,6 +173,9 @@ seed-dev: venv infra ## Reseed the make-dev (host-venv) DB, applying SEED_USER/A
 	@for i in $$(seq 1 30); do nc -z localhost 5433 && break; sleep 1; done
 	$(SEED_CMD)
 
+seed-env-dev: venv infra ## Seed ~24h of env status snapshots + digests (the environments screen, ADR-043)
+	$(subst seed_demo,seed_env_ops,$(SEED_CMD))
+
 smoke: ## Push an incident through the intake webhook
 	curl -fsS -X POST http://localhost:8010/api/intake/webhook \
 	  -H "X-Watch-Webhook-Secret: $$(grep INTAKE_WEBHOOK_SECRET .env | cut -d= -f2)" \

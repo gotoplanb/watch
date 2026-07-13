@@ -1,0 +1,18 @@
+{# Older/Newer through one history (ADR-043). Links, not buttons: paging is navigation, it survives a reload, and it's shareable — "the 03:00 snapshot" is a thing you paste to someone. #}
+<nav class="mt-3 flex items-center justify-between gap-3" aria-label="{{ label }} history">
+  {% if pager.older %}
+    <a href="{{ pager.older }}"
+       class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm transition-colors">← Older</a>
+  {% else %}
+    <span class="px-3 py-2 rounded-lg bg-slate-900 text-slate-500 text-sm" aria-disabled="true">← Older</span>
+  {% endif %}
+
+  <span class="text-xs text-slate-400">{{ pager.index|add:1 }} of {{ pager.count }}</span>
+
+  {% if pager.newer %}
+    <a href="{{ pager.newer }}"
+       class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm transition-colors">Newer →</a>
+  {% else %}
+    <span class="px-3 py-2 rounded-lg bg-slate-900 text-slate-500 text-sm" aria-disabled="true">Newer →</span>
+  {% endif %}
+</nav>
