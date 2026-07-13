@@ -301,7 +301,8 @@ WEBHOOKS_LOCAL_MODE = _bool("WEBHOOKS_LOCAL_MODE", True)
 WEBHOOK_ECHO_SECRET = _env("WEBHOOK_ECHO_SECRET", "")
 
 # --- Async job queue + worker (ADR-025) ---
-# Where the domain hands async work: local (no-op; work runs inline) | sqs (send to WATCH_QUEUE_URL).
+# Where the domain hands async work: local (no-op; work runs inline) | thread (local-dev async: a
+# daemon thread, not durable — ADR-042) | sqs (send to WATCH_QUEUE_URL).
 QUEUE_PROVIDER = _env("QUEUE_PROVIDER", "local")
 WATCH_QUEUE_URL = _env("WATCH_QUEUE_URL", "")
 # run_sqs_worker long-poll + visibility knobs (seconds) and batch size.

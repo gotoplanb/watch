@@ -7,6 +7,7 @@ app_name = "ui"
 urlpatterns = [
     path("incidents/", ui_views.incident_list, name="incident_list"),
     path("incidents/<uuid:pk>/", ui_views.incident_detail, name="incident_detail"),
+    path("incidents/<uuid:pk>/body/", ui_views.incident_body, name="incident_body"),
     path("incidents/<uuid:pk>/note/", ui_views.add_note, name="add_note"),
     path("incidents/<uuid:pk>/annotate/", ui_views.annotate, name="annotate"),
     path("incidents/<uuid:pk>/rca.md", ui_views.rca, name="rca"),

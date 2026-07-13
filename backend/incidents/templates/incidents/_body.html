@@ -49,12 +49,29 @@ The root keeps id="incident-body" so subsequent swaps still find it.
     <li x-data="{ annotate: false }"
         class="text-sm rounded {% if e.kind == 'event' and e.obj.data.kind == 'handoff' %}border border-purple-500/40 bg-purple-500/10 p-3{% elif e.kind == 'event' %}bg-slate-900 border border-slate-800 p-3{% else %}border-l-2 border-slate-700 pl-3 py-2{% endif %}">
       {% if e.kind == 'event' and e.obj.data.kind == 'handoff' %}
-        {# ADR-040: the tier handoff brief — the incoming responder's first read, newest-first #}
+        {# ADR-040: the tier handoff brief — the incoming responder's first read, newest-first. #}
+        {# ADR-042: the card is reserved immediately and filled off the request, so it has three states. #}
         <div class="flex items-center justify-between gap-2">
           <span class="text-xs font-semibold text-purple-300">Handoff brief — {{ e.obj.data.to_tier }} engaged</span>
-          <span class="text-xs text-slate-400">{{ e.at|date:"M j, H:i" }} · {{ e.obj.data.provider }}</span>
+          <span class="text-xs text-slate-400">
+            {{ e.at|date:"M j, H:i" }}{% if e.obj.data.provider %} · {{ e.obj.data.provider }}{% endif %}
+          </span>
         </div>
-        <p class="mt-2 whitespace-pre-wrap text-slate-200">{{ e.obj.body }}</p>
+        {% if e.obj.data.status == 'pending' %}
+          {# Poll the body partial until the brief lands; the swapped-in body has no poller, so it stops itself. #}
+          <div hx-get="{% url 'ui:incident_body' incident.id %}" hx-trigger="every 2s"
+               hx-target="#incident-body" hx-swap="outerHTML"
+               class="mt-2 flex items-center gap-2 text-slate-300" role="status">
+            <span class="h-2 w-2 rounded-full bg-purple-400 animate-pulse" aria-hidden="true"></span>
+            Writing the brief for {{ e.obj.data.to_tier }}…
+          </div>
+        {% elif e.obj.data.status == 'failed' %}
+          <p class="mt-2 text-slate-300">
+            The brief couldn’t be written — the timeline below is the full history.
+          </p>
+        {% else %}
+          <p class="mt-2 whitespace-pre-wrap text-slate-200">{{ e.obj.body }}</p>
+        {% endif %}
       {% elif e.kind == 'event' %}
         {% if e.obj.type == 'ai' %}
           <span class="px-1.5 py-0.5 rounded text-xs bg-purple-500/15 text-purple-300">AI · {{ e.obj.actor|default:'argus' }}</span>
@@ -149,10 +166,46 @@ The root keeps id="incident-body" so subsequent swaps still find it.
     </div>
   </div>
   {% endif %}
+
+  {% if incident.status == 'OPEN' and can_act %}
+  {# Resolve sheet (ADR-042): the complement to the escalation reason — what ACTUALLY fixed it. Optional, and it lands on the terminal Transition, where the RCA assembly reads it. #}
+  <div x-data="{ show: false }"
+       @open-resolve-form.window="show = true" @keydown.escape.window="show = false">
+    <div @click.self="show = false"
+         :class="{ 'opacity-0 pointer-events-none invisible': !show, 'opacity-100': show }"
+         class="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-slate-950/70 p-4
+                transition-opacity duration-150 opacity-0 pointer-events-none invisible">
+      <div :class="{ 'translate-y-4 md:scale-95 opacity-0': !show, 'translate-y-0 md:scale-100 opacity-100': show }"
+           class="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 shadow-xl shadow-black/50 p-5
+                  transition duration-150 translate-y-4 md:scale-95 opacity-0">
+        <h2 class="text-base font-semibold text-slate-100">Resolve this incident</h2>
+        <p class="text-xs text-slate-400 mt-1.5">
+          What fixed it? <span class="text-slate-300">Optional</span> — but it becomes the terminal
+          line of the timeline and the first thing the RCA has to work with.
+        </p>
+        <form hx-post="{% url 'ui:resolve' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML" class="mt-3">
+          {% csrf_token %}
+          <textarea name="reason" rows="3"
+                    aria-label="What fixed it? (optional)"
+                    placeholder="Rolled back the payments deploy; error rate back to baseline within 2 min."
+                    class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-base md:text-sm text-slate-100 placeholder-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"></textarea>
+          <div class="mt-3 flex justify-end gap-2">
+            <button type="button" @click="show = false"
+                    class="px-3 py-2 rounded text-sm text-slate-300 hover:bg-slate-800 transition-colors">Cancel</button>
+            <button type="submit" data-testid="resolve-confirm"
+                    class="px-3 py-2 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 text-sm font-medium transition-colors active:scale-[0.98]">
+              Resolve
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
   {# Material-style FAB (watch#47): bottom-right, out of the scroll path — tap to expand the contextual action menu. Actions vary by state/role, so the menu renders only what applies; mutations swap #incident-body, which re-renders this whole block with fresh affordances. #}
   <div class="md:hidden fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40"
        x-data="{ open: false }" @keydown.escape.window="open = false"
-       @open-escalate-form.window="open = false">
+       @open-escalate-form.window="open = false" @open-resolve-form.window="open = false">
     <div @click="open = false"
          :class="{ 'opacity-0 pointer-events-none invisible': !open, 'opacity-100': open }"
          class="fixed inset-0 bg-slate-950/40 transition-opacity duration-150

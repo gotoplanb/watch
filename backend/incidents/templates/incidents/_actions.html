@@ -12,8 +12,8 @@
   {% if menu %}<span aria-hidden="true">↑</span> {% endif %}Escalate to {{ next_tier.value }}
 </button>
 {% endif %}
-<button class="{% if menu %}w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-emerald-300 hover:bg-slate-800 active:bg-slate-800 transition-colors{% else %}px-3 py-1.5 inline-flex items-center rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-sm transition{% endif %}"
-        hx-post="{% url 'ui:resolve' incident.id %}" hx-target="#incident-body" hx-swap="outerHTML"
-        hx-confirm="Resolve this incident?">
+{# Resolve opens the resolve sheet (ADR-042) — the sheet IS the confirm, and it asks what fixed it. #}
+<button type="button" @click="$dispatch('open-resolve-form')"
+        class="{% if menu %}w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-emerald-300 hover:bg-slate-800 active:bg-slate-800 transition-colors{% else %}px-3 py-1.5 inline-flex items-center rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-sm transition{% endif %}">
   {% if menu %}<span aria-hidden="true">✔</span> {% endif %}Resolve
 </button>

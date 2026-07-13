@@ -109,6 +109,16 @@ def incident_detail(request, pk):
 
 
 @login_required
+@require_GET
+def incident_body(request, pk):
+    """The incident body on its own — what a pending handoff card polls while the model writes it
+    (ADR-042). Same partial every mutation swaps in, so the poll that lands the brief also refreshes
+    everything else; the swapped-in body has no poller, which is how the polling stops."""
+    incident = get_object_or_404(Incident, pk=pk)
+    return render(request, _BODY_PARTIAL, _detail_ctx(request, incident))
+
+
+@login_required
 @require_POST
 def add_note(request, pk):
     """Post a human note onto the incident timeline (a TimelineEvent of type `note`). Commentary,
@@ -154,9 +164,10 @@ def act(request, pk, action):
         return HttpResponseForbidden("You must hold this incident's tier (or higher) to act.")
 
     actor = str(request.user.pk)
-    # The escalating human's stated reason (ADR-041) — optional by design: we want the signal,
-    # not a toll gate. It rides the same paths as the actor (cloud: SendTaskSuccess → commit
-    # Lambda; local: straight to services) and becomes the first thing the next tier reads.
+    # The human's stated reason — why they escalated (ADR-041) or what actually fixed it (ADR-042).
+    # Optional by design in both cases: we want the signal, not a toll gate. It rides the same paths
+    # as the actor (cloud: SendTaskSuccess → commit Lambda; local: straight to services) and lands on
+    # the Transition, where the next tier's brief and the RCA both read it.
     reason = (request.POST.get("reason") or "").strip()
     if action == "ack":
         services.acknowledge(incident.id, actor=actor)
@@ -165,9 +176,9 @@ def act(request, pk, action):
         if settings.ESCALATION_LOCAL_MODE:
             services.escalate(incident.id, actor=actor, reason=reason)
     elif action == "resolve":
-        escalation.send_outcome(incident, escalation.OUTCOME_RESOLVE, actor=actor)
+        escalation.send_outcome(incident, escalation.OUTCOME_RESOLVE, actor=actor, reason=reason)
         if settings.ESCALATION_LOCAL_MODE:
-            services.resolve(incident.id, actor=actor)
+            services.resolve(incident.id, actor=actor, reason=reason)
 
     incident.refresh_from_db()
     return render(request, _BODY_PARTIAL, _detail_ctx(request, incident))
