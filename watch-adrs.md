@@ -903,3 +903,34 @@ A second instance of the same confusion: a blank member id meant both *"this sta
 - *Caveat:* state keys are per-path, not per-topology, so **switching an existing estate's topology in place is not supported** — the state of a stack that changes accounts still names the old account's resources. Adopters pick a topology; only our rehearsal switches, and it does so by releasing (never destroying) the stale entries.
 
 **As built.** `platform/accounts.hcl` (`has_*` + resolving `*_account_id`), `modules/oidc-provider`, stacks `account/oidc-provider` + `member-oidc/nonprod`, `create` gates on `modules/provisioner-role` + `member-iam/*`, `modules/{github-oidc,ci-pipeline-trigger}` reduced to consumers, `prod/deploy` trust fixed, `test/topology_test.go` (`TestOneOwnerPerAccountGlobalName`, `TestOnlyTheOwnerModuleDeclaresTheOIDCProvider`). Issues: platform#57, platform#58.
+
+## ADR-046 — Two questions, not one: who changed AWS, and what actually drifted
+**Status:** Accepted · *Builds on ADR-044 (the fenced provisioner), which is what makes the first question answerable at all.*
+
+**Context.** We create and destroy this estate almost daily, and the only thing standing between "the repo describes AWS" and "the repo used to describe AWS" is that nobody clicks. Dave (2026-07-14): *"getting a notification if a resource was changed via the console and not via a terragrunt apply… a daily report if any click-ops events had taken place."*
+
+The instinct to build one alarm is wrong, and Dave caught me conflating them mid-build: *"you may be conflating the drift detection with also seeing if the correct role is taking the correct actions. And while these are kinda related, it's two separate questions."* They are:
+
+| | question | answered by | fails how |
+|---|---|---|---|
+| **Provenance** | *Who* changed AWS, and were they allowed to? | CloudTrail management events | a console click that changes something we don't manage — real, and causes **no drift** |
+| **Drift** | Does reality still match state? | `plan -refresh-only` | a stale-branch `tofu apply` by the *correct* role — correct identity, and **still drift** |
+
+Neither implies the other. One signal cannot answer both, and a report that mixes them tells you something changed without telling you whether to care.
+
+**Decision.** Two checks, one nightly report, **zero new AWS resources**.
+1. **Provenance — CloudTrail, no trail required.** `lookup-events` reads CloudTrail Event history, which keeps 90 days of management events for free. Since the report is *daily*, not real-time, we need no trail, no SNS, no EventBridge, no log ingestion — **$0**. Every write event in the last 24h, minus the identities allowed to write.
+2. **The allowlist is only honest because of ADR-044.** Before the provisioner, humans and robots were the same identity (admin) and no filter could tell them apart. Now: writes by `watch-provisioner` (OpenTofu), `gha-*` (CI), the estate's own runtime roles (`watch-*-exec`, `watch-build`…), and AWS service principals are expected. **Everything else is reported** — an IAM user, root, an SSO role, any console session, and `OrganizationAccountAccessRole`, which gets its own label: *"a terragrunt run that bypassed the provisioner"*, because that is not a stray click, it is us failing to use our own fence.
+3. **Drift — `plan -refresh-only`, driven off the state bucket.** Refresh-only compares state to reality and reports nothing else, which is the only thing that survives our operating model: a plain `plan` screams "500 to add" every time the estate is torn down, which here is a normal Tuesday. We iterate the state objects rather than `run --all`, because `run --all` aborts when a torn-down stack's dependency has no outputs — the first version did exactly that and cheerfully reported "clean" while a hand-edited role sat in front of it.
+4. **Silence is the feature.** The report is parsed from plan JSON, not grepped from its prose, because OpenTofu says "has changed" whenever a refresh turns `tags = null` into `tags = {}`, or fills in a computed `url`. Those fire nightly, forever, and are not drift. The rule that separates them: *a key absent from state that appears in AWS is an addition (drift); a key present but empty that AWS fills in is computed (ignore).* **A report that is never clean is a report nobody reads**, so noise is a correctness bug, not a cosmetic one.
+5. **Delivered as one GitHub issue**, opened/updated when there is something to say and **closed when the estate is clean** — a quiet estate is silent, a noisy one has exactly one place to look.
+6. **Complements `make doctor`** (#44), which answers a third question — *is anything costing me money* (billable orphans, ghosts). Not merged into this: money and provenance fail differently and are read by different people at different times.
+
+**Consequences.**
+- *Gain:* click-ops becomes visible within a day, in the repo, with the identity attached — for $0 of AWS resources.
+- *Gain:* it caught **us** on the first run: `watch-bootstrap` (long-lived admin key) doing `RunTask`, `CreateInvalidation`, `StartPipelineExecution` — our own `make live` helper steps still bypassing the provisioner. The report's first true positive was our own discipline, which is the best possible advertisement for it.
+- *Proven, not assumed:* the detector was validated by deliberately click-opsing a live resource (hand-tagging `watch-provisioner` in nonprod). The first implementation **missed it**, silently, in both halves. It now catches it in both, and the tag was reverted. A detector that has never fired is not a detector.
+- *Cost:* CloudTrail Event history lags a few minutes and holds 90 days — irrelevant for a daily report, fatal for a real-time one. If we ever want real-time or long-term immutable audit, that needs an actual trail, and that is a different decision.
+- *Caveat:* an identity in the allowlist that goes rogue (a compromised `watch-provisioner`) is invisible to the provenance half — bounded, deliberately, by the ADR-044 boundary. The drift half still sees what it did.
+
+**As built.** `platform/scripts/drift-report.sh` (`make drift`), `scripts/lib/clickops_filter.py`, `scripts/lib/drift_filter.py`, `.github/workflows/drift.yml` (nightly, read-only `gha-plan`, one `drift`-labelled issue), `moved` blocks in `modules/provisioner-role` so the ADR-045 count refactor is not mistaken for drift.
