@@ -943,3 +943,28 @@ So the fenced role is now the **default, not an opt-in**, in all three places th
 This is the point of a drift report that names identities rather than just resources: the first thing it found was not an intruder, it was our own discipline.
 
 **As built.** `platform/scripts/drift-report.sh` (`make drift`), `scripts/lib/clickops_filter.py`, `scripts/lib/drift_filter.py`, `.github/workflows/drift.yml` (nightly, read-only `gha-plan`, one `drift`-labelled issue), `moved` blocks in `modules/provisioner-role` so the ADR-045 count refactor is not mistaken for drift, and the default-role flip in `terragrunt.hcl` + `scripts/lib/xacct.sh` + `scripts/topology-check.sh`.
+
+## ADR-047 — Some first-run steps are scripts, and that is fine: build the boot image from source
+**Status:** Accepted · *Refines ADR-044 (the one admin bootstrap step) and explains the root cause behind platform#60/#61/#62.*
+
+**Context.** The ECS task definitions pull `<repo>:bootstrap` — an image that must exist *before* the services can start, but which the pipeline can only build *after* the estate exists. A real chicken-and-egg, and we papered over it: `create.sh` "self-healed" a missing `:bootstrap` tag by **re-tagging whatever image happened to be newest in ECR**. In a long-lived repo that is a build from days ago, so **a fresh estate came up running stale code** — and on a genuinely empty repo (an adopter's first run) it just failed with *"build+push one first"*. The manual step was always there; it was simply undocumented, and the fallback quietly lied about it.
+
+Nearly every bug in the fresh-estate lifecycle descends from that lie:
+- migrations ran with the old image, so the **schema lagged the code** — new Lambdas then failed against it, which tripped the deploy-gate alarm, which blocked the deploy that would have migrated it (platform#62, a genuine deadlock);
+- the worker's entrypoint (`manage.py run_sqs_worker`) **did not exist** in the stale image, so it exited 0 forever while ECS reported "steady state" (platform#61/#60).
+
+Dave (2026-07-14): *"there is no shame in having some extra scripts that have to be run outside of the tofu apply for the first time creation for an adopter. That's in the same spirit as us having the bootstrap role that has to be done to create the provisioner role."*
+
+**Decision.** Stop pretending the boot image is part of the resource graph. **`make bootstrap-image`** builds the app image from source and pushes `<repo>:bootstrap` — run once, before the first `make live` in a fresh account.
+1. **It is an honest first-run step, like the admin apply that mints the provisioner** (ADR-044 §5). Both are cases where a graph cannot bootstrap itself, and a documented script beats an implicit fallback that only works if the system is already working.
+2. **The estate boots on the code you are deploying.** Not "whatever was newest". That deletes the schema/code skew at its root rather than sequencing around it — the Lambda-ordering fix (platform#62) remains correct on its own merits, but it is no longer load-bearing for a fresh estate.
+3. **The re-tag fallback survives, demoted and loud.** Standing an estate back up after a teardown may legitimately reuse the existing image; that path now *says* it is doing so and points at `make bootstrap-image` for current code. What it may no longer do is stay silent.
+4. **`--platform linux/amd64`, explicitly.** Fargate runs amd64; an arm64 image built on an Apple laptop starts, fails to exec, and is reported by ECS as a stopped task — indistinguishable from a crash loop, and an hour to diagnose.
+
+**Consequences.**
+- *Gain:* the fresh-estate path is a straight line — build the image, apply, migrate (current code), seed, deploy. No window in which some components run yesterday's code and others run today's.
+- *Gain:* an adopter's first failure is now a sentence telling them what to run, instead of `ERROR: no images to seed :bootstrap`.
+- *Cost:* one more manual step in the first-run story, and it needs Docker. Accepted deliberately: the alternative is not "zero steps", it is "one step that happens invisibly and wrongly".
+- *Guardrail:* `make live` must complete **in one shot** on a fresh estate. That is the standing acceptance test for this whole lifecycle — Dave: *"Until make live works again in one shot, we keep fixing."*
+
+**As built.** `platform/scripts/bootstrap-image.sh` (`make bootstrap-image`), the demoted+loud re-tag fallback in `scripts/create.sh`, and the first-run step documented in `docs/TOPOLOGIES.md` §1.
