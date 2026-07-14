@@ -96,8 +96,15 @@ phases:
                   ContainerPort: ${CONTAINER_PORT}
         ${HOOKS_BLOCK}
         YAML
+          # The WORKER runs the SAME image as the app, a different command (ADR-025) — but nothing
+          # promoted it, so it sat on the `bootstrap` placeholder image in every cloud env and
+          # exited 0 forever on an unknown `run_sqs_worker` command (platform#61). It has no load
+          # balancer, so it needs no blue/green: a plain ECS rolling deploy driven by an
+          # imagedefinitions.json, which swaps the image on the service's own task definition.
+          printf '[{"name":"%s","imageUri":"%s"}]\n' "$CONTAINER_NAME" "$IMAGE_REF" \
+            > "imagedefinitions-${ENVN}-worker.json"
         done
-      - echo "Artifacts:" && ls taskdef-*.json appspec-*.yaml
+      - echo "Artifacts:" && ls taskdef-*.json appspec-*.yaml imagedefinitions-*.json
 
 artifacts:
   files:
@@ -105,3 +112,5 @@ artifacts:
     - appspec-staging.yaml
     - taskdef-prod.json
     - appspec-prod.yaml
+    - imagedefinitions-staging-worker.json
+    - imagedefinitions-prod-worker.json
