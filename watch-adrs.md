@@ -933,4 +933,13 @@ Neither implies the other. One signal cannot answer both, and a report that mixe
 - *Cost:* CloudTrail Event history lags a few minutes and holds 90 days — irrelevant for a daily report, fatal for a real-time one. If we ever want real-time or long-term immutable audit, that needs an actual trail, and that is a different decision.
 - *Caveat:* an identity in the allowlist that goes rogue (a compromised `watch-provisioner`) is invisible to the provenance half — bounded, deliberately, by the ADR-044 boundary. The drift half still sees what it did.
 
-**As built.** `platform/scripts/drift-report.sh` (`make drift`), `scripts/lib/clickops_filter.py`, `scripts/lib/drift_filter.py`, `.github/workflows/drift.yml` (nightly, read-only `gha-plan`, one `drift`-labelled issue), `moved` blocks in `modules/provisioner-role` so the ADR-045 count refactor is not mistaken for drift.
+**The report's first finding, and what we did about it.** It caught **us**: `watch-bootstrap` — the long-lived admin key — doing `RunTask`, `CreateInvalidation` and `StartPipelineExecution`. `make live` was *applying* through the provisioner and then doing its finishing moves as admin. Two holes, both of which made the safe path the one you had to remember to ask for:
+
+- the raw-CLI lifecycle steps (`scripts/lib/xacct.sh`) defaulted to the **admin** `OrganizationAccountAccessRole`;
+- and when there was no separate member account, they assumed **nothing at all** — so in the hub (and in the whole single-account topology) they simply ran as whatever credential you happened to hold.
+
+So the fenced role is now the **default, not an opt-in**, in all three places that decide who we are — the terragrunt root, `xacct.sh`, and `topology-check.sh` — and all three assume it **even in-account**. Admin is now the thing you have to ask for, and there is exactly one step that is supposed to: the bootstrap apply that mints the provisioner, which cannot assume what does not exist yet (`WATCH_ASSUME_IN_ACCOUNT=0`, documented in `docs/SECURITY.md` §5). `test/topology_test.go` asserts every stack in every topology writes as the fenced role, hub included — the hub's exemption is exactly what hid this.
+
+This is the point of a drift report that names identities rather than just resources: the first thing it found was not an intruder, it was our own discipline.
+
+**As built.** `platform/scripts/drift-report.sh` (`make drift`), `scripts/lib/clickops_filter.py`, `scripts/lib/drift_filter.py`, `.github/workflows/drift.yml` (nightly, read-only `gha-plan`, one `drift`-labelled issue), `moved` blocks in `modules/provisioner-role` so the ADR-045 count refactor is not mistaken for drift, and the default-role flip in `terragrunt.hcl` + `scripts/lib/xacct.sh` + `scripts/topology-check.sh`.
