@@ -49,14 +49,16 @@ phases:
       - cp escalation/lambdas/intake_consumer.py lambda_build/intake_consumer.py
       - (cd lambda_build && zip -qr ../lambda.zip .)
       - aws s3 cp lambda.zip "s3://${ARTIFACT_BUCKET}/lambda/${IMAGE_TAG}.zip"
-      - |
-        for prefix in $LAMBDA_ENVS; do
-          for fn in record-token commit intake-consumer; do
-            aws lambda update-function-code --function-name "${prefix}-${fn}" \
-              --s3-bucket "$ARTIFACT_BUCKET" --s3-key "lambda/${IMAGE_TAG}.zip" --publish >/dev/null \
-              && echo "  updated ${prefix}-${fn}"
-          done
-        done
+      # PUBLISH the zip; do NOT promote it. Build must not mutate the running estate.
+      #
+      # This used to call `aws lambda update-function-code` right here, which deadlocked a fresh
+      # `make live` (platform#62): new Lambda code met the OLD schema — migrations run later, in the
+      # deploy stage's BeforeAllowTraffic hook — so every Step Functions execution failed, which
+      # tripped the escalation-failed deploy-gate alarm, which made CodeDeploy refuse to install,
+      # which meant the migrations that would have fixed it never ran. Re-running never helped.
+      #
+      # The promotion now happens in the deploy stage, after migrations, keyed off this file.
+      - echo "lambda/${IMAGE_TAG}.zip" > lambda-key.txt
 
   post_build:
     commands:
@@ -114,3 +116,4 @@ artifacts:
     - appspec-prod.yaml
     - imagedefinitions-staging-worker.json
     - imagedefinitions-prod-worker.json
+    - lambda-key.txt
