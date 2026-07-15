@@ -68,3 +68,14 @@ def test_waits_preserve_input_with_resultpath():
     # SFN Local test caught).
     for tier in ("T1", "T2", "T3"):
         assert STATES[f"{tier}_Wait"]["ResultPath"] == "$.decision"
+
+
+def test_manual_commits_forward_the_human_reason():
+    # The reason the human typed (ADR-041/042) rides the SendTaskSuccess output into $.decision,
+    # but it only reaches the commit Lambda if the commit Payload forwards it. It used to not:
+    # send_outcome sent the reason, the ASL dropped it, and every manual transition landed with
+    # the "escalated" default — invisible in the UI and the RCA (found by driving staging).
+    for name in ("T1_EscalateCommit", "T2_EscalateCommit", "ResolveCommit"):
+        payload = STATES[name]["Parameters"]["Payload"]
+        assert payload.get("reason.$") == "$.decision.reason", f"{name} must forward the reason"
+        assert payload.get("actor.$") == "$.decision.actor", f"{name} must forward the actor"

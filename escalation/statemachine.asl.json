@@ -24,7 +24,7 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${commit_function_arn}",
-        "Payload": {"incidentId.$": "$.incidentId", "action": "ESCALATE", "actor.$": "$.decision.actor"}
+        "Payload": {"incidentId.$": "$.incidentId", "action": "ESCALATE", "actor.$": "$.decision.actor", "reason.$": "$.decision.reason"}
       },
       "ResultPath": "$.commit",
       "Next": "T2_Wait"
@@ -62,7 +62,7 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${commit_function_arn}",
-        "Payload": {"incidentId.$": "$.incidentId", "action": "ESCALATE", "actor.$": "$.decision.actor"}
+        "Payload": {"incidentId.$": "$.incidentId", "action": "ESCALATE", "actor.$": "$.decision.actor", "reason.$": "$.decision.reason"}
       },
       "ResultPath": "$.commit",
       "Next": "T3_Wait"
@@ -101,7 +101,7 @@
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${commit_function_arn}",
-        "Payload": {"incidentId.$": "$.incidentId", "action": "RESOLVE", "actor.$": "$.decision.actor"}
+        "Payload": {"incidentId.$": "$.incidentId", "action": "RESOLVE", "actor.$": "$.decision.actor", "reason.$": "$.decision.reason"}
       },
       "ResultPath": "$.commit",
       "Next": "Resolved"
