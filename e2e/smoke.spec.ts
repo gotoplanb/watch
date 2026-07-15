@@ -139,7 +139,10 @@ test("responder journey: escalation reason + resolve reason reach the RCA", { ta
       { message: "escalated to T2 with a reason", timeout: 120_000, intervals: [5_000] }
     )
     .toBe("T2");
-  await expect(page.getByText(why, { exact: false })).toBeVisible();
+  // The reason lands in TWO legitimate places once the handoff brief is working: the T1→T2
+  // transition line AND the handoff card, which folds the escalation reason into the incoming
+  // tier's context (ADR-042). `.first()` asserts "it surfaced" without a strict-mode violation.
+  await expect(page.getByText(why, { exact: false }).first()).toBeVisible();
 
   // Resolve — same pattern, asking what actually fixed it.
   await page.getByRole("button", { name: /^resolve$/i }).first().click();
