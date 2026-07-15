@@ -968,3 +968,25 @@ Dave (2026-07-14): *"there is no shame in having some extra scripts that have to
 - *Guardrail:* `make live` must complete **in one shot** on a fresh estate. That is the standing acceptance test for this whole lifecycle — Dave: *"Until make live works again in one shot, we keep fixing."*
 
 **As built.** `platform/scripts/bootstrap-image.sh` (`make bootstrap-image`), the demoted+loud re-tag fallback in `scripts/create.sh`, and the first-run step documented in `docs/TOPOLOGIES.md` §1.
+
+## ADR-048 — The deploy gate watches a broken engine, not a missed incident
+**Status:** Accepted · *Refines ADR-001 (a failed execution is alarmable) by splitting the one alarm into two signals. Root-caused via platform#64.*
+
+**Context.** ADR-001 made a deliberate choice: a missed escalation — a T3 incident whose SLA elapses with no resolution — ends its Step Functions execution in a `Fail` state (`EscalationExhausted`), which increments `AWS/States ExecutionsFailed`, which raises the `watch-<env>-escalation-failed` alarm. That is the escalation-correctness KPI, and it is correct: a missed incident *should* page on-call.
+
+The mistake was **reusing that same alarm as the CodeDeploy rollback gate.** `ExecutionsFailed` counts *any* failed execution — both the deliberate `EscalationExhausted` (a real business outcome) and a genuine engine break (a Lambda throwing because the image is broken or the code is ahead of the schema — the platform#62/#63 family). So the gate could not tell "someone missed an incident" from "this deploy broke the engine", and treated both as a reason to roll back.
+
+It bit exactly as you'd predict. A single **seeded demo incident**, left unresolved, walked T1→T2→T3 and exhausted ~1h45m after seeding, failing its execution and latching the alarm (an `AWS/States` metric goes *silent* between failures, and a silent metric with `treat_missing_data = notBreaching` still left the alarm stuck in ALARM). Hours later a routine redeploy hit `ALARM_ACTIVE` at DeployStaging and rolled back — a deploy blocked by ordinary, correct incident behavior. In production the same shape is worse: a real T3 incident nobody gets to in time would freeze all deploys.
+
+**Decision.** Two concerns, two alarms.
+1. **On-call / KPI** stays `watch-<env>-escalation-failed` on `ExecutionsFailed` (missed escalation *or* engine error). It pages a human. **It no longer gates deploys.**
+2. **The deploy gate** is a new alarm, `watch-<env>-escalation-engine-error`, on **`LambdaFunctionsFailed`** — the decision/commit Lambdas actually throwing. That is precisely "this deploy broke the engine"; a deliberate `EscalationExhausted` `Fail` raises *no* Lambda failure, so a missed incident can never roll back a deploy. CodeDeploy's `rollback_alarm_names` (staging and the gated prod promote) point here.
+3. **The gate self-resets.** Its alarm is metric-math `FILL(LambdaFunctionsFailed, 0)`, so missing datapoints read as an explicit `0` and it returns to OK once the Lambdas stop failing — instead of latching. Without this, the very deploy that would *fix* a broken Lambda could never install (the deadlock platform#62 first hit; we will not re-introduce it in the gate itself).
+
+**Consequences.**
+- *Gain:* legitimate incident outcomes and seeded demo data never block deploys. The one-shot `make live` is robust to un-resolved incidents, and prod deploys are not hostage to on-call response time.
+- *Gain:* the gate now fires on the thing it is actually for — a broken engine — and catches the platform#62/#63 failures unchanged (they are Lambda throws).
+- *Cost:* `LambdaFunctionsFailed` also counts a Lambda failure that Step Functions *retries and recovers*; a transient blip during a deploy could trip the gate. Accepted: the gate is conservative by design, deploy-window failures are worth a rollback-and-retry, and the deterministic breaks we care about fail every attempt anyway.
+- *Unchanged:* ADR-001's semantics. A missed escalation is still a failed execution and still alarms; we only stopped letting that alarm stop deploys.
+
+**As built.** `platform/modules/escalation/statemachine.tf` (both alarms; `engine_error` on `FILL`ed `LambdaFunctionsFailed`), its outputs, and the gate rewire in `watch/us-east-1/pipeline/terragrunt.hcl` + `watch/us-east-1/prod/deploy/terragrunt.hcl`. `scripts/deploy.sh` diagnostics point at the engine-error gate.
