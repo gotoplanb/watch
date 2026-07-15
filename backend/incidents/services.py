@@ -190,7 +190,13 @@ def escalate(incident_id, actor: str, reason: str = "") -> Incident:
     # Tier handoff brief (ADR-040): the incoming responder's first read, posted as the NEWEST
     # timeline event. Post-commit so the model call can never delay or roll back the
     # escalation itself; soft-fail inside.
-    if flags.is_enabled(HANDOFF_FLAG, default=False):
+    # Default TRUE: this is a shipped feature, and in the real engine `escalate` runs inside the
+    # commit Lambda, which has no AppConfig Agent sidecar — every flag read there fails closed to
+    # its default (found by driving staging: the card never reserved). On-by-default keeps the
+    # handoff working in the Lambda; an env that wants it off sets handoff_brief=false where the
+    # flag is actually readable (the app/local). Broader gap (Lambda can't read AppConfig) tracked
+    # separately.
+    if flags.is_enabled(HANDOFF_FLAG, default=True):
         transaction.on_commit(
             lambda pk=incident.id, ft=from_tier, tt=target.value, a=actor, au=auto, r=reason:
                 _post_handoff_brief(pk, ft, tt, a, au, r)
