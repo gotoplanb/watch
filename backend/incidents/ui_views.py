@@ -60,9 +60,16 @@ def _resolve_target(incident, target):
     return None
 
 
-def _detail_ctx(request, incident):
+def _detail_ctx(request, incident, awaiting=None):
     return {
         "incident": incident,
+        # Set when a cloud-mode escalate/resolve has been issued but the commit Lambda hasn't
+        # landed yet (ADR-007): the swapped-in body carries a poller that refreshes until the
+        # transition commits. Without it the async response shows stale pre-commit state and the
+        # page sits dead until a manual reload (the handoff card's poller only exists once the card
+        # itself is reserved, which is also post-commit). The value is the state we're waiting to
+        # LEAVE — "<tier>:<status>" — so the poll self-terminates the moment it changes.
+        "awaiting": awaiting,
         # Newest-first (ADR-040): the incoming responder reads the handoff brief, then history.
         # RCA assembly (rca_markdown) stays chronological — this reversal is display-only.
         "timeline": list(reversed(services.timeline(incident))),
@@ -115,7 +122,11 @@ def incident_body(request, pk):
     (ADR-042). Same partial every mutation swaps in, so the poll that lands the brief also refreshes
     everything else; the swapped-in body has no poller, which is how the polling stops."""
     incident = get_object_or_404(Incident, pk=pk)
-    return render(request, _BODY_PARTIAL, _detail_ctx(request, incident))
+    # `?await=<tier>:<status>` = an escalate/resolve poller waiting for its commit (see _detail_ctx).
+    # Keep polling only while the incident is still in that state; once it moves, drop the poller.
+    await_state = request.GET.get("await") or ""
+    awaiting = await_state if await_state == f"{incident.current_tier}:{incident.status}" else None
+    return render(request, _BODY_PARTIAL, _detail_ctx(request, incident, awaiting=awaiting))
 
 
 @login_required
@@ -181,7 +192,15 @@ def act(request, pk, action):
             services.resolve(incident.id, actor=actor, reason=reason)
 
     incident.refresh_from_db()
-    return render(request, _BODY_PARTIAL, _detail_ctx(request, incident))
+    # In cloud mode escalate/resolve only issue SendTaskSuccess here; the commit Lambda writes the
+    # new state a beat later (ADR-007), so what we're about to render is still pre-commit. Hand the
+    # body a poller (keyed to the state we're leaving) so it refreshes itself the moment the commit
+    # lands — instead of sitting on stale state until the user reloads. Local mode commits inline
+    # above, so there is nothing to wait for.
+    awaiting = None
+    if action in ("escalate", "resolve") and not settings.ESCALATION_LOCAL_MODE:
+        awaiting = f"{incident.current_tier}:{incident.status}"
+    return render(request, _BODY_PARTIAL, _detail_ctx(request, incident, awaiting=awaiting))
 
 
 # --- On-call schedule (ADR-012) ---

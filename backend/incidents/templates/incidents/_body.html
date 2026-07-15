@@ -43,6 +43,23 @@ The root keeps id="incident-body" so subsequent swaps still find it.
     {% endif %}
   </div>
 
+  {% if awaiting %}
+  {% comment %}
+  Cloud-mode escalate/resolve is async (ADR-007): the commit lands a beat after the POST returns.
+  Poll the body until the state we're leaving changes — incident_body drops this poller the moment
+  it does, and the committed body (reason + reserved handoff card) takes over. Without it the page
+  would show stale pre-commit state until a manual reload.
+  {% endcomment %}
+  <div data-testid="transition-pending"
+       hx-get="{% url 'ui:incident_body' incident.id %}?await={{ awaiting|urlencode }}"
+       hx-trigger="every 2s" hx-target="#incident-body" hx-swap="outerHTML"
+       class="mt-3 flex items-center gap-2 rounded border border-slate-800 bg-slate-900 p-3 text-sm text-slate-300"
+       role="status">
+    <span class="h-2 w-2 rounded-full bg-amber-400 animate-pulse" aria-hidden="true"></span>
+    Applying your action…
+  </div>
+  {% endif %}
+
   <h2 class="text-sm font-semibold text-slate-400 mt-6 mb-2">Timeline</h2>
   <ol class="space-y-2">
     {% for e in timeline %}

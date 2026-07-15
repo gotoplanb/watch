@@ -325,6 +325,27 @@ def test_escalate_real_mode_leaves_state_to_lambda(client, settings, monkeypatch
     resp = client.post(f"/ui/incidents/{inc.id}/escalate/")
     inc.refresh_from_db()
     assert resp.status_code == 200 and inc.current_tier == Tier.T1  # unchanged; commit Lambda owns it
+    # The commit is deferred, so the swapped-in body MUST carry a poller keyed to the state we're
+    # leaving — otherwise the page shows stale pre-commit state until a manual reload (platform#64).
+    body = resp.content.decode()
+    assert 'data-testid="transition-pending"' in body
+    assert f"await=T1%3A{Status.OPEN}" in body
+
+
+@pytest.mark.django_db
+def test_transition_poller_stops_once_the_commit_lands(client, settings):
+    """The escalate/resolve poller self-terminates: incident_body keeps it only while the incident is
+    still in the state being left, and drops it the moment the commit moves the state (platform#64)."""
+    inc = _incident(Tier.T1)
+    client.force_login(_user("t2c", "T2"))
+    url = f"/ui/incidents/{inc.id}/body/"
+    # Commit hasn't landed: the incident is still T1:OPEN, so the poller persists and keeps polling.
+    still = client.get(url, {"await": f"T1:{Status.OPEN}"}).content.decode()
+    assert 'data-testid="transition-pending"' in still
+    # Commit lands (T2): the same poll now sees a changed state and returns a body WITHOUT the poller.
+    services.escalate(inc.id, actor="9")
+    landed = client.get(url, {"await": f"T1:{Status.OPEN}"}).content.decode()
+    assert 'data-testid="transition-pending"' not in landed
 
 
 @pytest.mark.django_db
