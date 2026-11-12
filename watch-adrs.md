@@ -1010,3 +1010,94 @@ It bit exactly as you'd predict. A single **seeded demo incident**, left unresol
 - *Cost:* senders do the mapping work (a payload template). Keeping an alert consistent across two systems that both received it is the operator's problem in the alerting layer; Watch won't reconcile them.
 - *Caveat:* outbound reliability is what ADR-023/025 give it — at-least-once over SQS with a DLQ, SQS-native retry, idempotent on `event_id`. Paging is currently dark for Lambda-driven (auto-)escalations until the flag-read gap is fixed (watch#57).
 - *Guardrail:* a new integration starts as an outbound subscription or a sender-side template; any proposal for vendor-specific code inside Watch needs its own ADR.
+
+---
+
+## ADR-050 — Escalation correctness: AI grades the judgment, timestamps grade the timing
+**Status:** Accepted (design; not yet built) · *Resolves watch#52 (spec-gap). Consumes ADR-041/042 (stated reasons), ADR-036 (TriageDecision), ADR-021 (Annotation).*
+
+**Context.** The operating model's central measure is escalating *correctly*, not fast and not rarely: a T1 who escalates what they could have fixed burns T2's time; a T1 who sits on what they can't fix burns the customer's. Watch records every escalation, and since ADR-041/042 it records the human's *why I escalated* and *what fixed it* — but grades nothing, so nobody learns. The hard part is that "correct" mixes two different questions. *Was escalating the right call?* is a judgment that needs to read the reasons. *Was it on time?* is a fact the timestamps already know. An auto-escalation (the SLA ran out, nobody acted) has no judgment to grade at all — it is, by definition, a timing failure.
+
+**Decision.**
+1. **Two axes, two graders.**
+   - **Judgment — AI-graded, human escalations only.** After an incident resolves, a grading job reads each human escalation's stated reason against the resolve reason ("what fixed it"), the tier that fixed it, and the timeline, and grades it `warranted | premature | undetermined` with a one-line justification. *Premature* = the fix was within the escalating tier's role (`handoff_ai.TIER_ROLES`). `undetermined` is a first-class answer when the reasons are empty or the evidence is thin — never a guess.
+   - **Timing — measured, never AI.** For every tier exit: `time_in_tier / tier_sla` and whether an ACK happened. An auto-escalation is recorded as **`unattended`** (no grade on judgment); a human escalation that came after >80% of the SLA is **`late`**. Deterministic, from Transition timestamps.
+2. **Grades are annotations, never edits.** Each grade is an `EscalationGrade` row (transition, axis, grade, justification, grader `system:grader` + provider provenance, created_at), append-only and RCA-visible like ADR-021 annotations. The `Transition` audit record is never mutated.
+3. **The AI triage assistant is graded on the same scale as a T1.** A `TriageDecision` (ADR-036) is gradeable the same way once the incident resolves: an auto-resolve that turned out real, or a `no_action` on a false positive, is a graded miss. The assistant gets no special pass for being software.
+4. **Who sees what.** A responder sees their **own** grades (on their settings page and on each incident they escalated). The team sees **per-tier rates only** — warranted/premature/unattended/late by tier and week, and the assistant's rate alongside. No per-person leaderboard. The point is a feedback loop, not a scoreboard.
+5. **Off the hot path, provider-seamed.** Grading is a fourth ADR-025 queue job kind (`grade`), enqueued on resolve, idempotent per transition. Provider seam `grade_ai` (`stub | bedrock | conduct`, ADR-034 pattern); the stub grades from structured facts only (fix tier vs. escalating tier) and says `undetermined` otherwise. Behind the `escalation_grading` flag (ADR-003), both branches tested.
+
+**Consequences.**
+- *Gain:* the reasons ADR-041/042 capture now pay off as learning; the KPI becomes measurable per tier and for the assistant on the same terms.
+- *Gain:* keeping timing deterministic means the most contestable number (was it late?) is never an AI opinion.
+- *Cost:* AI judgment on free text is noisy; mitigated by `undetermined`, the one-line justification, and visibility to the person graded so a bad grade can be challenged with an annotation.
+- *Guardrail:* grades never feed authz, paging, or routing automatically; any future "learn the routing" use of grades needs its own ADR.
+
+---
+
+## ADR-051 — Per-tier assistant cadence, and the drafted update email with a countdown
+**Status:** Accepted (design; not yet built) · *Resolves watch#53 (spec-gap). Builds on ADR-040 (handoff brief), ADR-025/042 (queue), ADR-013 (paging seam), ADR-035/053 (mode). Adds an email seam.*
+
+**Context.** ADR-040 serves each tier at the moment it's engaged. After that, each tier fails differently: **T1 drifts** (sits on an incident without progress), **T2 fragments** (several incidents, none owned end to end), **T3 gets interrupted** (pulled in without context — already served by the brief). Separately, a large share of an incident's busywork is the **status update**: someone has to tell stakeholders what's happening, on a rhythm, and it's the first thing dropped under pressure. Discussion (2026-11-12) extended the nudge idea: the assistant should *draft* that update and give T1 a short window to edit, send or cancel it — and some updates should go out on their own if nobody acts.
+
+**Decision.**
+1. **One cadence scheduler, per-tier behavior.** A `cadence_tick` job (ADR-025 queue; EventBridge Scheduler → SQS in the cloud, a management-command loop locally) wakes every minute and finds incidents with a nudge or digest due. Each cadence is its own flag: `cadence_t1_nudge`, `cadence_t2_digest`, `update_email_drafts`. T3 gets nothing recurring — the brief is T3's surface.
+2. **T1 progress nudge (~5 min).** Posts an AI timeline event: what has changed since the last nudge, and the next runbook step. **Unanswered nudges escalate:** after **N consecutive nudges with no T1 activity** (default N=2, i.e. ~10 min) the incident escalates with actor `system:nudge`. Activity = an ACK, a note, an edit/send/cancel of an update draft, or any action. The escalation goes through the **same** path as a human's (`services` → `SendTaskSuccess(outcome=ESCALATE)`, commit Lambda as sole writer, ADR-001/007/010) — a second *reason* to escalate, not a second engine.
+3. **Drafted update email with a countdown.** On its own cadence, the assistant drafts a stakeholder update (what happened, current status, next update time) and posts it as a timeline card with a **countdown** (default **5 min**, **2 min in race mode**, configured per tier and mode alongside the SLAs). T1 can **edit**, **send now**, or **cancel**. When the countdown expires untouched:
+   - if the recipient list is marked `auto_send`, the draft is sent as-is, labeled in the timeline as auto-sent;
+   - otherwise the draft lapses **and counts as an unanswered nudge** (feeding §2's escalation).
+4. **Recipient lists are per incident, and any list may auto-send.** An incident carries recipient lists (seeded from defaults by source/subject area — ADR-052); each list has an `auto_send` toggle, **default off**. Dave's call (2026-11-12): internal and external lists alike may be set to auto-send — the operator decides per list, Watch doesn't impose a split. Guardrails because that includes customer-facing mail: the toggle is explicit per list (never inherited silently), every auto-sent message is labeled as AI-drafted/auto-sent in the timeline and the email footer, and a single `update_email_autosend` kill-switch flag disables all auto-send at once.
+5. **Email is a provider seam.** `notify_email.send(...)` beside the ntfy `notify()` seam (ADR-013): Django's console backend locally (drafts and sends visible in the server log, no real mail), **Amazon SES** in the cloud (needs a verified domain/sender in the account — a platform follow-up). Every send is an audit row (recipients, subject, body hash, who/what sent it, status), and emits an outbound event (`incident.update_sent`, ADR-023/049) so other systems can see the update without Watch knowing about them.
+6. **T2 hourly digest.** One digest per hour to the current T2 on-call (ADR-012): open T2 incidents, what moved, what stalled. Delivered through the email seam and shown on the incident list. **Suppressed in race mode** (ADR-053) — nobody reads an hourly digest during an outage.
+
+**Consequences.**
+- *Gain:* T1 drift becomes visible and self-correcting; the status update — the first thing dropped under pressure — is drafted for the responder rather than demanded of them.
+- *Gain:* nudge escalation reuses the one escalation path, so ADR-001's provable timeline and the sole-writer rule are intact.
+- *Cost:* effectively shortens T1's window from the SLA to ~N×nudge interval for an *inactive* T1; intended, and tunable via N.
+- *Cost / risk:* auto-sending AI-drafted mail to external recipients means a wrong sentence can reach a customer with no human reading it. Accepted by explicit per-list opt-in; mitigated by labeling, the kill switch, and the audit row. Revisit if a bad auto-send ever happens.
+- *Dependency:* the cadence runs on the worker (ECS), not the escalation Lambdas, so it isn't blocked by watch#57; but anything it calls inside `services` that is *also* Lambda-reachable must not rely on flags until #57 lands.
+
+---
+
+## ADR-052 — The SME layer: subject areas, engaged without touching the tier or the clock
+**Status:** Accepted (design; not yet built) · *Resolves watch#54 (spec-gap). Orthogonal to ADR-007 (tiers/tokens), ADR-012 (on-call), ADR-008 (authz).*
+
+**Context.** Escalating T2→T3 buys *authority*; it doesn't buy the one engineer who knows the payments SDK integration. Today the only lever in the UI is *escalate*, which is the wrong lever for "I need the person who knows this", and using it for that both distorts the escalation-correctness signal (ADR-050) and spends T3's time.
+
+**Decision.**
+1. **`SubjectArea` is its own model, not a Group.** `name` (e.g. Payments, Auth), `description`, `members` (users), and `match_hints` (services/components/keywords used to suggest an area). Groups stay capability/authz (ADR-008); subject areas are *knowledge*. Mixing them in one mechanism is exactly what this ADR separates.
+2. **"Engage SME" is an action next to escalate.** It targets a subject area or a named person. It **does not** change tier, **does not** consume the task token, **does not** pause or alter the SLA clock — ADR-007 stays exactly as is; the incident still escalates on time if it should.
+3. **Engaging pages and briefs.** It pages the target (ADR-013 seam — per-user topic; area → its members) and posts an **SME brief** on the timeline addressed to them: what has happened, what we need from you specifically, what has been ruled out (the ADR-040 pattern with an SME framing). The engaging human's stated reason (ADR-041 sheet) is the routing input and appears verbatim.
+4. **Suggested, not automatic.** The detail page suggests areas from `match_hints` against the incident (source, payload, triage classification). Engagement is always a human action in v1.
+5. **Authz.** Any tier member who can act on the incident (ADR-008 tier-or-above) may engage an SME. An engaged SME can comment and annotate; they can ACK/escalate/resolve only if their own tier allows it — engagement grants no authority.
+6. **Audit.** An `SmeEngagement` row (incident, target, engaged_by, reason, engaged_at, acknowledged_at) plus a timeline event and an outbound `incident.sme_engaged` event (ADR-023).
+
+**Consequences.**
+- *Gain:* escalate now means *authority* and Engage SME means *knowledge*; ADR-050's grading gets a cleaner signal (an escalation that should have been an SME engagement is gradeable as `premature`).
+- *Cost:* a second roster to maintain (subject-area membership) next to the tier Groups and the on-call rota.
+- *Guardrail:* SME engagement never touches the token, tier, or SLA; any future "engagement pauses the clock" idea needs its own ADR because it would change the engine.
+
+---
+
+## ADR-053 — Race mode becomes visible and consequential; humans switch it, AI only proposes
+**Status:** Accepted (design; not yet built) · *Resolves watch#55 (spec-gap). Realizes the deferred behavior of ADR-035; ties together ADR-036 (triage), ADR-051 (cadence), ADR-050 (grading).*
+
+**Context.** ADR-035 made highway/race an audited system state and stubbed it to highway, with Django admin as the only toggle. So the mode is a fact the system knows and no human can see or act on — the opposite of the operating model, where race mode is supposed to change how everyone behaves. The real question (watch#55) was **who switches it, on what evidence, and what switches it back**.
+
+**Decision.**
+1. **Humans switch it, both ways.** A T2-or-above user opens or closes a race window from the UI, with a required reason (ADR-035's `open_race_window` / `close_race_window` — the model is unchanged). Admin stays as a fallback, not the interface.
+2. **AI only proposes.** When a triage decision (ADR-036/037) crosses a severity threshold — e.g. several `REAL` + `INTERNAL` classifications in a short window, configured in the routing matrix — Watch posts a **"Suggest race mode"** prompt to T2+ with the evidence that triggered it. It never flips the mode. The suggestion and its outcome (accepted / dismissed) are recorded, so the proposer is gradeable (ADR-050) like everything else.
+3. **Legible: the whole surface changes.** While race mode is on, the `/ui/` chrome changes unmistakably (a persistent top band, not a badge on a card) showing who opened it, when, and why — Tailwind-only, WCAG AA (ADR-039), and not conveyed by color alone. After **N hours** (default 4) the band adds a "still racing?" prompt to the people who can close it; it never closes itself.
+4. **Consequential: one mode, many knobs, applied at the next boundary.**
+   - **Tier SLAs tighten** (per-mode values next to `TIER_SLA_SECONDS`). Because tier timeouts are static `TimeoutSeconds` in the ASL today, each tier's wait switches to **`TimeoutSecondsPath`** fed by the tier-entry step, which resolves `tier_sla(tier, current_mode())`. A mode change applies at the **next tier entry** — running timers are never rewritten (ADR-007's one-token-per-tier stays simple).
+   - **T1 nudge cadence and update-email countdown shorten** (ADR-051: 5 → 2 min).
+   - **T2 hourly digest is suppressed** (ADR-051).
+   - **Triage false positives require a human confirm** instead of auto-resolving (already the race branch of `dispose()`, ADR-036).
+   - Opening/closing emits `mode.race.{opened,closed}` (already built) so other systems can follow.
+5. **Out of scope:** a conference bridge / war-room channel. Watch has no such concept yet; opening one on race start can follow as an outbound subscriber (ADR-049) without Watch modeling it.
+
+**Consequences.**
+- *Gain:* the mode finally changes behavior, and every behavior hangs off the single `current_mode()` read path (ADR-035).
+- *Gain:* human-only switching keeps a false-positive triage from putting the whole team into race mode; the AI's evidence still surfaces fast.
+- *Cost:* the `TimeoutSecondsPath` change touches the ASL (watch + the deployed copy in platform, in lockstep) and the tier-entry step.
+- *Guardrail:* nothing switches race mode automatically, in either direction; any future auto-close or auto-open needs its own ADR.
