@@ -9,7 +9,7 @@ React + `htm` load from an **ESM CDN** (`esm.sh`) — no npm/Vite build (which t
 sandbox can't run). `src/app.js` polls `GET /api/status` every 10s and renders:
 
 - **Honest degradation banner (ADR-005):** green (ok) / amber (a dependency degraded) /
-  red "use ServiceNow" (backend unreachable). The static shell staying up never implies
+  red "follow your documented fallback" (backend unreachable). The static shell staying up never implies
   liveness it doesn't have.
 - **Posture cards:** open incidents, open-by-tier (T1/T2/T3), resolved in the last 24h.
 

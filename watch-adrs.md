@@ -26,7 +26,7 @@
 
 **Context.** This is an incident tool. The moment it's most needed is often when infrastructure is degraded — i.e. when its own app tier may be impaired. An intake path that requires Django+RDS to be healthy will drop incidents exactly when they matter most.
 
-**Decision.** `Sumo webhook → API Gateway → SQS → idempotent consumer → Incident`. **Acknowledge on enqueue, not on processing.**
+**Decision.** `Alerting-platform webhook (any sender — ADR-049) → API Gateway → SQS → idempotent consumer → Incident`. **Acknowledge on enqueue, not on processing.**
 
 **Consequences.**
 - *Gain:* an incident is captured the instant it hits SQS (multi-AZ by default), even if the worker tier is mid-failover; processing catches up on recovery. The source never blocks on our database.
@@ -71,7 +71,7 @@
 **Decision.** v1 targets **single-region, Multi-AZ** survival (RDS Multi-AZ, Fargate across AZs, SQS/ALB already multi-AZ) **+ durable decoupled intake (ADR-002) + honest degradation** in the SPA. Leave seams clean for multi-region; do not build it now.
 
 **Consequences.**
-- *Gain:* AZ-failure survival nearly for free; intake durability hardened independently; the SPA tells the truth about its own state and routes users to the ServiceNow fallback when degraded.
+- *Gain:* AZ-failure survival nearly for free; intake durability hardened independently; the SPA tells the truth about its own state and points users at their team's documented fallback when degraded (ADR-049: no named external system).
 - *Cost:* a full regional outage degrades the worked-incident experience (intake still captures). Accepted for v1.
 - *Guardrail:* don't let the "CloudFront stays up" fact lull anyone into claiming regional resilience the backend doesn't have. State the availability target explicitly.
 
@@ -120,7 +120,7 @@
 **Decision.**
 1. **Human authentication = Django's built-in session auth**, server-side session cookies in **Valkey** (consistent with §4.3 and the stateless-task requirement). Tiers are **Django Groups** (T1/T2/T3). **SSO/OIDC federation is left as a clean seam** (pluggable Django auth backend), not built in v1.
 2. **Authorization rule for tier-ending actions** (ACK / ESCALATE / RESOLVE): a user may act **iff they hold the incident's `current_tier` role or any higher tier** (senior override). Role-based, **not** per-assignee (v1 keeps assignment simple, §3). This is the guard in front of the `SendTaskSuccess` path from ADR-007.
-3. **Intake/webhook auth is machine-to-machine and fully separate** from human sessions: **API Gateway** authorizes the Sumo webhook via a shared secret / request signature (or IAM), validated **before** SQS enqueue. The human path and intake path share no credentials.
+3. **Intake/webhook auth is machine-to-machine and fully separate** from human sessions: **API Gateway** authorizes the intake webhook via a shared secret / request signature (or IAM), validated **before** SQS enqueue. The human path and intake path share no credentials.
 4. **Session lifetime is long and rolling** (amended 2026-07-06): `SESSION_COOKIE_AGE` = **14 days** (env-tunable) with **`SESSION_SAVE_EVERY_REQUEST`** so the Valkey TTL slides forward on every request — an *active* user is never logged out; only ~14 days of **inactivity** expires the session. Django's "refresh token" analogue for a session-cookie model (there are no JWTs to refresh). Persistent cookie (survives browser close); `SESSION_COOKIE_SECURE` in prod. Rejected a short fixed expiry (the default counts from login and ignores activity → surprise logouts mid-work).
 
 **Consequences.**
@@ -182,7 +182,7 @@
 **Decision.**
 1. **The working surface is server-rendered Django templates + HTMX + Alpine.js + Tailwind** (`/ui/...`). Mutating actions reuse the **same `incidents.services` decision functions and tier-or-above permissions as the API**; HTMX swaps one `#incident-body` partial. Assets load via **CDN (zero build)** for v1; prod compiles Tailwind to a fingerprinted bundle in CodeBuild (§4.6).
 2. **The React SPA (S3+CloudFront) narrows to a status page** (system health + incident posture), keeping the honest-degradation story (ADR-005). Read-only; need not share the working surface's session auth.
-3. **Added a `Comment` model** (flat: author, body, timestamp), rendered in the incident timeline next to Transitions. Internal-only (this tool runs alongside ServiceNow).
+3. **Added a `Comment` model** (flat: author, body, timestamp), rendered in the incident timeline next to Transitions. Internal-only (responder notes; not synced anywhere — ADR-049).
 
 **Consequences.**
 - *Gain:* one implementation of incident state + authz drives **both** the API and the UI — no duplicated domain logic in a client. The working surface ships without a JS build step and is fast to extend.
@@ -990,3 +990,23 @@ It bit exactly as you'd predict. A single **seeded demo incident**, left unresol
 - *Unchanged:* ADR-001's semantics. A missed escalation is still a failed execution and still alarms; we only stopped letting that alarm stop deploys.
 
 **As built.** `platform/modules/escalation/statemachine.tf` (both alarms; `engine_error` on `FILL`ed `LambdaFunctionsFailed`), its outputs, and the gate rewire in `watch/us-east-1/pipeline/terragrunt.hcl` + `watch/us-east-1/prod/deploy/terragrunt.hcl`. `scripts/deploy.sh` diagnostics point at the engine-error gate.
+
+---
+
+## ADR-049 — Watch is a peer system: a webhook in, webhooks out, and no named external system
+**Status:** Accepted · *Refines ADR-002 (intake), ADR-005 (degradation), ADR-023 (outbound events). Retires the "runs alongside ServiceNow" framing from spec §1.*
+
+**Context.** v1 framed Watch as running *alongside* ServiceNow, named ServiceNow as the fallback in the status page's degraded banner, and drew intake as "Sumo webhook → …". None of that was architecture — the code never depended on either — but it read like a dependency: an adopter would reasonably conclude Watch needs ServiceNow behind it and Sumo in front of it. It also put a routing decision in the wrong place. Whether an alert goes to Watch, to another ticketing system, or to both is decided where the alert is *configured* — the alerting platform chooses where its outbound webhook points, or orchestrates a fan-out. That is the operator's concern, and Watch can't observe it anyway.
+
+**Decision.**
+1. **Watch's boundary is two contracts, nothing else.** *In:* the intake webhook (`source`, `title`, `source_event_id`, `payload`; M2M shared secret per ADR-008; dedupe per ADR-009). *Out:* the HMAC-signed event webhook (ADR-023 — `incident.created`/`escalated`/`resolved`/`triaged`, `check.completed`, `mode.race.*`) and paging (ADR-013). Watch assumes no particular system upstream or downstream.
+2. **Routing and fan-out belong to the sender.** Watch doesn't know or care whether the same alert also went elsewhere: no cross-system dedupe, no sync with another ticketing system. Writing back to another system (posting Watch's incident number to the source, mirroring a resolve into a ticket) is an **outbound subscriber**, not code inside Watch.
+3. **No per-vendor intake parsers.** A sender maps its native alert onto the intake contract with its own webhook payload template (which every mainstream alerting tool supports). `source` is a free-form provenance label, never a code switch. If a sender ever can't template, the adapter lives outside Watch until an ADR says otherwise.
+4. **The docs and UI name no external system as a dependency or a fallback.** The degraded banner says "follow your team's documented fallback". What that fallback is belongs in the operator's runbook, not in Watch.
+5. **Named vendors stay only where they are pluggable adapters behind a seam** — trace stores (ADR-026) and telemetry backends (ADR-016), chosen by config — or as a design reference (ADR-031's record model). Neither implies a dependency.
+
+**Consequences.**
+- *Gain:* Watch can be adopted anywhere without implying a ServiceNow or Sumo prerequisite. Each direction has exactly one contract, so a new integration is a webhook template or a subscription, not a code change.
+- *Cost:* senders do the mapping work (a payload template). Keeping an alert consistent across two systems that both received it is the operator's problem in the alerting layer; Watch won't reconcile them.
+- *Caveat:* outbound reliability is what ADR-023/025 give it — at-least-once over SQS with a DLQ, SQS-native retry, idempotent on `event_id`. Paging is currently dark for Lambda-driven (auto-)escalations until the flag-read gap is fixed (watch#57).
+- *Guardrail:* a new integration starts as an outbound subscription or a sender-side template; any proposal for vendor-specific code inside Watch needs its own ADR.

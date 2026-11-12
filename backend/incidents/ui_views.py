@@ -1,6 +1,6 @@
 """
 Server-rendered incident-management UI (ADR-011): Django templates + HTMX + Alpine +
-Tailwind. The working surface for investigators (runs alongside ServiceNow). Mutating
+Tailwind. The working surface for investigators. Mutating
 actions reuse the same services/permissions as the API; HTMX swaps the incident body
 partial so the page updates without a full reload.
 """

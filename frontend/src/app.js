@@ -2,8 +2,8 @@
 // (dark theme, matching the Django UI). Public posture: a health banner only — no incident counts
 // (those aren't for public eyes) — plus the self-service report/check form. Health is
 // pushed live over SSE from /api/status/stream (ADR-024), with a polling fallback to /api/status
-// where EventSource is unavailable. Honest degradation (ADR-005): a loud banner + ServiceNow
-// fallback when the backend is unreachable; amber when a dependency degrades.
+// where EventSource is unavailable. Honest degradation (ADR-005): a loud banner + a pointer to
+// the team's documented fallback when the backend is unreachable; amber when a dependency degrades.
 import React, { useEffect, useState } from "https://esm.sh/react@18.3.1";
 import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import htm from "https://esm.sh/htm@3.1.1";
@@ -28,7 +28,7 @@ const SMALL = "block font-normal text-sm mt-1 opacity-80";
 function Banner({ reachable, ok, data }) {
   if (!reachable) {
     return html`<div class=${`${BANNER} bg-rose-500/15 text-rose-300`}>Backend unreachable — this page may be stale.
-      <small class=${SMALL}>Use ServiceNow for live incident work until Watch is back.</small></div>`;
+      <small class=${SMALL}>Follow your team's documented fallback for live incident work until Watch is back.</small></div>`;
   }
   if (!ok || data?.status === "degraded") {
     const down = data ? Object.entries(data.checks).filter(([, v]) => !v).map(([k]) => k).join(", ") : "a dependency";

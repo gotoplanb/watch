@@ -7,10 +7,10 @@
 
 ## 1. Purpose & framing
 
-A document-intake and tiered-escalation system for production-support and incident workflows. An incident enters via webhook (e.g. Sumo Logic), becomes a tracked Document, is assigned, and moves through a T1 → T2 → T3 escalation timeline under time-based SLAs — with provable, auditable escalation.
+A document-intake and tiered-escalation system for production-support and incident workflows. An incident enters via webhook from any alerting platform, becomes a tracked Document, is assigned, and moves through a T1 → T2 → T3 escalation timeline under time-based SLAs — with provable, auditable escalation.
 
 Two intended uses from one codebase:
-- **Day-job production support** — runs *alongside* ServiceNow (not a replacement), as the working surface for investigations.
+- **Production support** — the system responders work incidents in. Watch's boundary is a webhook in and webhooks out (ADR-049); which alerts reach it is decided in the alerting platform, not here.
 - **Reference architecture** — a clonable golden-path for Django + AWS services in the idioms that matter (Terragrunt, ECS, Step Functions, OTel, expand/contract).
 
 The escalation timeline is treated as **core domain value**, not a supporting mechanism — "did the handoff happen on time, and can we prove it" is the product's reason to exist. That single judgment drives the biggest design choice (see ADR-001).
@@ -20,7 +20,7 @@ The escalation timeline is treated as **core domain value**, not a supporting me
 ## 2. Architecture overview
 
 ```
-Sumo (or any source)
+Alerting platform (any)
    │  webhook
    ▼
 API Gateway ──► SQS ──► Intake consumer ──► Incident (Postgres)
@@ -67,7 +67,7 @@ React SPA (S3 + CloudFront) ─────────────────�
 ## 4. Layers
 
 ### 4.1 Intake
-- `Sumo webhook → API Gateway → SQS → consumer`.
+- `Alerting-platform webhook → API Gateway → SQS → consumer`. One vendor-neutral contract (`source`, `title`, `source_event_id`, `payload`); senders map their alert onto it with their own webhook template — Watch has no per-vendor parsers (ADR-049).
 - **Webhook auth (ADR-008):** machine-to-machine, separate from human sessions — API Gateway authorizes via shared secret / request signature (or IAM), validated *before* enqueue. No shared credentials with the user-facing path.
 - **Ack on enqueue, not on processing.** The source never waits on Django/RDS. (ADR-002)
 - **Idempotent consumer (ADR-009):** dedupe key = source-provided event id when present, else `sha256(normalize(payload))` (volatile fields stripped). Enforced in Postgres via a **partial unique index `UNIQUE(dedupe_key) WHERE status = OPEN`** + `INSERT … ON CONFLICT DO NOTHING` — retries while OPEN are no-ops; a re-fire after `RESOLVED` opens a new incident. SQS stays standard (not FIFO); the DB constraint is the authority and resolves the concurrent-consumer race.
@@ -95,7 +95,7 @@ React SPA (S3 + CloudFront) ─────────────────�
 - **Working surface = server-rendered Django + HTMX + Alpine + Tailwind** (`/ui/...`, ADR-011): the internal investigation UI (view / comment / ack / escalate / resolve), reusing the same `services` + tier authz as the API. Assets via CDN in v1; Tailwind compiled to a fingerprinted bundle in prod (§4.6).
 - **React SPA on S3 + CloudFront** (lineage: `gotoplanb/hermit-watch-gen`) — narrowed to a **read-only status page** (health + incident posture), per ADR-011.
 - **Fingerprinted assets (long TTL) + short-TTL `index.html`** — a deploy never serves a half-old/half-new bundle.
-- **Honest degradation is a first-class feature:** the SPA probes backend health and, when the app tier is unreachable, shows a loud read-only/stale banner plus the documented "use ServiceNow" fallback. The static shell staying up must never *imply* liveness it doesn't have. (ADR-005)
+- **Honest degradation is a first-class feature:** the SPA probes backend health and, when the app tier is unreachable, shows a loud read-only/stale banner plus a pointer to the team's documented fallback (Watch names no external system — ADR-049). The static shell staying up must never *imply* liveness it doesn't have. (ADR-005)
 
 ### 4.5 Feature flags / rollout modes
 - All evaluation behind a thin seam (ADR-003/014). The seam resolves a **rollout mode** —
@@ -156,7 +156,7 @@ React SPA (S3 + CloudFront) ─────────────────�
 
 ## 7. Non-goals (explicitly out of v1)
 - Multi-region / active-passive failover (v1 is single-region Multi-AZ; seams left clean — ADR-005).
-- ServiceNow synchronization.
+- Synchronization with any other ticketing system. Integrations ride the outbound event webhook (ADR-023/049); fan-out to several systems is the alerting platform's job.
 - SLA dashboards / reporting.
 - On-call / paging integration.
 - Rich document management (v1 stores attachment metadata only).
