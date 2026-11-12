@@ -15,7 +15,8 @@ def test_current_mode_defaults_to_highway():
 def test_open_race_window_flips_mode_and_records_actor():
     window = modes.open_race_window("t3a", reason="v0.11 release window")
     assert modes.current_mode() == OperatingMode.RACE
-    assert window.actor == "t3a" and window.reason == "v0.11 release window"
+    assert window.actor == "t3a"
+    assert window.reason == "v0.11 release window"
     assert window.ended_at is None
 
 

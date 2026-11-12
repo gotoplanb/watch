@@ -34,9 +34,11 @@ def _post(client, url, body, user):
 def test_status_ingest_stores_verbatim_and_attributes(client, poster):
     body = {"worst_state": "squall", "regions": {"us": ["a", "b"]}, "note": "anything"}
     res = _post(client, STATUS_URL, body, poster)
-    assert res.status_code == 201 and res.json()["environment"] == "prod"
+    assert res.status_code == 201
+    assert res.json()["environment"] == "prod"
     row = EnvStatus.objects.get()
-    assert row.payload == body and row.posted_by == poster  # verbatim + attributed to the key's user
+    assert row.payload == body
+    assert row.posted_by == poster  # verbatim + attributed to the key's user
 
 
 @pytest.mark.django_db
@@ -72,7 +74,8 @@ def test_ingest_requires_a_valid_key(client, poster):
 def test_forged_suffix_for_real_user_is_rejected(client, poster):
     forged = f"wk_{poster.pk}_{'0' * 32}"
     r = client.post(STATUS_URL, {"x": 1}, format="json", HTTP_AUTHORIZATION=f"Bearer {forged}")
-    assert r.status_code == 403 and EnvStatus.objects.count() == 0
+    assert r.status_code == 403
+    assert EnvStatus.objects.count() == 0
 
 
 @pytest.mark.django_db
@@ -85,9 +88,12 @@ def test_x_watch_api_key_header_also_works(client, poster):
 @pytest.mark.django_db
 def test_digest_ingest_with_special_flag(client, poster):
     res = _post(client, DIGEST_URL, {"content": "## System Health", "title": "T2 spike", "special": True}, poster)
-    assert res.status_code == 201 and res.json()["special"] is True
+    assert res.status_code == 201
+    assert res.json()["special"] is True
     d = Digest.objects.get()
-    assert d.special is True and d.title == "T2 spike" and d.posted_by == poster
+    assert d.special is True
+    assert d.title == "T2 spike"
+    assert d.posted_by == poster
 
 
 @pytest.mark.django_db
@@ -122,7 +128,8 @@ def test_status_read_requires_login_and_returns_latest(client, poster):
     assert client.get("/api/environments/prod/status/latest").status_code in (401, 403)
     client.force_login(User.objects.create(username="viewer"))
     res = client.get("/api/environments/prod/status/latest")
-    assert res.status_code == 200 and res.json()["payload"] == {"n": 2}
+    assert res.status_code == 200
+    assert res.json()["payload"] == {"n": 2}
 
 
 @pytest.mark.django_db
@@ -138,6 +145,8 @@ def test_digests_list_and_special_filter(client, poster):
     client.force_login(User.objects.create(username="v3"))
     assert len(client.get("/api/environments/prod/digests").json()) == 2
     only_special = client.get("/api/environments/prod/digests?special=true").json()
-    assert len(only_special) == 1 and only_special[0]["special"] is True
+    assert len(only_special) == 1
+    assert only_special[0]["special"] is True
     only_routine = client.get("/api/environments/prod/digests?special=false").json()
-    assert len(only_routine) == 1 and only_routine[0]["special"] is False
+    assert len(only_routine) == 1
+    assert only_routine[0]["special"] is False

@@ -51,7 +51,8 @@ def test_resolve_is_terminal_and_consumes_token():
     assert inc.current_task_token == ""  # consumed -> no zombie timer
     # Resolve-from-any-tier: audit records the tier it resolved at (T2).
     last = inc.transitions.last()
-    assert last.to_status == Status.RESOLVED and last.to_tier == Tier.T2
+    assert last.to_status == Status.RESOLVED
+    assert last.to_tier == Tier.T2
     # Idempotent.
     services.resolve(inc.id, actor="7")
     assert inc.transitions.filter(to_status=Status.RESOLVED).count() == 1

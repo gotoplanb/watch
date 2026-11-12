@@ -48,7 +48,9 @@ def test_grafana_cloud_queries_with_auth_and_parses(settings, monkeypatch):
     assert cap["params"]["q"] == (
         '{ span.session.id = "abc" && status = error } | select(span.http.status_code, name, kind)'
     )
-    assert spans[0]["trace_id"] == "t1" and spans[0]["service"] == "web" and spans[0]["http_status"] == 500
+    assert spans[0]["trace_id"] == "t1"
+    assert spans[0]["service"] == "web"
+    assert spans[0]["http_status"] == 500
 
 
 def test_grafana_cloud_user_kind_uses_session_user_attr(settings, monkeypatch):
@@ -77,16 +79,22 @@ def test_datadog_builds_query_and_parses(settings, monkeypatch):
     monkeypatch.setattr(trace_store.requests, "post", fake_post)
     spans = trace_store.DatadogProvider().find_error_spans("session", "xyz", None, None)
     assert cap["url"] == "https://api.datadoghq.com/api/v2/spans/events/search"
-    assert cap["headers"]["DD-API-KEY"] == "api-k" and cap["headers"]["DD-APPLICATION-KEY"] == "app-k"
+    assert cap["headers"]["DD-API-KEY"] == "api-k"
+    assert cap["headers"]["DD-APPLICATION-KEY"] == "app-k"
     assert cap["body"]["data"]["attributes"]["filter"]["query"] == "@session.id:xyz status:error"
-    assert spans[0]["trace_id"] == "tr1" and spans[0]["service"] == "api"
-    assert spans[0]["name"] == "GET /y" and spans[0]["http_status"] == 503 and spans[0]["ts"] is not None
+    assert spans[0]["trace_id"] == "tr1"
+    assert spans[0]["service"] == "api"
+    assert spans[0]["name"] == "GET /y"
+    assert spans[0]["http_status"] == 503
+    assert spans[0]["ts"] is not None
 
 
 def test_parse_datadog_empty_and_defensive():
     assert trace_store.parse_datadog({}) == []
     s = trace_store.parse_datadog({"data": [{"attributes": {}}]})[0]
-    assert s["status"] == "ERROR" and s["trace_id"] == "" and s["http_status"] is None
+    assert s["status"] == "ERROR"
+    assert s["trace_id"] == ""
+    assert s["http_status"] is None
 
 
 # --- Sumo Logic (async Search Job API) ---------------------------------------
@@ -115,15 +123,19 @@ def test_sumologic_job_flow_and_parse(settings, monkeypatch):
     post = next(c for c in calls if c[0] == "POST")
     assert post[1] == "https://api.us2.sumologic.com/api/v1/search/jobs"
     assert post[2] == ("acc-id", "acc-key")
-    assert 'session.id = "s"' in post[3]["query"] and "error" in post[3]["query"]
-    assert spans[0]["trace_id"] == "tt" and spans[0]["name"] == "GET /z" and spans[0]["http_status"] == 500
+    assert 'session.id = "s"' in post[3]["query"]
+    assert "error" in post[3]["query"]
+    assert spans[0]["trace_id"] == "tt"
+    assert spans[0]["name"] == "GET /z"
+    assert spans[0]["http_status"] == 500
 
 
 def test_sumologic_no_job_id_raises(settings, monkeypatch):
     settings.SUMO_API_ENDPOINT = "https://api/"
     monkeypatch.setattr(trace_store.requests, "post", lambda *a, **k: FakeResp({}))
+    provider = trace_store.SumoLogicProvider()
     with pytest.raises(trace_store.TraceStoreError):
-        trace_store.SumoLogicProvider().find_error_spans("session", "s", None, None)
+        provider.find_error_spans("session", "s", None, None)
 
 
 def test_parse_sumo_empty():
@@ -139,15 +151,15 @@ def test_parse_sumo_empty():
     ("datadog", trace_store.DatadogProvider),
     ("sumologic", trace_store.SumoLogicProvider),
 ])
-def test_registry_selects_provider(settings, provider, cls):
+def test_registry_selects_provider(settings, monkeypatch, provider, cls):
     settings.TRACE_STORE_PROVIDER = provider
-    trace_store._provider = None
+    monkeypatch.setattr(trace_store, "_provider", None)
     assert isinstance(trace_store._get_provider(), cls)
 
 
-def test_unknown_provider_falls_back_to_none(settings):
+def test_unknown_provider_falls_back_to_none(settings, monkeypatch):
     settings.TRACE_STORE_PROVIDER = "bogus"
-    trace_store._provider = None
+    monkeypatch.setattr(trace_store, "_provider", None)
     assert isinstance(trace_store._get_provider(), trace_store.NoneProvider)
 
 
@@ -165,8 +177,9 @@ def test_datadog_wraps_request_error(settings, monkeypatch):
     def boom(*a, **k):
         raise trace_store.requests.RequestException("down")
     monkeypatch.setattr(trace_store.requests, "post", boom)
+    provider = trace_store.DatadogProvider()
     with pytest.raises(trace_store.TraceStoreError):
-        trace_store.DatadogProvider().find_error_spans("session", "x", None, None)
+        provider.find_error_spans("session", "x", None, None)
 
 
 def test_grafana_cloud_wraps_request_error(settings, monkeypatch):
@@ -174,5 +187,6 @@ def test_grafana_cloud_wraps_request_error(settings, monkeypatch):
     def boom(*a, **k):
         raise trace_store.requests.RequestException("down")
     monkeypatch.setattr(trace_store.requests, "get", boom)
+    provider = trace_store.GrafanaCloudProvider()
     with pytest.raises(trace_store.TraceStoreError):
-        trace_store.GrafanaCloudProvider().find_error_spans("session", "x", None, None)
+        provider.find_error_spans("session", "x", None, None)

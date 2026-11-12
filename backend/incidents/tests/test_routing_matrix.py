@@ -26,7 +26,9 @@ def _reset_matrix():
 
 def test_shipped_matrix_loads_and_validates():
     data = routing_matrix.matrix()
-    assert data["classification"] and data["precedence"] and data["disposition"]
+    assert data["classification"]
+    assert data["precedence"]
+    assert data["disposition"]
 
 
 # --- classification rules (Mapping A) ---

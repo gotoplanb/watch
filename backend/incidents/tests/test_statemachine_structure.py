@@ -35,7 +35,8 @@ def test_resolve_routes_through_commit_to_succeed():
     for tier in ("T1", "T2", "T3"):
         choice = STATES[f"{tier}_Choice"]
         resolve = [c for c in choice["Choices"] if c.get("StringEquals") == "RESOLVE"]
-        assert resolve and resolve[0]["Next"] == "ResolveCommit", f"{tier}_Choice RESOLVE rule"
+        assert resolve, f"{tier}_Choice RESOLVE rule"
+        assert resolve[0]["Next"] == "ResolveCommit", f"{tier}_Choice RESOLVE rule"
     assert STATES["ResolveCommit"]["Next"] == "Resolved"
     assert STATES["Resolved"]["Type"] == "Succeed"
 

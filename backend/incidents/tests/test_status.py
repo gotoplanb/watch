@@ -47,4 +47,5 @@ def test_status_degraded_when_dependency_down(client, monkeypatch):
     monkeypatch.setattr(health, "dependency_checks",
                         lambda: {"postgres": True, "valkey": False})
     resp = client.get("/api/status")
-    assert resp.status_code == 503 and resp.json()["status"] == "degraded"
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "degraded"

@@ -33,7 +33,8 @@ def test_draft_success_returns_result_with_model_used(settings):
     with mock.patch.object(conduct.requests, "post", return_value=_resp(json_body=body)) as post:
         result = conduct.draft(PROMPT, "# assembly")
     assert result.text == "## Summary\n\ndraft"
-    assert result.provider == "conduct" and result.model == "gemma4:e4b"
+    assert result.provider == "conduct"
+    assert result.model == "gemma4:e4b"
     kwargs = post.call_args.kwargs
     assert kwargs["json"] == {"task_type": "tier_2", "system_prompt": PROMPT, "prompt": "# assembly"}
     assert kwargs["headers"]["Authorization"] == "Bearer cdt_test"

@@ -31,7 +31,8 @@ def test_next_number_is_monotonic_per_prefix():
 @pytest.mark.django_db
 def test_str_reprs():
     p = Problem.objects.create(title="pool exhaustion")
-    assert p.number in str(p) and "pool exhaustion" in str(p)
+    assert p.number in str(p)
+    assert "pool exhaustion" in str(p)
     assert str(RecordCounter.objects.get(prefix="PRB")) == "PRB=1"
 
 
@@ -62,7 +63,8 @@ def test_problem_timeline_records_notes_and_status_events():
 @pytest.mark.django_db
 def test_problem_list_requires_login(client):
     resp = client.get("/ui/problems/")
-    assert resp.status_code == 302 and "/api-auth/login/" in resp["Location"]
+    assert resp.status_code == 302
+    assert "/api-auth/login/" in resp["Location"]
 
 
 @pytest.mark.django_db
@@ -70,7 +72,8 @@ def test_list_renders_problems_when_logged_in(client):
     client.force_login(_user("lister"))
     Problem.objects.create(title="visible on the list")
     body = client.get("/ui/problems/").content.decode()
-    assert "PRB-0001" in body and "visible on the list" in body
+    assert "PRB-0001" in body
+    assert "visible on the list" in body
 
 
 @pytest.mark.django_db
@@ -79,17 +82,20 @@ def test_create_then_detail(client):
     resp = client.post("/ui/problems/create/", {"title": "flapping health check", "description": "since 3pm"})
     assert resp.status_code == 302
     p = Problem.objects.get()
-    assert p.number == "PRB-0001" and p.description == "since 3pm"
+    assert p.number == "PRB-0001"
+    assert p.description == "since 3pm"
     assert resp["Location"] == f"/ui/problems/{p.id}/"
     body = client.get(f"/ui/problems/{p.id}/").content.decode()
-    assert "PRB-0001" in body and "flapping health check" in body
+    assert "PRB-0001" in body
+    assert "flapping health check" in body
 
 
 @pytest.mark.django_db
 def test_create_blank_title_is_noop(client):
     client.force_login(_user())
     resp = client.post("/ui/problems/create/", {"title": "   "})
-    assert resp.status_code == 302 and resp["Location"] == "/ui/problems/"
+    assert resp.status_code == 302
+    assert resp["Location"] == "/ui/problems/"
     assert not Problem.objects.exists()
 
 
@@ -99,7 +105,9 @@ def test_add_note_appears_on_timeline(client):
     p = Problem.objects.create(title="cache stampede")
     client.post(f"/ui/problems/{p.id}/note/", {"body": "added a jitter"})
     ev = p.events.get()
-    assert ev.type == "note" and ev.actor == "noter" and ev.body == "added a jitter"
+    assert ev.type == "note"
+    assert ev.actor == "noter"
+    assert ev.body == "added a jitter"
 
 
 @pytest.mark.django_db
@@ -118,7 +126,8 @@ def test_update_status_posts_system_event(client):
     p.refresh_from_db()
     assert p.status == ProblemStatus.INVESTIGATING
     ev = p.events.get()
-    assert ev.type == "system" and "investigating" in ev.body
+    assert ev.type == "system"
+    assert "investigating" in ev.body
 
 
 @pytest.mark.django_db
@@ -143,4 +152,5 @@ def test_update_with_no_changes_is_noop(client):
     # same status, still-unassigned ⇒ nothing to save, no events
     client.post(f"/ui/problems/{p.id}/update/", {"status": p.status, "assignee": ""})
     p.refresh_from_db()
-    assert p.status == ProblemStatus.OPEN and p.events.count() == 0
+    assert p.status == ProblemStatus.OPEN
+    assert p.events.count() == 0

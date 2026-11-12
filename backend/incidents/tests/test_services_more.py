@@ -43,7 +43,8 @@ def test_escalate_noop_when_resolved():
     inc = _incident(dedupe_key="rt4", status=Status.RESOLVED, current_tier=Tier.T1)
     services.escalate(inc.id, actor="1")
     inc.refresh_from_db()
-    assert inc.current_tier == Tier.T1 and inc.transitions.count() == 0
+    assert inc.current_tier == Tier.T1
+    assert inc.transitions.count() == 0
 
 
 @pytest.mark.django_db
@@ -51,4 +52,5 @@ def test_acknowledge_noop_when_resolved():
     inc = _incident(dedupe_key="rt5", status=Status.RESOLVED)
     services.acknowledge(inc.id, actor="1")
     inc.refresh_from_db()
-    assert inc.acknowledged_at is None and inc.transitions.count() == 0
+    assert inc.acknowledged_at is None
+    assert inc.transitions.count() == 0

@@ -37,10 +37,13 @@ def test_report_incident_creates_no_secret(client, monkeypatch):
     from incidents import escalation
     monkeypatch.setattr(escalation, "start_escalation", lambda inc: f"local:{inc.id}")
     res = client.post(INCIDENT_URL, {"title": "checkout is down", "detail": "500 on pay"}, format="json")
-    assert res.status_code == 201 and res.json()["created"] is True
+    assert res.status_code == 201
+    assert res.json()["created"] is True
     inc = Incident.objects.get()
-    assert inc.source == "status-page" and inc.title == "checkout is down"
-    assert inc.payload["detail"] == "500 on pay" and inc.payload["reporter"] == "public"
+    assert inc.source == "status-page"
+    assert inc.title == "checkout is down"
+    assert inc.payload["detail"] == "500 on pay"
+    assert inc.payload["reporter"] == "public"
     assert inc.escalation_execution_arn == f"local:{inc.id}"
 
 
@@ -51,7 +54,8 @@ def test_report_incident_dedupes_repeat(client, monkeypatch):
     body = {"title": "same", "detail": "identical body"}
     assert client.post(INCIDENT_URL, body, format="json").status_code == 201
     again = client.post(INCIDENT_URL, body, format="json")
-    assert again.status_code == 200 and again.json()["created"] is False
+    assert again.status_code == 200
+    assert again.json()["created"] is False
     assert Incident.objects.count() == 1
 
 
@@ -113,7 +117,8 @@ def test_throttle_clamps_burst(client, monkeypatch):
     monkeypatch.setattr(escalation, "start_escalation", lambda inc: "local")
     monkeypatch.setattr(views._PublicReportThrottle, "THROTTLE_RATES", {"public_report": "2/min"})
     codes = [client.post(INCIDENT_URL, {"title": "spam", "detail": f"n{i}"}, format="json").status_code for i in range(3)]
-    assert codes[:2] == [201, 201] and codes[2] == 429
+    assert codes[:2] == [201, 201]
+    assert codes[2] == 429
 
 
 @pytest.mark.django_db

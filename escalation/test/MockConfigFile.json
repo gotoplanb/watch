@@ -17,8 +17,8 @@
     }
   },
   "MockedResponses": {
-    "resolveOutcome": {"0": {"Return": {"outcome": "RESOLVE", "actor": "mock-user"}}},
-    "escalateOutcome": {"0": {"Return": {"outcome": "ESCALATE", "actor": "mock-user"}}},
+    "resolveOutcome": {"0": {"Return": {"outcome": "RESOLVE", "actor": "mock-user", "reason": ""}}},
+    "escalateOutcome": {"0": {"Return": {"outcome": "ESCALATE", "actor": "mock-user", "reason": ""}}},
     "commitOk": {"0": {"Return": {"committed": "ok"}}}
   }
 }

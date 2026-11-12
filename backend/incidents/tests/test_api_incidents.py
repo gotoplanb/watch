@@ -39,7 +39,8 @@ def test_list_and_retrieve_authenticated(client):
     client.force_authenticate(_user("viewer"))
     assert client.get("/api/incidents/").status_code == 200
     body = client.get(f"/api/incidents/{inc.id}/").json()
-    assert body["id"] == str(inc.id) and body["transitions"] == []
+    assert body["id"] == str(inc.id)
+    assert body["transitions"] == []
 
 
 @pytest.mark.django_db
@@ -47,9 +48,11 @@ def test_ack_then_escalate(client):
     inc = _incident(Tier.T1)
     client.force_authenticate(_user("t1", "T1"))
     ack = client.post(f"/api/incidents/{inc.id}/ack/", {"expected_tier": "T1"}, format="json")
-    assert ack.status_code == 200 and ack.json()["acknowledged_at"] is not None
+    assert ack.status_code == 200
+    assert ack.json()["acknowledged_at"] is not None
     esc = client.post(f"/api/incidents/{inc.id}/escalate/", {"expected_tier": "T1"}, format="json")
-    assert esc.status_code == 200 and esc.json()["current_tier"] == "T2"
+    assert esc.status_code == 200
+    assert esc.json()["current_tier"] == "T2"
 
 
 @pytest.mark.django_db
@@ -57,7 +60,8 @@ def test_resolve_action(client):
     inc = _incident(Tier.T1)
     client.force_authenticate(_user("t1b", "T1"))
     res = client.post(f"/api/incidents/{inc.id}/resolve/", {"expected_tier": "T1"}, format="json")
-    assert res.status_code == 200 and res.json()["status"] == Status.RESOLVED
+    assert res.status_code == 200
+    assert res.json()["status"] == Status.RESOLVED
 
 
 @pytest.mark.django_db
@@ -94,4 +98,5 @@ def test_escalate_real_mode_branch_does_not_call_services(client, settings, monk
     inc = _incident(Tier.T1)
     client.force_authenticate(_user("t1e", "T1"))
     res = client.post(f"/api/incidents/{inc.id}/escalate/", {"expected_tier": "T1"}, format="json")
-    assert res.status_code == 200 and res.json()["current_tier"] == "T1"
+    assert res.status_code == 200
+    assert res.json()["current_tier"] == "T1"

@@ -16,7 +16,8 @@ def client():
 @pytest.mark.django_db
 def test_env_dashboard_requires_login(client):
     r = client.get("/ui/environments/")
-    assert r.status_code == 302 and "/api-auth/login/" in r["Location"]
+    assert r.status_code == 302
+    assert "/api-auth/login/" in r["Location"]
 
 
 @pytest.mark.django_db
@@ -29,13 +30,17 @@ def test_dashboard_renders_status_and_digests(client):
     Digest.objects.create(environment="prod", content="INCIDENT digest", special=True)
     client.force_login(User.objects.create(username="ops"))
     html = client.get("/ui/environments/?env=prod").content.decode()
-    assert "Gibraltar" in html and "5xx from Expedia" in html
+    assert "Gibraltar" in html
+    assert "5xx from Expedia" in html
     assert "bg-orange-500" in html                             # squall dot (Tailwind, ADR-039)
     # ONE digest at a time now (ADR-043), newest first, with its badge — the rest are behind the pager
-    assert "SPECIAL" in html and "INCIDENT digest" in html
-    assert "ROUTINE" not in html and "System Health" not in html
+    assert "SPECIAL" in html
+    assert "INCIDENT digest" in html
+    assert "ROUTINE" not in html
+    assert "System Health" not in html
     older = client.get("/ui/environments/?env=prod&d=1").content.decode()
-    assert "ROUTINE" in older and "System Health" in older
+    assert "ROUTINE" in older
+    assert "System Health" in older
 
 
 @pytest.mark.django_db
@@ -44,14 +49,17 @@ def test_env_switcher_lists_all_envs(client):
     Digest.objects.create(environment="nonprod", content="x")
     client.force_login(User.objects.create(username="ops2"))
     html = client.get("/ui/environments/").content.decode()
-    assert "?env=prod" in html and "?env=nonprod" in html
+    assert "?env=prod" in html
+    assert "?env=nonprod" in html
 
 
 @pytest.mark.django_db
 def test_dashboard_empty_state_defaults_to_prod_nonprod(client):
     client.force_login(User.objects.create(username="ops3"))
     html = client.get("/ui/environments/").content.decode()
-    assert "No status posted" in html and "?env=prod" in html and "?env=nonprod" in html
+    assert "No status posted" in html
+    assert "?env=prod" in html
+    assert "?env=nonprod" in html
 
 
 # --- the schema-less renderer, against unrelated shapes (ADR-028 guardrail) ------------------------
@@ -61,12 +69,16 @@ def _render(node):
 
 def test_renderer_services_shape():
     out = _render({"services": [{"display_name": "Gib", "state": "calm", "url": "https://x/y"}]})
-    assert "Gib" in out and "bg-emerald-500/15" in out and 'href="https://x/y"' in out
+    assert "Gib" in out
+    assert "bg-emerald-500/15" in out
+    assert 'href="https://x/y"' in out
 
 
 def test_renderer_totally_different_shape():
     out = _render({"teams": {"payments": {"health": "green"}}, "score": 97, "note": "ok"})
-    assert "Payments" in out and "bg-emerald-500/15" in out and "97" in out  # no services-shaped assumptions
+    assert "Payments" in out
+    assert "bg-emerald-500/15" in out
+    assert "97" in out  # no services-shaped assumptions
 
 
 def test_renderer_scalars_bool_and_none():
@@ -81,7 +93,8 @@ def test_renderer_depth_cap_falls_back_to_raw():
         cur = cur["k"]
     cur["k"] = "deep"
     out = _render(node)
-    assert "<pre" in out and "deep" in out  # past the depth cap -> raw JSON, never infinite recursion
+    assert "<pre" in out
+    assert "deep" in out  # past the depth cap -> raw JSON, never infinite recursion
 
 
 # --- the view model behind the status page (ADR-043) -----------------------------------------------
@@ -118,7 +131,8 @@ def test_declared_verdict_wins_over_the_rollup():
         "worst_state": "calm",
         "services": [{"display_name": "Canary", "state": "unsettled", "message": ""}],
     }))
-    assert view["verdict"] == "calm" and view["verdict_dot"] == "bg-sky-500"
+    assert view["verdict"] == "calm"
+    assert view["verdict_dot"] == "bg-sky-500"
 
 
 def test_verdict_rolls_up_from_the_worst_row_when_undeclared():
@@ -140,7 +154,8 @@ def test_arbitrary_shape_still_gets_rows(settings):
     assert [r["name"] for r in view["rows"]] == ["regions"]  # a row per top-level object
     view2 = envview.summarize(_status({"eu_west": {"health": "degraded", "latency_p99_ms": 880}}))
     row = view2["rows"][0]
-    assert row["name"] == "eu west" and row["dot"] == "bg-amber-400"
+    assert row["name"] == "eu west"
+    assert row["dot"] == "bg-amber-400"
     assert row["message"] == "latency p99 ms 880"          # scalars summarized, state shown as a dot
 
 
@@ -148,17 +163,21 @@ def test_stale_status_is_unknown_not_reassuring_green():
     """A dead reporter must never render as healthy — the one lie a status page cannot tell."""
     view = envview.summarize(_status({"services": [{"display_name": "A", "state": "serene"}]},
                                      minutes_ago=90))
-    assert view["stale"] is True and view["verdict"] == "unknown"
+    assert view["stale"] is True
+    assert view["verdict"] == "unknown"
 
 
 def test_a_snapshot_you_navigated_to_is_history_not_staleness():
     view = envview.summarize(_status({"worst_state": "storm"}, minutes_ago=90), historical=True)
-    assert view["stale"] is False and view["historical"] is True and view["verdict"] == "storm"
+    assert view["stale"] is False
+    assert view["historical"] is True
+    assert view["verdict"] == "storm"
 
 
 def test_summarize_handles_no_status_at_all():
     view = envview.summarize(None)
-    assert view["present"] is False and view["rows"] == []
+    assert view["present"] is False
+    assert view["rows"] == []
 
 
 def test_manual_status_is_badged_manual():
@@ -177,12 +196,15 @@ def test_status_and_digest_histories_page_independently(client):
     client.force_login(User.objects.create(username="ops4"))
 
     html = client.get("/ui/environments/?env=prod").content.decode()
-    assert "1 of 3" in html and "digest 2" in html          # newest of each by default
+    assert "1 of 3" in html
+    assert "digest 2" in html  # newest of each by default
 
     # page the digest back one; the status snapshot must NOT move with it
     html = client.get("/ui/environments/?env=prod&d=1").content.decode()
-    assert "digest 1" in html and "digest 2" not in html    # the digest moved…
-    assert "1 of 3" in html and "2 of 3" in html            # …the snapshot stayed at 1 of 3
+    assert "digest 1" in html
+    assert "digest 2" not in html  # the digest moved…
+    assert "1 of 3" in html
+    assert "2 of 3" in html  # …the snapshot stayed at 1 of 3
 
     # an out-of-range index clamps instead of exploding
     assert client.get("/ui/environments/?env=prod&s=99&d=99").status_code == 200
@@ -197,7 +219,9 @@ def test_pager_links_preserve_the_other_params(client):
     client.force_login(User.objects.create(username="ops5"))
     html = client.get("/ui/environments/?env=prod&d=1").content.decode()
     # the status pager's Older link keeps env AND the digest index — paging one must not reset the other
-    assert "env=prod" in html and "d=1" in html and "s=1" in html
+    assert "env=prod" in html
+    assert "d=1" in html
+    assert "s=1" in html
 
 
 @pytest.mark.django_db
@@ -206,7 +230,8 @@ def test_special_only_filter(client):
     Digest.objects.create(environment="prod", content="the special one", special=True)
     client.force_login(User.objects.create(username="ops6"))
     html = client.get("/ui/environments/?env=prod&special=1").content.decode()
-    assert "the special one" in html and "routine one" not in html
+    assert "the special one" in html
+    assert "routine one" not in html
 
 
 @pytest.mark.django_db
@@ -216,4 +241,5 @@ def test_historical_snapshot_says_so(client):
     EnvStatus.objects.create(environment="prod", payload={"worst_state": "serene"})
     client.force_login(User.objects.create(username="ops7"))
     html = client.get("/ui/environments/?env=prod&s=1").content.decode()
-    assert "Looking at the past" in html and "stale" not in html.lower()
+    assert "Looking at the past" in html
+    assert "stale" not in html.lower()

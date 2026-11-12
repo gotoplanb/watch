@@ -15,7 +15,8 @@ def test_stub_reads_5xx_as_real_internal_software(settings):
     assert result.verdict == TriageVerdict.REAL
     assert result.responsibility == Responsibility.INTERNAL
     assert result.fault_domain == FaultDomain.SOFTWARE
-    assert result.provider == "stub" and 0 < result.confidence <= 1
+    assert result.provider == "stub"
+    assert 0 < result.confidence <= 1
 
 
 def test_stub_reads_no_5xx_as_false_positive(settings):
@@ -69,7 +70,8 @@ def test_classify_dispatches_to_bedrock(settings, monkeypatch):
         lambda prompt, source: DraftResult(text=GOOD, provider="bedrock", model="sonnet-4-6"),
     )
     result = triage_ai.classify("evidence")
-    assert result.provider == "bedrock" and result.model == "sonnet-4-6"
+    assert result.provider == "bedrock"
+    assert result.model == "sonnet-4-6"
 
 
 def test_classify_dispatches_to_conduct(settings, monkeypatch):
@@ -80,7 +82,8 @@ def test_classify_dispatches_to_conduct(settings, monkeypatch):
         lambda prompt, source: DraftResult(text=GOOD, provider="conduct", model="gemma4:e4b"),
     )
     result = triage_ai.classify("evidence")
-    assert result.provider == "conduct" and result.model == "gemma4:e4b"
+    assert result.provider == "conduct"
+    assert result.model == "gemma4:e4b"
 
 
 @pytest.mark.parametrize("provider,module_name", [("conduct", "conduct"), ("bedrock", "bedrock")])

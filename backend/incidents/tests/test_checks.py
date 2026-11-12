@@ -43,7 +43,8 @@ def test_hash_user_id_keyed_and_empty(settings):
     assert hash_user_id("42") == ""            # no key -> disabled
     settings.SESSION_USER_HMAC_KEY = "k"
     a, b = hash_user_id("42"), hash_user_id("42")
-    assert a == b and len(a) == 32             # deterministic
+    assert a == b
+    assert len(a) == 32  # deterministic
     assert hash_user_id("43") != a             # distinct users differ
     assert hash_user_id("") == ""              # no id
 
@@ -81,8 +82,11 @@ def test_parse_search_flattens_error_spans():
     spans = trace_store.parse_search(data)
     assert len(spans) == 1
     s = spans[0]
-    assert s["trace_id"] == "abc" and s["span_id"] == "s1" and s["status"] == "ERROR"
-    assert s["http_status"] == 500 and s["ts"] is not None
+    assert s["trace_id"] == "abc"
+    assert s["span_id"] == "s1"
+    assert s["status"] == "ERROR"
+    assert s["http_status"] == 500
+    assert s["ts"] is not None
 
 
 def test_parse_search_empty():
@@ -97,12 +101,15 @@ def test_parse_search_defensive_fields():
                         {"key": "http.status_code", "value": {"stringValue": "x"}}]},
     ]}]}]}
     s = trace_store.parse_search(data)[0]
-    assert s["service"] == "svc" and s["http_status"] is None and s["ts"] is None
+    assert s["service"] == "svc"
+    assert s["http_status"] is None
+    assert s["ts"] is None
 
 
 def test_none_provider_raises():
+    provider = trace_store.NoneProvider()
     with pytest.raises(trace_store.TraceStoreError):
-        trace_store.NoneProvider().find_error_spans("session", "x", None, None)
+        provider.find_error_spans("session", "x", None, None)
 
 
 def test_tempo_provider_queries(settings, monkeypatch):
@@ -126,7 +133,8 @@ def test_tempo_provider_queries(settings, monkeypatch):
     )
     assert out == []
     assert "/api/search" in captured["url"]
-    assert 'span.session.id = "abc"' in captured["q"] and "status = error" in captured["q"]
+    assert 'span.session.id = "abc"' in captured["q"]
+    assert "status = error" in captured["q"]
 
 
 def test_tempo_provider_unknown_kind_returns_empty(settings):
@@ -141,8 +149,9 @@ def test_tempo_provider_wraps_request_error(settings, monkeypatch):
         raise trace_store.requests.RequestException("down")
 
     monkeypatch.setattr(trace_store.requests, "get", boom)
+    provider = trace_store.TempoProvider()
     with pytest.raises(trace_store.TraceStoreError):
-        trace_store.TempoProvider().find_error_spans("session", "x", None, None)
+        provider.find_error_spans("session", "x", None, None)
 
 
 # --- checks service ---
@@ -151,8 +160,11 @@ def test_tempo_provider_wraps_request_error(settings, monkeypatch):
 def test_create_check_hashes_user_and_defaults_window(settings):
     settings.SESSION_USER_HMAC_KEY = "k"
     c = checks_svc.create_check(subject_kind=CheckSubjectKind.USER, subject_raw="42")
-    assert c.subject_hash == hash_user_id("42") and c.subject_hash != "42"
-    assert c.window_from and c.window_to and c.window_from < c.window_to
+    assert c.subject_hash == hash_user_id("42")
+    assert c.subject_hash != "42"
+    assert c.window_from
+    assert c.window_to
+    assert c.window_from < c.window_to
 
 
 @pytest.mark.django_db
@@ -165,7 +177,8 @@ def test_create_check_session_uses_raw_id():
 def test_run_check_clean_when_no_error_spans():
     trace_store.set_provider_for_tests(FakeTraceStore([]))
     c = checks_svc.create_and_run(subject_kind=CheckSubjectKind.SESSION, subject_raw="x")
-    assert c.status == CheckStatus.DONE and c.verdict == "clean"
+    assert c.status == CheckStatus.DONE
+    assert c.verdict == "clean"
 
 
 @pytest.mark.django_db
@@ -175,7 +188,8 @@ def test_run_check_errors_found_records_spans():
         {"trace_id": "t2"},
     ]))
     c = checks_svc.create_and_run(subject_kind=CheckSubjectKind.SESSION, subject_raw="x")
-    assert c.status == CheckStatus.DONE and c.verdict == "errors_found:2"
+    assert c.status == CheckStatus.DONE
+    assert c.verdict == "errors_found:2"
     assert ErrorSpan.objects.filter(session_check=c).count() == 2
 
 
@@ -195,14 +209,16 @@ def test_run_check_aged_out(settings):
                                 window_from=old - timedelta(hours=1), window_to=old)
     checks_svc.run_session_check(c)
     c.refresh_from_db()
-    assert c.status == CheckStatus.INDETERMINATE and c.verdict == "aged_out"
+    assert c.status == CheckStatus.INDETERMINATE
+    assert c.verdict == "aged_out"
 
 
 @pytest.mark.django_db
 def test_run_check_indeterminate_when_backend_unavailable():
     # default provider is NoneProvider -> raises -> indeterminate
     c = checks_svc.create_and_run(subject_kind=CheckSubjectKind.SESSION, subject_raw="x")
-    assert c.status == CheckStatus.INDETERMINATE and c.verdict == "unavailable"
+    assert c.status == CheckStatus.INDETERMINATE
+    assert c.verdict == "unavailable"
 
 
 @pytest.mark.django_db
@@ -211,7 +227,8 @@ def test_run_check_no_subject_indeterminate(settings):
     c = checks_svc.create_check(subject_kind=CheckSubjectKind.USER, subject_raw="42")
     checks_svc.run_session_check(c)
     c.refresh_from_db()
-    assert c.status == CheckStatus.INDETERMINATE and c.verdict == "no_subject"
+    assert c.status == CheckStatus.INDETERMINATE
+    assert c.verdict == "no_subject"
 
 
 @pytest.mark.django_db
@@ -240,7 +257,8 @@ def test_webhook_creates_and_runs(client, settings):
                        content_type="application/json", HTTP_X_WATCH_WEBHOOK_SECRET="s3cret")
     assert resp.status_code == 201
     body = resp.json()
-    assert body["verdict"] == "errors_found:1" and body["error_spans"] == 1
+    assert body["verdict"] == "errors_found:1"
+    assert body["error_spans"] == 1
     assert SessionCheck.objects.filter(source="partner").count() == 1
 
 
@@ -257,7 +275,8 @@ def test_ui_check_list_run_and_detail(client):
     check = SessionCheck.objects.get()
     assert check.verdict == "errors_found:1"
     detail = client.get(f"/ui/checks/{check.id}/")
-    assert detail.status_code == 200 and b"boom" in detail.content
+    assert detail.status_code == 200
+    assert b"boom" in detail.content
 
 
 @pytest.mark.django_db

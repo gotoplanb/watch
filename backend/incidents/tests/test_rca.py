@@ -32,7 +32,8 @@ def _incident(**kw):
 def test_rca_save_assigns_number_and_str():
     r = Rca.objects.create(title="why the pager stayed silent")
     assert r.number == "RCA-0001"
-    assert r.number in str(r) and "why the pager stayed silent" in str(r)
+    assert r.number in str(r)
+    assert "why the pager stayed silent" in str(r)
 
 
 # --- seeding --------------------------------------------------------------
@@ -40,7 +41,9 @@ def test_rca_save_assigns_number_and_str():
 @pytest.mark.django_db
 def test_seed_blank_rca():
     r = services.seed_rca(title="freeform")
-    assert r.number == "RCA-0001" and r.document == "" and r.title == "freeform"
+    assert r.number == "RCA-0001"
+    assert r.document == ""
+    assert r.title == "freeform"
     assert r.events.count() == 0  # no incident ⇒ no provenance event
 
 
@@ -59,7 +62,9 @@ def test_seed_from_incident_fills_document_and_posts_provenance():
     assert r.document.startswith("# RCA — auth outage")
     assert "rolled back the deploy" in r.document  # the timeline flowed into the seed
     ev = r.events.get()
-    assert ev.type == "system" and inc.number in ev.body and "by alice" in ev.body
+    assert ev.type == "system"
+    assert inc.number in ev.body
+    assert "by alice" in ev.body
 
 
 # --- UI -------------------------------------------------------------------
@@ -67,7 +72,8 @@ def test_seed_from_incident_fills_document_and_posts_provenance():
 @pytest.mark.django_db
 def test_rca_list_requires_login(client):
     resp = client.get("/ui/rcas/")
-    assert resp.status_code == 302 and "/api-auth/login/" in resp["Location"]
+    assert resp.status_code == 302
+    assert "/api-auth/login/" in resp["Location"]
 
 
 @pytest.mark.django_db
@@ -75,7 +81,8 @@ def test_list_renders_when_logged_in(client):
     client.force_login(_user("lister"))
     Rca.objects.create(title="visible rca")
     body = client.get("/ui/rcas/").content.decode()
-    assert "RCA-0001" in body and "visible rca" in body
+    assert "RCA-0001" in body
+    assert "visible rca" in body
 
 
 @pytest.mark.django_db
@@ -83,7 +90,8 @@ def test_create_with_title(client):
     client.force_login(_user())
     resp = client.post("/ui/rcas/create/", {"title": "postmortem for the cache stampede"})
     r = Rca.objects.get()
-    assert resp["Location"] == f"/ui/rcas/{r.id}/" and r.number == "RCA-0001"
+    assert resp["Location"] == f"/ui/rcas/{r.id}/"
+    assert r.number == "RCA-0001"
 
 
 @pytest.mark.django_db
@@ -93,7 +101,8 @@ def test_create_seeded_from_incident(client):
     resp = client.post("/ui/rcas/create/", {"title": "", "incident": str(inc.id)})
     r = Rca.objects.get()
     assert resp["Location"] == f"/ui/rcas/{r.id}/"
-    assert r.title == "RCA — db failover" and r.document.startswith("# RCA — db failover")
+    assert r.title == "RCA — db failover"
+    assert r.document.startswith("# RCA — db failover")
     # detail renders the seeded document
     body = client.get(f"/ui/rcas/{r.id}/").content.decode()
     assert "db failover" in body
@@ -103,7 +112,8 @@ def test_create_seeded_from_incident(client):
 def test_create_blank_is_noop(client):
     client.force_login(_user())
     resp = client.post("/ui/rcas/create/", {"title": "  ", "incident": ""})
-    assert resp["Location"] == "/ui/rcas/" and not Rca.objects.exists()
+    assert resp["Location"] == "/ui/rcas/"
+    assert not Rca.objects.exists()
 
 
 @pytest.mark.django_db
@@ -124,13 +134,15 @@ def test_add_note_and_status_and_assignee(client):
     assert r.events.get(type="note").body == "reviewed with the team"
     client.post(f"/ui/rcas/{r.id}/update/", {"status": RcaStatus.FINAL, "assignee": str(target.id)})
     r.refresh_from_db()
-    assert r.status == RcaStatus.FINAL and r.assignee_id == target.id
+    assert r.status == RcaStatus.FINAL
+    assert r.assignee_id == target.id
     assert r.events.filter(type="system", body__contains="final").exists()
     # unassign + no status change ⇒ no new system event
     before = r.events.filter(type="system").count()
     client.post(f"/ui/rcas/{r.id}/update/", {"status": r.status, "assignee": ""})
     r.refresh_from_db()
-    assert r.assignee_id is None and r.events.filter(type="system").count() == before
+    assert r.assignee_id is None
+    assert r.events.filter(type="system").count() == before
 
 
 @pytest.mark.django_db
@@ -160,7 +172,8 @@ def test_draft_rca_service_replaces_document_and_posts_provenance(settings):
     r = services.seed_rca(incident=inc, actor="alice")
     services.draft_rca(r, actor="bob")
     r.refresh_from_db()
-    assert "RCA_AI_PROVIDER=stub" in r.document and "## Root cause" in r.document
+    assert "RCA_AI_PROVIDER=stub" in r.document
+    assert "## Root cause" in r.document
     # provenance names the provider + the model that actually ran
     assert r.events.filter(type="system", body__contains="AI-drafted via stub (local-stub)").exists()
     assert r.events.filter(body__contains="by bob").exists()
@@ -183,7 +196,8 @@ def test_ai_draft_view_drafts_when_flag_on(client, settings):
     client.force_login(_user("drafter"))
     r = Rca.objects.create(title="draft me", document="# assembly\n\n- boom")
     resp = client.post(f"/ui/rcas/{r.id}/ai-draft/")
-    assert resp.status_code == 302 and resp["Location"] == f"/ui/rcas/{r.id}/"
+    assert resp.status_code == 302
+    assert resp["Location"] == f"/ui/rcas/{r.id}/"
     r.refresh_from_db()
     assert "## Root cause" in r.document
     assert r.events.filter(type="system", body__contains="AI-drafted via stub").exists()
@@ -205,7 +219,8 @@ def test_ai_draft_view_requires_login(client):
     _flag(True)
     r = Rca.objects.create(title="anon")
     resp = client.post(f"/ui/rcas/{r.id}/ai-draft/")
-    assert resp.status_code == 302 and "/api-auth/login/" in resp["Location"]
+    assert resp.status_code == 302
+    assert "/api-auth/login/" in resp["Location"]
 
 
 @pytest.mark.django_db

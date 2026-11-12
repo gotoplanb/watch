@@ -52,7 +52,9 @@ def test_mcp_key_is_separate_but_rotates_with_the_seed(settings):
     settings.API_KEY_SECRET = "s3cr3t"
     user = _mk_user("t1a", Tier.T1)
     wk, wm = apikeys.api_key_for(user), apikeys.mcp_key_for(user)
-    assert wk.startswith("wk_") and wm.startswith("wm_") and wk.split("_")[2] != wm.split("_")[2]
+    assert wk.startswith("wk_")
+    assert wm.startswith("wm_")
+    assert wk.split("_")[2] != wm.split("_")[2]
     assert apikeys.user_for_mcp_key(wm) == user
     assert apikeys.user_for_mcp_key(wk) is None      # ingest key never grants MCP
     assert apikeys.user_for_key(wm) is None          # and vice versa
@@ -107,11 +109,14 @@ def _call_middleware(path, headers):
 @pytest.mark.django_db
 def test_middleware_401_carries_discovery_and_metadata_is_open(settings):
     captured, sent = _call_middleware("/mcp", [])
-    assert not captured and sent[0]["status"] == 401
+    assert not captured
+    assert sent[0]["status"] == 401
     assert b"oauth-protected-resource" in dict(sent[0]["headers"])[b"www-authenticate"]
     # resource metadata is served unauthenticated on this origin (RFC 9728)
     captured, sent = _call_middleware("/.well-known/oauth-protected-resource", [])
-    assert not captured and sent[0]["status"] == 200 and b"authorization_servers" in sent[1]["body"]
+    assert not captured
+    assert sent[0]["status"] == 200
+    assert b"authorization_servers" in sent[1]["body"]
 
 
 @pytest.mark.django_db
@@ -120,7 +125,8 @@ def test_middleware_passes_valid_key_through(settings):
     user = _mk_user("t1a", Tier.T1)
     bearer = f"Bearer {apikeys.mcp_key_for(user)}".encode()
     captured, sent = _call_middleware("/mcp", [(b"authorization", bearer)])
-    assert captured == ["app"] and sent[0]["status"] == 200
+    assert captured == ["app"]
+    assert sent[0]["status"] == 200
 
 
 # --- tools: read ---
@@ -131,11 +137,14 @@ def test_list_and_get_incident(as_user):
     _mk_incident(Tier.T1)
     incident = _mk_incident(Tier.T2)
     rows = mcp_server.list_incidents()
-    assert len(rows) == 2 and rows[0]["tier"] == Tier.T2  # newest first
+    assert len(rows) == 2
+    assert rows[0]["tier"] == Tier.T2  # newest first
     assert mcp_server.list_incidents(tier="T2")[0]["number"] == incident.number
     detail = mcp_server.get_incident(incident.number.lower())  # case-normalized
     assert detail["number"] == incident.number
-    assert "transitions" in detail and "timeline" in detail and "triage_decisions" in detail
+    assert "transitions" in detail
+    assert "timeline" in detail
+    assert "triage_decisions" in detail
     assert mcp_server.get_incident("INC-9999") == {"error": "no incident 'INC-9999'"}
 
 
@@ -153,7 +162,8 @@ def test_t1_user_cannot_act_on_t2_incident_and_error_teaches(as_user):
     as_user(_mk_user("t1a", Tier.T1))
     incident = _mk_incident(Tier.T2)
     result = mcp_server.resolve(incident.number)
-    assert "requires T2-or-higher" in result["error"] and "you hold T1" in result["error"]
+    assert "requires T2-or-higher" in result["error"]
+    assert "you hold T1" in result["error"]
     incident.refresh_from_db()
     assert incident.status == Status.OPEN
 
@@ -197,7 +207,8 @@ def test_run_session_check_requires_subject_and_runs(as_user, monkeypatch):
     as_user(_mk_user("t1a", Tier.T1))
     assert mcp_server.run_session_check() == {"error": "provide session_id or user_id"}
     result = mcp_server.run_session_check(session_id="corr-42")
-    assert result["verdict"] == "clean" and "incident" not in result
+    assert result["verdict"] == "clean"
+    assert "incident" not in result
     trace_store.set_provider_for_tests(None)
 
 

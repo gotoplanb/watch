@@ -23,9 +23,11 @@ def test_webhook_creates_then_dedupes(client):
     body = {"source": "sumo", "title": "disk full", "source_event_id": "e1",
             "payload": {"host": "web-1"}}
     first = _post(client, body)
-    assert first.status_code == 201 and first.json()["created"] is True
+    assert first.status_code == 201
+    assert first.json()["created"] is True
     again = _post(client, {**body, "title": "retry"})
-    assert again.status_code == 200 and again.json()["created"] is False
+    assert again.status_code == 200
+    assert again.json()["created"] is False
     assert Incident.objects.count() == 1
 
 

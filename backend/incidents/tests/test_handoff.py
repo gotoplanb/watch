@@ -41,8 +41,10 @@ def test_stub_brief_covers_the_three_questions(settings):
     settings.HANDOFF_AI_PROVIDER = "stub"
     result = handoff_ai.brief(dict(BASE_CTX), "history")
     assert "WHAT HAS HAPPENED" in result.text
-    assert "WHY T3 IS ENGAGED" in result.text and "SLA clock expired" in result.text
-    assert "WHAT T3 SHOULD DO NOW" in result.text and "shop foreman" in result.text
+    assert "WHY T3 IS ENGAGED" in result.text
+    assert "SLA clock expired" in result.text
+    assert "WHAT T3 SHOULD DO NOW" in result.text
+    assert "shop foreman" in result.text
     # T3 has no higher tier — the brief must never instruct an impossible escalation
     assert "escalate" not in result.text.split("WHAT T3 SHOULD DO NOW")[1].lower()
     assert "buck stops here" in result.text
@@ -74,9 +76,12 @@ def test_brief_dispatches_to_model_providers(settings, monkeypatch, provider, mo
     monkeypatch.setattr(module, "draft", fake_draft)
     result = handoff_ai.brief(dict(BASE_CTX), "THE HISTORY")
     # models reach for markdown even when told not to; the timeline is plain text
-    assert result.text == "WHAT HAS HAPPENED\nBRIEF" and result.model == "m1"
-    assert "T3" in seen["prompt"] and "shop foreman" in seen["prompt"]  # tier + role in prompt
-    assert "THE HISTORY" in seen["source"] and "SLA clock expired" in seen["source"]
+    assert result.text == "WHAT HAS HAPPENED\nBRIEF"
+    assert result.model == "m1"
+    assert "T3" in seen["prompt"]
+    assert "shop foreman" in seen["prompt"]  # tier + role in prompt
+    assert "THE HISTORY" in seen["source"]
+    assert "SLA clock expired" in seen["source"]
 
 
 def test_brief_unknown_provider_raises(settings):
@@ -96,7 +101,8 @@ def test_escalate_posts_brief_as_newest_event(settings, django_capture_on_commit
         services.escalate(incident.id, actor=str(user.pk), reason="need the foreman")
     event = incident.events.filter(type=EventType.AI, data__kind="handoff").get()
     assert event.data["to_tier"] == "T2"
-    assert "WHY T2 IS ENGAGED" in event.body and "t2a deliberately escalated" in event.body
+    assert "WHY T2 IS ENGAGED" in event.body
+    assert "t2a deliberately escalated" in event.body
     assert event.actor == "system:handoff"
 
 
@@ -208,7 +214,8 @@ def test_escalate_enqueues_the_brief_when_a_worker_exists(settings, monkeypatch,
         with django_capture_on_commit_callbacks(execute=True):
             services.escalate(incident.id, actor="1")
         event = incident.events.get(data__kind="handoff")
-        assert event.data["status"] == "pending" and event.body == ""
+        assert event.data["status"] == "pending"
+        assert event.body == ""
         assert calls == [("handoff", event.id)]
     finally:
         queue.set_provider_for_tests(None)
@@ -229,8 +236,10 @@ def test_worker_fills_the_pending_card(settings, django_capture_on_commit_callba
     finally:
         queue.set_provider_for_tests(None)
     event.refresh_from_db()
-    assert event.data["status"] == "ready" and event.data["provider"] == "stub"
-    assert "WHY T2 IS ENGAGED" in event.body and "tried the runbook" in event.body
+    assert event.data["status"] == "ready"
+    assert event.data["provider"] == "stub"
+    assert "WHY T2 IS ENGAGED" in event.body
+    assert "tried the runbook" in event.body
 
 
 @pytest.mark.django_db(transaction=True)
@@ -245,7 +254,8 @@ def test_redelivered_job_never_overwrites_a_written_brief(settings,
     body, data = event.body, dict(event.data)
     services.write_handoff_brief(event.id)             # redelivery
     event.refresh_from_db()
-    assert event.body == body and event.data == data
+    assert event.body == body
+    assert event.data == data
 
 
 @pytest.mark.django_db(transaction=True)
@@ -284,7 +294,8 @@ def test_detail_shows_the_pending_card_polling(settings, django_capture_on_commi
     finally:
         queue.set_provider_for_tests(None)
     assert "Writing the brief for T2" in html
-    assert f"/ui/incidents/{incident.id}/body/" in html and "every 2s" in html
+    assert f"/ui/incidents/{incident.id}/body/" in html
+    assert "every 2s" in html
 
 
 @pytest.mark.django_db
@@ -295,7 +306,8 @@ def test_body_partial_requires_login_and_renders_the_timeline():
     user = _mk_user("t1z", Tier.T1)
     client.force_login(user)
     html = client.get(f"/ui/incidents/{incident.id}/body/").content.decode()
-    assert "Timeline" in html and "<html" not in html  # the partial, not the page
+    assert "Timeline" in html
+    assert "<html" not in html  # the partial, not the page
 
 
 # --- what fixed it: the resolve reason (ADR-042) ---

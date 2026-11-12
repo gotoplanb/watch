@@ -27,7 +27,8 @@ def test_timeline_merges_events_and_incident_transitions():
     services.add_note(inc, actor="u", body="note")
     services.escalate(inc.id, actor="7")                           # -> a Transition + a system event
     kinds = [i["kind"] for i in services.timeline(inc)]
-    assert "transition" in kinds and kinds.count("event") >= 1
+    assert "transition" in kinds
+    assert kinds.count("event") >= 1
 
 
 @pytest.mark.django_db

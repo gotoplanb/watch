@@ -27,7 +27,8 @@ def test_health_degraded_when_postgres_down(client, monkeypatch):
     resp = client.get("/api/health")
     assert resp.status_code == 503
     body = resp.json()
-    assert body["status"] == "degraded" and body["checks"]["postgres"] is False
+    assert body["status"] == "degraded"
+    assert body["checks"]["postgres"] is False
 
 
 @pytest.mark.django_db
@@ -43,4 +44,5 @@ def test_health_degraded_when_valkey_down(client, monkeypatch):
 
     monkeypatch.setattr(health, "cache", _BrokenCache())
     resp = client.get("/api/health")
-    assert resp.status_code == 503 and resp.json()["checks"]["valkey"] is False
+    assert resp.status_code == 503
+    assert resp.json()["checks"]["valkey"] is False

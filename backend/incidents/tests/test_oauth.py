@@ -47,7 +47,8 @@ def test_verify_pkce_s256_only():
 @pytest.mark.django_db
 def test_client_lifecycle_and_auth(client_pair):
     client, raw_secret = client_pair
-    assert client.client_id.startswith("wtc_") and raw_secret.startswith("wts_")
+    assert client.client_id.startswith("wtc_")
+    assert raw_secret.startswith("wts_")
     assert oauth.authenticate_client(client.client_id, raw_secret).pk == client.pk
     with pytest.raises(oauth.OAuthError, match="bad client secret"):
         oauth.authenticate_client(client.client_id, "wts_wrong")
@@ -68,8 +69,10 @@ def test_code_redeems_once_binding_the_user(client_pair, user):
     tok, raw_access, raw_refresh = oauth.redeem_authorization_code(
         client=client, code=code, redirect_uri=REDIRECT, code_verifier=VERIFIER
     )
-    assert tok.user == user and tok.scope == "mcp"
-    assert raw_access.startswith("wt_at_") and raw_refresh.startswith("wt_rt_")
+    assert tok.user == user
+    assert tok.scope == "mcp"
+    assert raw_access.startswith("wt_at_")
+    assert raw_refresh.startswith("wt_rt_")
     assert oauth.resolve_access_token(raw_access) == user
     with pytest.raises(oauth.OAuthError, match="already used"):
         oauth.redeem_authorization_code(
@@ -177,16 +180,19 @@ def test_discovery_endpoints(http, settings):
 @pytest.mark.django_db
 def test_authorize_bad_client_never_redirects(http):
     resp = http.get("/oauth/authorize", {"client_id": "wtc_nope", "redirect_uri": REDIRECT})
-    assert resp.status_code == 400 and b"Unknown client_id" in resp.content
+    assert resp.status_code == 400
+    assert b"Unknown client_id" in resp.content
 
 
 @pytest.mark.django_db
 def test_authorize_protocol_errors_redirect_back(http, client_pair):
     client, _ = client_pair
     resp = http.get("/oauth/authorize", _authorize_params(client, response_type="token"))
-    assert resp.status_code == 302 and "unsupported_response_type" in resp["Location"]
+    assert resp.status_code == 302
+    assert "unsupported_response_type" in resp["Location"]
     resp = http.get("/oauth/authorize", _authorize_params(client, code_challenge=""))
-    assert resp.status_code == 302 and "invalid_request" in resp["Location"]
+    assert resp.status_code == 302
+    assert "invalid_request" in resp["Location"]
 
 
 @pytest.mark.django_db
@@ -195,19 +201,23 @@ def test_authorize_full_flow_via_session_login(http, client_pair, user, settings
     params = _authorize_params(client)
     # anonymous → bounced to session login with next back to authorize
     resp = http.get("/oauth/authorize", params)
-    assert resp.status_code == 302 and resp["Location"].startswith(settings.LOGIN_URL)
+    assert resp.status_code == 302
+    assert resp["Location"].startswith(settings.LOGIN_URL)
     # signed in → consent screen; its CSP form-action admits the validated callback origin
     # (browsers apply form-action to the post-approve redirect — the code delivery)
     http.force_login(user)
     resp = http.get("/oauth/authorize", params)
-    assert resp.status_code == 200 and b"Authorize claude.ai" in resp.content
+    assert resp.status_code == 200
+    assert b"Authorize claude.ai" in resp.content
     assert "form-action 'self' https://claude.ai" in resp["Content-Security-Policy"]
     # deny → access_denied redirect
     resp = http.post("/oauth/authorize", {**params, "decision": "deny"})
     assert "access_denied" in resp["Location"]
     # approve → code lands at redirect_uri with state
     resp = http.post("/oauth/authorize", {**params, "decision": "approve"})
-    assert resp.status_code == 302 and "code=" in resp["Location"] and "state=xyz" in resp["Location"]
+    assert resp.status_code == 302
+    assert "code=" in resp["Location"]
+    assert "state=xyz" in resp["Location"]
     code = resp["Location"].split("code=")[1].split("&")[0]
     # token exchange (client_secret_post) → acts as the approving user
     resp = http.post("/oauth/token", {
@@ -216,14 +226,16 @@ def test_authorize_full_flow_via_session_login(http, client_pair, user, settings
         "code_verifier": VERIFIER,
     })
     body = resp.json()
-    assert resp.status_code == 200 and body["token_type"] == "Bearer"
+    assert resp.status_code == 200
+    assert body["token_type"] == "Bearer"
     assert oauth.resolve_access_token(body["access_token"]) == user
     # refresh grant over HTTP
     resp = http.post("/oauth/token", {
         "grant_type": "refresh_token", "client_id": client.client_id,
         "client_secret": raw_secret, "refresh_token": body["refresh_token"],
     })
-    assert resp.status_code == 200 and resp.json()["access_token"] != body["access_token"]
+    assert resp.status_code == 200
+    assert resp.json()["access_token"] != body["access_token"]
 
 
 @pytest.mark.django_db
@@ -231,10 +243,12 @@ def test_token_endpoint_errors(http, client_pair):
     client, raw_secret = client_pair
     resp = http.post("/oauth/token", {"grant_type": "authorization_code",
                                       "client_id": client.client_id, "client_secret": "wts_bad"})
-    assert resp.status_code == 401 and resp.json()["error"] == "invalid_client"
+    assert resp.status_code == 401
+    assert resp.json()["error"] == "invalid_client"
     resp = http.post("/oauth/token", {"grant_type": "password",
                                       "client_id": client.client_id, "client_secret": raw_secret})
-    assert resp.status_code == 400 and resp.json()["error"] == "unsupported_grant_type"
+    assert resp.status_code == 400
+    assert resp.json()["error"] == "unsupported_grant_type"
 
 
 @pytest.mark.django_db

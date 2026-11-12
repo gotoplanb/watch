@@ -66,7 +66,8 @@ def _sub(**kw):
 @pytest.mark.django_db
 def test_emit_no_subscriptions_is_noop(post):
     events.emit("incident.escalated", {"x": 1})
-    assert WebhookDelivery.objects.count() == 0 and post.calls == []
+    assert WebhookDelivery.objects.count() == 0
+    assert post.calls == []
 
 
 @pytest.mark.django_db
@@ -74,14 +75,18 @@ def test_emit_delivers_and_signs(post):
     sub = _sub(secret="topsecret")
     events.emit("incident.escalated", {"incident_id": "i1"})
     d = WebhookDelivery.objects.get()
-    assert d.status == DeliveryStatus.DELIVERED and d.status_code == 200 and d.attempts == 1
+    assert d.status == DeliveryStatus.DELIVERED
+    assert d.status_code == 200
+    assert d.attempts == 1
     # signature is HMAC-SHA256 over the exact posted body
     call = post.calls[0]
     expected = hmac.new(b"topsecret", call["data"], hashlib.sha256).hexdigest()
     assert call["headers"]["X-Watch-Signature"] == f"sha256={expected}"
     assert call["headers"]["X-Watch-Event"] == "incident.escalated"
     body = json.loads(call["data"])
-    assert body["event"] == "incident.escalated" and body["data"]["incident_id"] == "i1" and body["id"]
+    assert body["event"] == "incident.escalated"
+    assert body["data"]["incident_id"] == "i1"
+    assert body["id"]
 
 
 @pytest.mark.django_db
@@ -114,7 +119,8 @@ def test_delivery_marked_failed_on_exception(monkeypatch):
     _sub()
     events.emit("incident.escalated", {})
     d = WebhookDelivery.objects.get()
-    assert d.status == DeliveryStatus.FAILED and "down" in d.error
+    assert d.status == DeliveryStatus.FAILED
+    assert "down" in d.error
 
 
 @pytest.mark.django_db
@@ -122,14 +128,16 @@ def test_cloud_mode_leaves_pending(settings, post):
     settings.WEBHOOKS_LOCAL_MODE = False
     _sub()
     events.emit("incident.escalated", {})
-    assert WebhookDelivery.objects.get().status == DeliveryStatus.PENDING and post.calls == []
+    assert WebhookDelivery.objects.get().status == DeliveryStatus.PENDING
+    assert post.calls == []
 
 
 def test_subscription_matches():
     s = WebhookSubscription(event_types=[])
     assert s.matches("anything")                 # empty filter = all
     s.event_types = ["a", "b"]
-    assert s.matches("a") and not s.matches("c")
+    assert s.matches("a")
+    assert not s.matches("c")
 
 
 # --- domain hooks (emitted from services, ADR-010) ---
@@ -183,7 +191,8 @@ def test_ui_webhooks_list_and_add(client, post):
     s = WebhookSubscription.objects.get()
     assert s.event_types == ["incident.escalated", "check.completed"]
     page = client.get("/ui/webhooks/")
-    assert page.status_code == 200 and b"https://rx/hook" in page.content
+    assert page.status_code == 200
+    assert b"https://rx/hook" in page.content
 
 
 @pytest.mark.django_db
@@ -200,7 +209,8 @@ def test_webhook_echo_verifies_signature(client, settings):
     good = "sha256=" + hmac.new(b"echosec", body, hashlib.sha256).hexdigest()
     ok = client.post("/api/webhook-echo", data=body, content_type="application/json",
                      HTTP_X_WATCH_SIGNATURE=good, HTTP_X_WATCH_EVENT="ping")
-    assert ok.status_code == 200 and ok.json()["received"] == "ping"
+    assert ok.status_code == 200
+    assert ok.json()["received"] == "ping"
     bad = client.post("/api/webhook-echo", data=body, content_type="application/json",
                       HTTP_X_WATCH_SIGNATURE="sha256=deadbeef")
     assert bad.status_code == 401

@@ -10,8 +10,9 @@ from incidents import apikeys
 def test_key_is_deterministic_and_encodes_the_id():
     u = User.objects.create(username="a")
     k = apikeys.api_key_for(u)
-    assert k == apikeys.api_key_for(u)                 # stable
-    assert k.startswith(f"wk_{u.pk}_") and len(k.split("_")[2]) == 32
+    assert apikeys.api_key_for(u) == k                 # stable
+    assert k.startswith(f"wk_{u.pk}_")
+    assert len(k.split("_")[2]) == 32
 
 
 @pytest.mark.django_db
@@ -51,7 +52,8 @@ def test_keyring_created_at_user_creation():
     from incidents.models import UserKeyring
     u = User.objects.create(username="new")
     kr = UserKeyring.objects.get(user=u)  # post_save signal created it
-    assert apikeys.seed_for(u) and f"keyring[{u.pk}]" == str(kr)
+    assert apikeys.seed_for(u)
+    assert str(kr) == f"keyring[{u.pk}]"
 
 
 @pytest.mark.django_db
@@ -67,7 +69,8 @@ def test_rotate_rolls_the_key_and_invalidates_the_old(settings):
 
     new_key = apikeys.api_key_for(u)
     new_topic = services.paging_topic("user", u.id, seed=apikeys.seed_for(u))
-    assert new_key != old_key and new_topic != old_topic  # both links rolled together
+    assert new_key != old_key
+    assert new_topic != old_topic  # both links rolled together
     assert apikeys.user_for_key(old_key) is None          # old key no longer authenticates
     assert apikeys.user_for_key(new_key) == u
 

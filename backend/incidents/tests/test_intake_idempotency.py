@@ -15,7 +15,8 @@ def test_dedupe_key_prefers_source_event_id():
     # Same content, different volatile fields -> same hash key.
     k1 = compute_dedupe_key({"host": "web-1", "timestamp": "t1"}, None)
     k2 = compute_dedupe_key({"host": "web-1", "timestamp": "t2"}, None)
-    assert k1 == k2 and k1.startswith("sha:")
+    assert k1 == k2
+    assert k1.startswith("sha:")
     # An explicit source id wins over the hash.
     assert compute_dedupe_key({"host": "web-1"}, "alert-123") == "src:alert-123"
 
@@ -28,7 +29,8 @@ def test_retry_while_open_is_idempotent_noop():
     b, created_b = create_incident_idempotent(
         source="sumo", payload={"host": "web-1"}, title="Disk full (retry)", source_event_id="alert-1"
     )
-    assert created_a is True and created_b is False
+    assert created_a is True
+    assert created_b is False
     assert a.id == b.id
     assert Incident.objects.count() == 1
 

@@ -64,7 +64,8 @@ def test_enqueue_sqs_sends_message(settings, monkeypatch):
     monkeypatch.setattr(boto3, "client", lambda *a, **k: FakeClient())
     queue.enqueue("check", "id-9")
     assert sent["url"] == "https://sqs.local/q"
-    assert '"kind": "check"' in sent["body"] and '"id": "id-9"' in sent["body"]
+    assert '"kind": "check"' in sent["body"]
+    assert '"id": "id-9"' in sent["body"]
 
 
 def test_enqueue_guarded_swallows_send_failure(settings, monkeypatch):
@@ -116,7 +117,8 @@ def test_run_job_check_runs_the_check():
     c = checks_svc.create_check(subject_kind=CheckSubjectKind.SESSION, subject_raw="corr-1")
     queue.run_job("check", c.id)
     c.refresh_from_db()
-    assert c.status == CheckStatus.DONE and c.verdict == "clean"
+    assert c.status == CheckStatus.DONE
+    assert c.verdict == "clean"
 
 
 @pytest.mark.django_db

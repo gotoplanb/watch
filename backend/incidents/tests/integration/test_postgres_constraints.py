@@ -27,12 +27,9 @@ def test_partial_unique_blocks_second_open_insert():
     )
     assert created
     # A raw duplicate OPEN insert must violate uniq_open_dedupe_key on Postgres.
-    with pytest.raises(IntegrityError):
-        with transaction.atomic():
-            Incident.objects.create(
-                source="sumo", payload={}, title="dup", dedupe_key=a.dedupe_key,
-                status=Status.OPEN,
-            )
+    dup = dict(source="sumo", payload={}, title="dup", dedupe_key=a.dedupe_key, status=Status.OPEN)
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Incident.objects.create(**dup)
 
 
 def test_refire_after_resolved_allowed_on_postgres():
@@ -44,4 +41,5 @@ def test_refire_after_resolved_allowed_on_postgres():
     b, created = create_incident_idempotent(
         source="sumo", payload={"h": "web-1"}, title="x2", source_event_id="e2"
     )
-    assert created and a.id != b.id
+    assert created
+    assert a.id != b.id

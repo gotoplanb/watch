@@ -47,9 +47,11 @@ def test_remember_ignores_empty_key_and_str():
 def test_flush_revokes_all_sessions():
     u = User.objects.create_user("f")
     k1, k2 = _new_session(u), _new_session(u)
-    assert _engine.SessionStore().exists(k1) and _engine.SessionStore().exists(k2)
+    assert _engine.SessionStore().exists(k1)
+    assert _engine.SessionStore().exists(k2)
     assert session_index.flush(u) == 2
-    assert not _engine.SessionStore().exists(k1) and not _engine.SessionStore().exists(k2)
+    assert not _engine.SessionStore().exists(k1)
+    assert not _engine.SessionStore().exists(k2)
     assert UserSession.objects.filter(user=u).count() == 0
 
 

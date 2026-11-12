@@ -12,9 +12,11 @@ from incidents.rca_ai import DraftError, DraftResult
 def test_stub_provider_is_deterministic_and_marked(settings):
     settings.RCA_AI_PROVIDER = "stub"
     r = rca_ai.draft("# assembly\n\n- boom")
-    assert r.provider == "stub" and r.model == "local-stub"
+    assert r.provider == "stub"
+    assert r.model == "local-stub"
     assert "RCA_AI_PROVIDER=stub" in r.text  # clearly labelled
-    assert "## Root cause" in r.text and "boom" in r.text  # source carried through
+    assert "## Root cause" in r.text
+    assert "boom" in r.text  # source carried through
 
 
 def test_dispatch_to_bedrock_passes_shared_prompt(settings):

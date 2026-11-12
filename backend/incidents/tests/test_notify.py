@@ -18,10 +18,12 @@ def test_ntfy_posts_with_headers_no_token(settings, monkeypatch):
 
     monkeypatch.setattr(notify.requests, "post", fake_post)
     ok, err = notify.send("watch-local-tier-T2", "the title", "hello", priority="high", tags=["x", "y"])
-    assert ok and err == ""
+    assert ok
+    assert err == ""
     assert cap["url"] == "https://ntfy.sh/watch-local-tier-T2"
     assert cap["data"] == b"hello"
-    assert cap["headers"]["Title"] == "the title" and cap["headers"]["Priority"] == "high"
+    assert cap["headers"]["Title"] == "the title"
+    assert cap["headers"]["Priority"] == "high"
     assert cap["headers"]["Tags"] == "x,y"
     assert "Authorization" not in cap["headers"]
 
@@ -41,7 +43,8 @@ def test_notify_best_effort_never_raises(monkeypatch):
         raise notify.requests.RequestException("ntfy down")
     monkeypatch.setattr(notify.requests, "post", boom)
     ok, err = notify.send("t", "ti", "m")
-    assert not ok and "ntfy down" in err
+    assert not ok
+    assert "ntfy down" in err
 
 
 def test_notify_provider_override():
@@ -54,6 +57,7 @@ def test_notify_provider_override():
     notify.set_provider_for_tests(Fake())
     try:
         ok, err = notify.send("mytopic", "t", "m")
-        assert ok and calls == ["mytopic"]
+        assert ok
+        assert calls == ["mytopic"]
     finally:
         notify.set_provider_for_tests(None)

@@ -15,7 +15,9 @@ def client():
 def test_status_stream_emits_posture_then_keepalive():
     frames = list(status_stream(2, 0))  # poll=0 -> instant; two ticks
     assert frames[0].startswith("event: status\ndata: ")
-    assert '"status"' in frames[0] and '"incidents"' in frames[0] and '"by_tier"' in frames[0]
+    assert '"status"' in frames[0]
+    assert '"incidents"' in frames[0]
+    assert '"by_tier"' in frames[0]
     # posture unchanged between ticks (only generated_at differs, which is ignored) -> keepalive
     assert frames[1].startswith(": keepalive")
 
@@ -30,7 +32,8 @@ def test_status_stream_view_headers_and_body(client, settings):
     assert resp["X-Accel-Buffering"] == "no"
     assert resp["Access-Control-Allow-Origin"]  # CORS for the cross-origin SPA
     body = b"".join(resp.streaming_content).decode()
-    assert "event: status" in body and '"checks"' in body
+    assert "event: status" in body
+    assert '"checks"' in body
 
 
 @pytest.mark.django_db

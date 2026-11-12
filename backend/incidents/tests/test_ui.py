@@ -30,13 +30,15 @@ def _incident(tier=Tier.T1, **kw):
 @pytest.mark.django_db
 def test_list_redirects_anonymous_to_login(client):
     resp = client.get("/ui/incidents/")
-    assert resp.status_code == 302 and "/api-auth/login/" in resp["Location"]
+    assert resp.status_code == 302
+    assert "/api-auth/login/" in resp["Location"]
 
 
 @pytest.mark.django_db
 def test_settings_requires_login(client):
     resp = client.get("/ui/settings/")
-    assert resp.status_code == 302 and "/api-auth/login/" in resp["Location"]
+    assert resp.status_code == 302
+    assert "/api-auth/login/" in resp["Location"]
 
 
 @pytest.mark.django_db
@@ -46,9 +48,11 @@ def test_settings_shows_own_api_key(client, settings):
     user = _user("keyholder")
     client.force_login(user)
     body = client.get("/ui/settings/").content.decode()
-    assert apikeys.api_key_for(user) in body and "Authorization: Bearer" in body
+    assert apikeys.api_key_for(user) in body
+    assert "Authorization: Bearer" in body
     # both ingest examples, with the digest's distinct content-field body
-    assert "/&lt;env&gt;/status" in body and "/&lt;env&gt;/digest" in body
+    assert "/&lt;env&gt;/status" in body
+    assert "/&lt;env&gt;/digest" in body
     assert '"content":' in body
 
 
@@ -63,19 +67,22 @@ def test_rotate_keys_rolls_the_shown_key(client, settings):
     after = apikeys.api_key_for(user)
     assert after != before
     body = client.get("/ui/settings/").content.decode()
-    assert after in body and before not in body
+    assert after in body
+    assert before not in body
 
 
 @pytest.mark.django_db
 def test_rotate_keys_requires_login(client):
     resp = client.post("/ui/settings/rotate-keys/")
-    assert resp.status_code == 302 and "/api-auth/login/" in resp["Location"]
+    assert resp.status_code == 302
+    assert "/api-auth/login/" in resp["Location"]
 
 
 @pytest.mark.django_db
 def test_change_password_requires_login(client):
     resp = client.post("/ui/settings/change-password/")
-    assert resp.status_code == 302 and "/api-auth/login/" in resp["Location"]
+    assert resp.status_code == 302
+    assert "/api-auth/login/" in resp["Location"]
 
 
 @pytest.mark.django_db
@@ -89,7 +96,8 @@ def test_change_password_success_keeps_session(client):
         "new_password1": "s3curely-rotated-pw",
         "new_password2": "s3curely-rotated-pw",
     })
-    assert resp.status_code == 302 and resp["Location"] == "/ui/settings/"
+    assert resp.status_code == 302
+    assert resp["Location"] == "/ui/settings/"
     user.refresh_from_db()
     assert user.check_password("s3curely-rotated-pw")
     # update_session_auth_hash keeps THIS session valid — still authed on the next request
@@ -157,7 +165,8 @@ def test_settings_shows_own_paging_topic(client, settings):
     body = resp.content.decode()
     from incidents import apikeys
     own = services.paging_topic("user", user.id, seed=apikeys.seed_for(user))
-    assert own in body and own.startswith(f"watch-test-user-{user.id}-")
+    assert own in body
+    assert own.startswith(f"watch-test-user-{user.id}-")
     # tier fallback topic for the user's tier is shown; the raw secret never is
     assert services.paging_topic("tier", "T2") in body
     assert "s3kret" not in body
@@ -189,7 +198,8 @@ def test_list_renders_for_authenticated(client):
     _incident()
     client.force_login(_user("viewer"))
     resp = client.get("/ui/incidents/")
-    assert resp.status_code == 200 and b"disk full" in resp.content
+    assert resp.status_code == 200
+    assert b"disk full" in resp.content
 
 
 @pytest.mark.django_db
@@ -198,7 +208,8 @@ def test_list_htmx_returns_rows_partial_with_filters(client):
     client.force_login(_user("viewer2"))
     resp = client.get("/ui/incidents/?status=OPEN&tier=T1", HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
-    assert b'id="incident-results"' in resp.content and b"<html" not in resp.content
+    assert b'id="incident-results"' in resp.content
+    assert b"<html" not in resp.content
 
 
 @pytest.mark.django_db
@@ -208,9 +219,11 @@ def test_list_search_filters_by_title_and_number(client):
     b = Incident.objects.create(source="t", title="Login errors", dedupe_key="q2")
     client.force_login(User.objects.create(username="searcher"))
     html = client.get("/ui/incidents/?q=checkout").content.decode()
-    assert a.title in html and b.title not in html
+    assert a.title in html
+    assert b.title not in html
     html = client.get(f"/ui/incidents/?q={b.number}").content.decode()
-    assert b.title in html and a.title not in html
+    assert b.title in html
+    assert a.title not in html
 
 
 @pytest.mark.django_db
@@ -218,7 +231,8 @@ def test_detail_renders_body(client):
     inc = _incident()
     client.force_login(_user("viewer3"))
     resp = client.get(f"/ui/incidents/{inc.id}/")
-    assert resp.status_code == 200 and b'id="incident-body"' in resp.content
+    assert resp.status_code == 200
+    assert b'id="incident-body"' in resp.content
 
 
 @pytest.mark.django_db
@@ -226,9 +240,11 @@ def test_add_note_appends_to_timeline(client):
     inc = _incident()
     client.force_login(_user("commenter"))
     resp = client.post(f"/ui/incidents/{inc.id}/note/", {"body": "looking into it"})
-    assert resp.status_code == 200 and b"looking into it" in resp.content
+    assert resp.status_code == 200
+    assert b"looking into it" in resp.content
     ev = inc.events.get()
-    assert ev.type == "note" and ev.actor == "commenter"
+    assert ev.type == "note"
+    assert ev.actor == "commenter"
 
 
 @pytest.mark.django_db
@@ -236,7 +252,8 @@ def test_empty_note_is_noop(client):
     inc = _incident()
     client.force_login(_user("commenter2"))
     resp = client.post(f"/ui/incidents/{inc.id}/note/", {"body": "   "})
-    assert resp.status_code == 200 and inc.events.count() == 0
+    assert resp.status_code == 200
+    assert inc.events.count() == 0
 
 
 @pytest.mark.django_db
@@ -251,9 +268,12 @@ def test_annotate_transition_and_event_with_tag(client):
                      {"target": f"transition:{t.id}", "tag": "unexpected", "body": "should not have fired"})
     r2 = client.post(f"/ui/incidents/{inc.id}/annotate/",
                      {"target": f"event:{ev.id}", "tag": "root-cause", "body": "here"})
-    assert r1.status_code == 200 and r2.status_code == 200
-    assert t.annotations.count() == 1 and t.annotations.first().tag == "unexpected"
-    assert ev.annotations.count() == 1 and ev.annotations.first().tag == "root-cause"
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert t.annotations.count() == 1
+    assert t.annotations.first().tag == "unexpected"
+    assert ev.annotations.count() == 1
+    assert ev.annotations.first().tag == "root-cause"
     assert b"should not have fired" in r2.content
 
 
@@ -289,8 +309,10 @@ def test_rca_export_downloads_markdown(client):
     assert f"rca-{inc.id}.md" in resp["Content-Disposition"]
     body = resp.content.decode()
     assert "# RCA — disk full" in body
-    assert "escalated T1→T2" in body and "tail of the log" in body
-    assert "root-cause" in body and "root here" in body
+    assert "escalated T1→T2" in body
+    assert "tail of the log" in body
+    assert "root-cause" in body
+    assert "root here" in body
 
 
 @pytest.mark.django_db
@@ -324,7 +346,8 @@ def test_escalate_real_mode_leaves_state_to_lambda(client, settings, monkeypatch
     client.force_login(_user("t1b", "T1"))
     resp = client.post(f"/ui/incidents/{inc.id}/escalate/")
     inc.refresh_from_db()
-    assert resp.status_code == 200 and inc.current_tier == Tier.T1  # unchanged; commit Lambda owns it
+    assert resp.status_code == 200
+    assert inc.current_tier == Tier.T1  # unchanged; commit Lambda owns it
     # The commit is deferred, so the swapped-in body MUST carry a poller keyed to the state we're
     # leaving — otherwise the page shows stale pre-commit state until a manual reload (platform#64).
     body = resp.content.decode()
@@ -353,7 +376,8 @@ def test_escalate_emits_system_event():
     inc = _incident(Tier.T1)
     services.escalate(inc.id, actor="7")
     sys_ev = inc.events.get(type="system")
-    assert "Escalated T1→T2" in sys_ev.body and sys_ev.data["to_tier"] == "T2"
+    assert "Escalated T1→T2" in sys_ev.body
+    assert sys_ev.data["to_tier"] == "T2"
 
 
 @pytest.mark.django_db
@@ -362,9 +386,11 @@ def test_auto_escalate_narrative_and_ai_post():
     from incidents.models import Transition
     services.escalate(inc.id, actor=Transition.SYSTEM_ACTOR)
     sys_ev = inc.events.get(type="system")
-    assert "Auto-escalated (SLA breach)" in sys_ev.body and sys_ev.data["auto"] is True
+    assert "Auto-escalated (SLA breach)" in sys_ev.body
+    assert sys_ev.data["auto"] is True
     ai = services.post_ai_event(inc, body="likely OOM in worker", data={"confidence": 0.7})
-    assert ai.type == "ai" and ai.actor == "argus"
+    assert ai.type == "ai"
+    assert ai.actor == "argus"
 
 
 @pytest.mark.django_db
@@ -374,7 +400,8 @@ def test_str_reprs():
     ev = TimelineEvent.objects.create(record=inc, type="note", actor="author1", body="x")
     assert "note by author1" in str(ev)
     a = services.annotate_event(ev, author=user, body="y", tag=AnnotationTag.UNEXPECTED)
-    assert "unexpected" in str(a) and "author1" in str(a)
+    assert "unexpected" in str(a)
+    assert "author1" in str(a)
     assert "unknown" in str(services.annotate_event(ev, author=None, body="z"))
 
 
@@ -382,7 +409,8 @@ def test_str_reprs():
 def test_rca_no_events_section():
     inc = _incident(Tier.T1)
     md = services.rca_markdown(inc)
-    assert "_(no events)_" in md and "_(none flagged)_" in md
+    assert "_(no events)_" in md
+    assert "_(none flagged)_" in md
 
 
 def test_no_multiline_template_comments():

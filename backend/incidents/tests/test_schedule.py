@@ -57,7 +57,8 @@ def test_escalate_assigns_new_tier_on_call():
     inc = _incident(Tier.T1)
     services.escalate(inc.id, actor="9")
     inc.refresh_from_db()
-    assert inc.current_tier == Tier.T2 and inc.assignee == u2
+    assert inc.current_tier == Tier.T2
+    assert inc.assignee == u2
 
 
 @pytest.mark.django_db
@@ -65,7 +66,8 @@ def test_escalate_into_gap_leaves_unassigned():
     inc = _incident(Tier.T1, assignee=_user("prev"))
     services.escalate(inc.id, actor="9")  # no T2 shift
     inc.refresh_from_db()
-    assert inc.current_tier == Tier.T2 and inc.assignee is None
+    assert inc.current_tier == Tier.T2
+    assert inc.assignee is None
 
 
 @pytest.mark.django_db
@@ -84,13 +86,15 @@ def test_intake_assigns_t1_on_call():
     _shift(Tier.T1, u1, -1, 1)
     inc, created = create_incident_idempotent(source="sumo", payload={"h": "x"},
                                               title="t", source_event_id="sc-intake")
-    assert created and inc.assignee == u1
+    assert created
+    assert inc.assignee == u1
 
 
 @pytest.mark.django_db
 def test_oncallshift_str():
     s = _shift(Tier.T1, _user("s1"), -1, 1)
-    assert "T1" in str(s) and "s1" in str(s)
+    assert "T1" in str(s)
+    assert "s1" in str(s)
 
 
 # --- UI ---
@@ -103,7 +107,8 @@ def client():
 @pytest.mark.django_db
 def test_schedule_requires_login(client):
     resp = client.get("/ui/schedule/")
-    assert resp.status_code == 302 and "/api-auth/login/" in resp["Location"]
+    assert resp.status_code == 302
+    assert "/api-auth/login/" in resp["Location"]
 
 
 @pytest.mark.django_db
@@ -112,7 +117,9 @@ def test_schedule_page_shows_on_call(client):
     _shift(Tier.T1, u, -1, 1)
     client.force_login(u)
     resp = client.get("/ui/schedule/")
-    assert resp.status_code == 200 and b"on-call now" in resp.content and b"viewer" in resp.content
+    assert resp.status_code == 200
+    assert b"on-call now" in resp.content
+    assert b"viewer" in resp.content
 
 
 @pytest.mark.django_db
@@ -135,4 +142,5 @@ def test_add_shift_rejects_invalid(client):
     client.force_login(u)
     # Missing user + end before start -> no shift created.
     resp = client.post("/ui/schedule/shift/", {"tier": "T2", "user": "", "starts_at": "", "ends_at": ""})
-    assert resp.status_code == 200 and OnCallShift.objects.count() == 0
+    assert resp.status_code == 200
+    assert OnCallShift.objects.count() == 0

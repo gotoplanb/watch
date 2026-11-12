@@ -109,14 +109,17 @@ def test_matrix_classifies_internal_software_advisory_in_highway():
     assert incident.dedupe_key == f"check:session:{check.subject_hash}"
     assert incident.escalation_execution_arn  # execution started at creation (ADR-001/007)
     link = RecordLink.objects.get(kind=LinkKind.CREATED_FROM)
-    assert link.from_object_id == str(incident.id) and link.to_object_id == str(check.id)
-    assert incident.status == Status.OPEN and incident.current_tier == Tier.T1
+    assert link.from_object_id == str(incident.id)
+    assert link.to_object_id == str(check.id)
+    assert incident.status == Status.OPEN
+    assert incident.current_tier == Tier.T1
     assert incident.triage_verdict == TriageVerdict.REAL
     assert incident.triage_responsibility == "internal"
     assert incident.triage_fault_domain == "software"
     decision = TriageDecision.objects.get()
     assert decision.actor == TriageDecision.ASSISTANT_ACTOR
-    assert decision.provider == "matrix" and decision.confidence == 1.0  # no AI call needed
+    assert decision.provider == "matrix"
+    assert decision.confidence == 1.0  # no AI call needed
     assert decision.disposition == TriageDisposition.NO_ACTION
     assert decision.mode == OperatingMode.HIGHWAY
     assert decision.evidence["spans"][0]["kind"] == "server"
@@ -240,6 +243,8 @@ def test_evidence_renders_spans_and_handles_none():
     incident = Incident.objects.create(source="check", title="t", dedupe_key="k1")
     spans = list(check.error_spans.all())
     markdown, snapshot = triage._evidence(incident, check, spans)
-    assert "HTTP 500" in markdown and snapshot["spans"][0]["trace_id"] == "t9"
+    assert "HTTP 500" in markdown
+    assert snapshot["spans"][0]["trace_id"] == "t9"
     markdown2, snapshot2 = triage._evidence(incident, check, [])
-    assert "(none recorded)" in markdown2 and snapshot2["spans"] == []
+    assert "(none recorded)" in markdown2
+    assert snapshot2["spans"] == []

@@ -11,7 +11,8 @@ def test_incident_and_transition_str():
     assert "disk full" in str(inc)
     tr = Transition.objects.create(incident=inc, from_status="OPEN", from_tier="T1",
                                    to_status="OPEN", to_tier="T2", actor="1")
-    assert str(inc.id) in str(tr) and "T1" in str(tr)
+    assert str(inc.id) in str(tr)
+    assert "T1" in str(tr)
 
 
 def test_next_tier_progression():

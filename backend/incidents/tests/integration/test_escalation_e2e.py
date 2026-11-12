@@ -104,15 +104,16 @@ def test_human_escalate_then_resolve_runs_to_succeeded(shim, sfn):
     assert tok1, "record_token did not persist a T1 task token"
 
     # Human escalates T1 -> T2 (actor = user 99).
-    sfn.send_task_success(taskToken=tok1, output=json.dumps({"outcome": "ESCALATE", "actor": "99"}))
+    sfn.send_task_success(taskToken=tok1, output=json.dumps({"outcome": "ESCALATE", "actor": "99", "reason": ""}))
     assert _poll(lambda: Incident.objects.get(pk=inc.id).current_tier == Tier.T2)
     assert Transition.objects.filter(incident=inc, to_tier="T2", actor="99").exists()
 
     tok2 = _poll(lambda: _token_at(inc.id, Tier.T2))
-    assert tok2 and tok2 != tok1, "T2 re-tokenize failed"
+    assert tok2, "T2 re-tokenize failed"
+    assert tok2 != tok1, "T2 re-tokenize failed"
 
     # Human resolves at T2.
-    sfn.send_task_success(taskToken=tok2, output=json.dumps({"outcome": "RESOLVE", "actor": "99"}))
+    sfn.send_task_success(taskToken=tok2, output=json.dumps({"outcome": "RESOLVE", "actor": "99", "reason": ""}))
     assert _poll(lambda: Incident.objects.get(pk=inc.id).status == Status.RESOLVED)
 
     status = _poll(lambda: (lambda s: s if s != "RUNNING" else None)(
