@@ -47,6 +47,7 @@
 - *Parity is already solved:* the Agent gives an identical `localhost:2772` path locally and in Fargate. The only "difference" is the in-memory stub at the **unit-test** boundary — which is just "tests stub their dependencies," not a parity violation.
 - *Principle:* prefer the managed service behind a thin interface over a homegrown version of it. The seam buys swappability for one class.
 - *Cost:* poll-based propagation (~45s) — never design for sub-second flips.
+- *Guardrail (watch#57):* **every runtime that evaluates a flag must reach `localhost:2772`.** The escalation Lambdas run `incidents.services`, so they carry the **AWS AppConfig Lambda extension layer** (same port, same profile, same `appconfig_read` policy as the ECS sidecar) — not `FLAGS_PROVIDER=memory`, which silently pinned every Lambda-evaluated flag to its default (`paging_enabled` was dark for auto-escalations). A new runtime that imports `services` gets the extension or the sidecar, never a stub.
 
 ---
 

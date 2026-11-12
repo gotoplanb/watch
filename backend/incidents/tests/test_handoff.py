@@ -127,6 +127,16 @@ def test_flag_off_no_brief(settings, django_capture_on_commit_callbacks):
 
 
 @pytest.mark.django_db(transaction=True)
+def test_flag_unset_defaults_off(settings, django_capture_on_commit_callbacks):
+    # watch#57: the Lambda now reads AppConfig, so an unset flag fails closed like any other.
+    flags.set_provider_for_tests(flags.InMemoryProvider({}))
+    incident = _mk_incident()
+    with django_capture_on_commit_callbacks(execute=True):
+        services.escalate(incident.id, actor="1")
+    assert not incident.events.filter(data__kind="handoff").exists()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_brief_failure_never_breaks_escalation(settings, monkeypatch,
                                                django_capture_on_commit_callbacks):
     def boom(ctx, history):
