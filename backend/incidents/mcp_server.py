@@ -151,10 +151,13 @@ def get_incident(number: str) -> dict:
     if incident is None:
         return {"error": f"no incident {number!r}"}
     detail = _summary(incident)
+    transitions = list(incident.transitions.all())
+    names = services.actor_labels(t.actor for t in transitions)
     detail["transitions"] = [
         {"from": f"{t.from_status}/{t.from_tier}", "to": f"{t.to_status}/{t.to_tier}",
-         "actor": t.actor, "reason": t.reason, "at": t.at.isoformat()}
-        for t in incident.transitions.all()
+         "actor": t.actor, "actor_name": names.get(t.actor, t.actor), "reason": t.reason,
+         "at": t.at.isoformat()}
+        for t in transitions
     ]
     detail["timeline"] = [
         {"type": e.type, "actor": e.actor, "body": e.body, "at": e.occurred_at.isoformat()}

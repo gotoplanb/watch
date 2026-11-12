@@ -281,6 +281,22 @@ def annotate_event(target, *, author, body: str = "", tag: str = "note") -> Anno
     return Annotation.objects.create(target=target, author=author, body=body, tag=tag)
 
 
+def actor_labels(actors) -> dict:
+    """Map stored actor strings to display names. Human actions record the user's pk (it flows
+    unchanged through SendTaskSuccess and the commit Lambda, and survives a rename); everything
+    else (`system:*`, usernames on notes) is already readable. One query for the whole batch."""
+    from django.contrib.auth.models import User  # lazy: services stays light at import
+
+    actors = {str(a) for a in actors if a is not None}
+    ids = [int(a) for a in actors if a.isdigit()]
+    names = {str(pk): name for pk, name in User.objects.filter(pk__in=ids).values_list("pk", "username")}
+    return {a: names.get(a, a) for a in actors}
+
+
+def actor_label(actor) -> str:
+    return actor_labels([actor]).get(str(actor), str(actor))
+
+
 def timeline(record):
     """Merged, time-ordered history for any record (ADR-031): its TimelineEvents, plus Transitions
     when the record has them (incidents only — Transitions stay incident-only). Each item carries its
@@ -292,6 +308,9 @@ def timeline(record):
             {"kind": "transition", "at": t.at, "obj": t, "target": f"transition:{t.id}"}
             for t in transitions.prefetch_related("annotations__author")
         ]
+        labels = actor_labels(i["obj"].actor for i in items)
+        for i in items:
+            i["obj"].actor_label = labels.get(i["obj"].actor, i["obj"].actor)
     items += [
         {"kind": "event", "at": e.occurred_at, "obj": e, "target": f"event:{e.id}"}
         for e in record.events.prefetch_related("annotations__author")
@@ -318,7 +337,8 @@ def _rca_transition_head(obj) -> str:
     else:
         what, said = obj.reason or "updated", ""
     quoted = f' — "{said}"' if said else ""
-    return f"**transition** — {what} · actor `{obj.actor}`{quoted}"
+    who = getattr(obj, "actor_label", None) or actor_label(obj.actor)
+    return f"**transition** — {what} · actor `{who}`{quoted}"
 
 
 def _rca_line(item) -> str:
@@ -403,19 +423,14 @@ def _humanize_since(dt) -> str:
 
 
 def _handoff_ctx(incident, from_tier, to_tier, actor, auto, reason) -> dict:
-    from django.contrib.auth.models import User  # lazy: services stays light at import
-
-    actor_label = "the SLA clock"
-    if not auto:
-        user = User.objects.filter(pk=actor).first() if str(actor).isdigit() else None
-        actor_label = user.username if user else str(actor)
+    who = "the SLA clock" if auto else actor_label(actor)
     triage = ""
     if incident.triage_verdict:
         triage = (f"{incident.triage_verdict} "
                   f"({incident.triage_responsibility}/{incident.triage_fault_domain})")
     return {
         "from_tier": from_tier, "to_tier": to_tier, "auto": auto,
-        "actor_label": actor_label, "reason": reason or "",
+        "actor_label": who, "reason": reason or "",
         "source": incident.source, "triage": triage,
         "open_for": _humanize_since(incident.created_at),
         "event_count": len(timeline(incident)),

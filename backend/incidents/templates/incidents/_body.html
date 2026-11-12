@@ -102,7 +102,7 @@ The root keeps id="incident-body" so subsequent swaps still find it.
         <p class="mt-1 whitespace-pre-wrap text-slate-300">{{ e.obj.body }}</p>
       {% else %}
         <span class="text-slate-300">{{ e.obj.from_tier }} → {{ e.obj.to_tier }}{% if e.obj.to_status == 'RESOLVED' %} · resolved{% endif %}</span>
-        <span class="text-slate-400 text-xs"> · {{ e.obj.actor }} · {{ e.at|date:"M j, H:i" }}</span>
+        <span class="text-slate-400 text-xs"> · {{ e.obj.actor_label|default:e.obj.actor }} · {{ e.at|date:"M j, H:i" }}</span>
         {% if e.obj.reason %}<span class="text-slate-400 text-xs"> — {{ e.obj.reason }}</span>{% endif %}
       {% endif %}
 

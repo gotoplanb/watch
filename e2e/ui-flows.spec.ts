@@ -201,7 +201,10 @@ test("incident detail: actions update the timeline live, without a full page rel
 
   // ACK → its transition line ("T1 → T1 … — acknowledged") appears in the timeline.
   await page.getByRole("button", { name: "Acknowledge" }).click();
-  await expect(timeline(page).locator("li").filter({ hasText: "— acknowledged" })).toBeVisible();
+  const ackLine = timeline(page).locator("li").filter({ hasText: "— acknowledged" });
+  await expect(ackLine).toBeVisible();
+  // The actor is stored as the user's pk; the timeline must show who that is.
+  await expect(ackLine).toContainText(` · ${USER} · `);
 
   // Note → it appears, newest-first, above the ACK line.
   const note = `live-update ${Date.now()}`;
