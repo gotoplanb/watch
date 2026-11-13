@@ -735,3 +735,314 @@ class RecordLink(models.Model):
 
     def __str__(self):
         return f"{self.from_content_type_id}:{self.from_object_id} -{self.kind}-> {self.to_content_type_id}:{self.to_object_id}"
+
+
+class AssessmentStatus(models.TextChoices):
+    NEW = "new", "New"
+    INVESTIGATING = "investigating", "Investigating"
+    MONITORING = "monitoring", "Monitoring"
+    NO_ISSUE = "no_issue", "Closed · no issue"
+    PROMOTED = "promoted", "Promoted to incident"
+
+
+class AssessmentVerdict(models.TextChoices):
+    UNKNOWN = "unknown", "Inconclusive"
+    NO_ISSUE = "no_issue", "No degradation found"
+    DEGRADED = "degraded", "Service degradation"
+
+
+class AssessmentConfidence(models.TextChoices):
+    UNKNOWN = "unknown", "Not assessed"
+    LOW = "low", "Low"
+    MEDIUM = "medium", "Medium"
+    HIGH = "high", "High"
+
+
+class Assessment(models.Model):
+    """Signal investigation, independent of incident creation and its SLA clock (ADR-054)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    number = models.CharField(max_length=20, unique=True)
+    dedupe_key = models.CharField(max_length=128, unique=True)
+    title = models.CharField(max_length=512)
+    source = models.CharField(max_length=128)
+    signal = models.TextField()
+    payload = models.JSONField(default=dict)
+    customer = models.CharField(max_length=128, blank=True)
+    service = models.CharField(max_length=128, blank=True)
+    supplier = models.CharField(max_length=128, blank=True)
+    status = models.CharField(max_length=16, choices=AssessmentStatus.choices, default=AssessmentStatus.NEW)
+    verdict = models.CharField(max_length=16, choices=AssessmentVerdict.choices, default=AssessmentVerdict.UNKNOWN)
+    confidence = models.CharField(max_length=16, choices=AssessmentConfidence.choices, default=AssessmentConfidence.UNKNOWN)
+    conclusion = models.TextField(blank=True)
+    assignee = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                 on_delete=models.SET_NULL, related_name="assessments")
+    incident = models.OneToOneField(Incident, null=True, blank=True, on_delete=models.PROTECT,
+                                    related_name="origin_assessment")
+    signal_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    promoted_at = models.DateTimeField(null=True, blank=True)
+    severity = models.CharField(max_length=2, choices=[(f"P{n}", f"P{n}") for n in range(1, 5)], default="P3")
+    impact = models.CharField(max_length=16, choices=[("unknown", "Unknown"), ("none", "None"), ("low", "Low"), ("moderate", "Moderate"), ("high", "High")], default="unknown")
+    automation_state = models.CharField(max_length=16, default="manual", choices=[(s, s.capitalize()) for s in ("manual", "queued", "running", "complete", "failed")])
+    automation_policy = models.ForeignKey("AssessmentPolicy", null=True, blank=True, on_delete=models.PROTECT)
+    recurrence_key = models.CharField(max_length=128, blank=True)
+    engine_start_failures = models.PositiveIntegerField(default=0)
+    engine_start_retry_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["status", "-created_at"], name="assessment_queue_idx")]
+
+    def __str__(self):
+        return f"{self.number} · {self.title}"
+
+
+class AssessmentEventQuerySet(models.QuerySet):
+    def bulk_create(self, objs, **kwargs):
+        if kwargs.get("update_conflicts"):
+            raise ValueError("Append-only records cannot be upserted")
+        return super().bulk_create(objs, **kwargs)
+
+    def update(self, **kwargs):
+        raise ValueError("Assessment history is append-only; append a correction instead")
+
+    def delete(self):
+        raise ValueError("Assessment history is append-only")
+
+
+class AssessmentEvent(models.Model):
+    """One durable history retained across promotion; source records remain linked by id."""
+    id = models.BigAutoField(primary_key=True)
+    assessment = models.ForeignKey(Assessment, on_delete=models.PROTECT, related_name="history")
+    kind = models.CharField(max_length=64)
+    actor = models.CharField(max_length=128)
+    body = models.TextField()
+    data = models.JSONField(default=dict)
+    occurred_at = models.DateTimeField(default=timezone.now)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+    annotations = GenericRelation("Annotation", related_query_name="assessment_event")
+    objects = AssessmentEventQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["occurred_at", "id"]
+
+    @property
+    def type(self):
+        return EventType.NOTE if self.kind == "comment" else EventType.SYSTEM
+
+    def __str__(self):
+        return f"Event {self.pk} · {self.label} · {self.body[:75]}"
+
+    @property
+    def label(self):
+        return self.kind.replace("_", " ").capitalize()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError("Assessment history is append-only; append a correction instead")
+        kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Assessment history is append-only")
+
+
+class ServiceDependency(models.Model):
+    customer = models.CharField(max_length=128)
+    service = models.CharField(max_length=128)
+    supplier = models.CharField(max_length=128)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["customer", "service", "supplier"], name="unique_service_dependency")]
+
+    def __str__(self):
+        return f"{self.supplier} → {self.service} → {self.customer}"
+
+
+class DiagnosticRule(models.Model):
+    name = models.CharField(max_length=160)
+    provider = models.CharField(max_length=16, choices=[("prometheus", "Watchtower / Prometheus"), ("sumo", "Sumo Logic"), ("fixture", "Local example")])
+    query = models.TextField()
+    baseline_query = models.TextField(blank=True)
+    sample_query = models.TextField(blank=True)
+    minimum_samples = models.PositiveIntegerField(default=1)
+    comparator = models.CharField(max_length=16, choices=[("above", "Above"), ("below", "Below"), ("deviation", "Absolute % deviation from baseline")])
+    threshold = models.FloatField()
+    lookback_minutes = models.PositiveIntegerField(default=15)
+    fixture_result = models.JSONField(default=dict, blank=True)
+
+    def __str__(self):
+        return self.name
+
+
+class AssessmentPolicy(models.Model):
+    name = models.CharField(max_length=160)
+    customer = models.CharField(max_length=128, blank=True)
+    service = models.CharField(max_length=128, blank=True)
+    supplier = models.CharField(max_length=128, blank=True)
+    active = models.BooleanField(default=False)
+    rules = models.ManyToManyField(DiagnosticRule, blank=True)
+    recipients = models.JSONField(default=list)
+    auto_promote = models.BooleanField(default=False)
+    auto_close_no_issue = models.BooleanField(default=False)
+    auto_send = models.BooleanField(default=False)
+    communication_sla_seconds = models.PositiveIntegerField(default=900)
+    review_seconds = models.PositiveIntegerField(default=300)
+    severity = models.CharField(max_length=2, default="P2")
+    impact = models.CharField(max_length=16, default="moderate")
+    route_to_t2 = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+
+class DiagnosticRun(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    assessment = models.ForeignKey(Assessment, related_name="diagnostic_runs", on_delete=models.PROTECT)
+    rule = models.ForeignKey(DiagnosticRule, on_delete=models.PROTECT)
+    state = models.CharField(max_length=16, default="queued")
+    result = models.JSONField(default=dict)
+    error = models.TextField(blank=True)
+    started_at = models.DateTimeField(null=True)
+    finished_at = models.DateTimeField(null=True)
+
+
+class Communication(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    assessment = models.ForeignKey(Assessment, related_name="communications", on_delete=models.PROTECT)
+    purpose = models.CharField(max_length=64, default="update", choices=[("update", "Status update"), ("initial", "Initial response")])
+    state = models.CharField(max_length=16, default="review", choices=[(s, s.capitalize()) for s in ("review", "sent", "suppressed", "expired")])
+    revision = models.PositiveIntegerField(default=1)
+    auto_send = models.BooleanField(default=False)
+    review_deadline = models.DateTimeField()
+    sla_deadline = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    sent_by = models.CharField(max_length=128, blank=True)
+    suppression_reason = models.TextField(blank=True)
+    is_automatic = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["state", "review_deadline"], name="communication_due_idx")]
+
+    @property
+    def current(self):
+        return self.revisions.get(version=self.revision)
+
+    @property
+    def sla_met(self):
+        return self.sent_at <= self.sla_deadline if self.sent_at else None
+
+
+class CommunicationRevision(models.Model):
+    communication = models.ForeignKey(Communication, related_name="revisions", on_delete=models.PROTECT)
+    version = models.PositiveIntegerField()
+    subject = models.CharField(max_length=512)
+    body = models.TextField()
+    recipients = models.JSONField()
+    actor = models.CharField(max_length=128)
+    auto_send_approved = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    objects = AssessmentEventQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["version"]
+        constraints = [models.UniqueConstraint(fields=["communication", "version"], name="unique_communication_revision")]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError("Communication revisions are append-only")
+        kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Communication revisions are append-only")
+
+
+class OutboxMessage(models.Model):
+    """The local delivery transport: one durable receipt per communication, no network send."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    communication = models.OneToOneField(Communication, related_name="receipt", on_delete=models.PROTECT)
+    revision = models.ForeignKey(CommunicationRevision, on_delete=models.PROTECT)
+    delivered_at = models.DateTimeField(default=timezone.now)
+
+
+class EvidenceAttachment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    assessment = models.ForeignKey(Assessment, related_name="attachments", on_delete=models.PROTECT)
+    filename = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=64)
+    sha256 = models.CharField(max_length=64)
+    content = models.BinaryField()
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class SubjectArea(models.Model):
+    name = models.CharField(max_length=128, unique=True)
+    description = models.TextField(blank=True)
+    members = models.ManyToManyField(settings.AUTH_USER_MODEL, blank=True)
+
+    def __str__(self):
+        return self.name
+
+
+class SmeEngagement(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    request_id = models.UUIDField(unique=True, default=uuid.uuid4)
+    assessment = models.ForeignKey(Assessment, related_name="engagements", on_delete=models.PROTECT)
+    target = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="sme_engagements")
+    area = models.ForeignKey(SubjectArea, null=True, blank=True, on_delete=models.PROTECT)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="sme_requests")
+    reason = models.TextField()
+    evidence = models.ManyToManyField(AssessmentEvent)
+    state = models.CharField(max_length=16, default="paged")
+    paged_at = models.DateTimeField(default=timezone.now)
+    ack_deadline = models.DateTimeField()
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="sme_acknowledgements")
+    completed_at = models.DateTimeField(null=True, blank=True)
+    action = models.TextField(blank=True)
+
+
+class RcaProjection(models.Model):
+    assessment = models.OneToOneField(Assessment, related_name="rca_projection", on_delete=models.PROTECT)
+    summary = models.TextField(blank=True)
+    impact = models.TextField(blank=True)
+    root_cause = models.TextField(blank=True)
+    contributing_factors = models.TextField(blank=True)
+    detection_gaps = models.TextField(blank=True)
+    state = models.CharField(max_length=16, choices=[("draft", "Draft"), ("review", "In review"), ("final", "Final")], default="draft")
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class CuratedEvent(models.Model):
+    projection = models.ForeignKey(RcaProjection, related_name="selections", on_delete=models.PROTECT)
+    event = models.ForeignKey(AssessmentEvent, on_delete=models.PROTECT)
+    section = models.CharField(max_length=32, choices=[(s, s.replace("_", " ").title()) for s in ("detection", "impact", "escalation", "decision", "mitigation", "recovery", "communication", "root_cause")])
+    note = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["projection", "event", "section"], name="unique_curated_event")]
+
+
+class RemediationTask(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    assessment = models.ForeignKey(Assessment, related_name="remediations", on_delete=models.PROTECT)
+    title = models.CharField(max_length=512)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    due_date = models.DateField()
+    state = models.CharField(max_length=16, choices=[("open", "Open"), ("in_progress", "In progress"), ("done", "Done")], default="open")
+    verification = models.TextField(blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+
+class OperationsHeartbeat(models.Model):
+    name = models.CharField(max_length=32, primary_key=True)
+    last_tick = models.DateTimeField(default=timezone.now)
+    detail = models.JSONField(default=dict)

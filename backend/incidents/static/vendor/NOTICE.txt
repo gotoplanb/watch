@@ -1,0 +1,5 @@
+Pinned local copies of the existing UI runtime dependencies. No CDN is contacted.
+htmx 2.0.3: https://unpkg.com/htmx.org@2.0.3/dist/htmx.min.js (0BSD)
+Alpine.js 3.14.9: https://unpkg.com/alpinejs@3.14.9/dist/cdn.min.js (MIT)
+Tailwind CSS browser runtime 3.4.17: https://cdn.tailwindcss.com/3.4.17 (MIT)
+Licenses are included alongside these files. Review pinned versions during updates.

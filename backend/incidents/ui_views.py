@@ -53,6 +53,9 @@ def _resolve_target(incident, target):
     kind, _, sid = (target or "").partition(":")
     if not sid.isdigit():
         return None
+    if kind == "case_event":
+        from .models import AssessmentEvent
+        return AssessmentEvent.objects.filter(assessment__incident=incident, pk=int(sid)).first()
     if kind == "transition":
         return incident.transitions.filter(pk=int(sid)).first()
     if kind == "event":
@@ -61,8 +64,11 @@ def _resolve_target(incident, target):
 
 
 def _detail_ctx(request, incident, awaiting=None):
+    assessment = getattr(incident, "origin_assessment", None)
+    history = services.timeline(incident)
     return {
         "incident": incident,
+        "origin_assessment": assessment,
         # Set when a cloud-mode escalate/resolve has been issued but the commit Lambda hasn't
         # landed yet (ADR-007): the swapped-in body carries a poller that refreshes until the
         # transition commits. Without it the async response shows stale pre-commit state and the
@@ -72,7 +78,7 @@ def _detail_ctx(request, incident, awaiting=None):
         "awaiting": awaiting,
         # Newest-first (ADR-040): the incoming responder reads the handoff brief, then history.
         # RCA assembly (rca_markdown) stays chronological — this reversal is display-only.
-        "timeline": list(reversed(services.timeline(incident))),
+        "timeline": history if assessment else list(reversed(history)),
         "can_act": can_act_on(request.user, incident),
         "next_tier": next_tier(incident.current_tier),
         "annotation_tags": AnnotationTag.choices,
@@ -112,6 +118,9 @@ def incident_list(request):
 @require_GET
 def incident_detail(request, pk):
     incident = get_object_or_404(Incident, pk=pk)
+    if hasattr(incident, "origin_assessment"):
+        from .operations_ui import workspace
+        return workspace(request, incident.origin_assessment.pk)
     return render(request, "incidents/detail.html", _detail_ctx(request, incident))
 
 

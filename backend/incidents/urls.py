@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .health import HealthView, StatusView, status_stream_view
+from .assessment_api import AssessmentIntakeView, AssessmentViewSet, SignalIntakeView
 from .views import (
     DigestIngestView,
     DigestListView,
@@ -17,10 +18,13 @@ from .views import (
 
 router = DefaultRouter()
 router.register("incidents", IncidentViewSet, basename="incident")
+router.register("assessments", AssessmentViewSet, basename="assessment")
 
 urlpatterns = [
     path("", include(router.urls)),
     path("intake/webhook", IntakeWebhookView.as_view(), name="intake-webhook"),
+    path("assessments/intake", AssessmentIntakeView.as_view(), name="assessment-intake"),
+    path("signals/intake", SignalIntakeView.as_view(), name="signal-intake"),
     path("checks/webhook", SessionCheckWebhookView.as_view(), name="checks-webhook"),
     path("report/incident", ReportIncidentView.as_view(), name="report-incident"),
     path("report/check", ReportCheckView.as_view(), name="report-check"),

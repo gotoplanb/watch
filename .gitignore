@@ -12,8 +12,12 @@ htmlcov/
 # Django
 *.sqlite3
 /backend/staticfiles/
-.env
-.env.local
+.env*
+!.env.example
+
+# Internal example scenarios stay local, including their source references.
+/local/fixtures/*
+!/local/fixtures/README.md
 
 # Node / frontend
 node_modules/
@@ -40,3 +44,15 @@ local/tunnel/.tunnel.*.log
 .vscode/
 coverage.xml
 .scannerwork/
+
+# Private source material and local publication evidence are never source artifacts.
+/local/private/
+/local/review/
+/e2e/report/
+/e2e/test-results/
+/playwright-report/
+/test-results/
+*.docx
+*.pdf
+*.eml
+*.har

@@ -93,13 +93,13 @@ def test_change_password_success_keeps_session(client):
     client.force_login(user)
     resp = client.post("/ui/settings/change-password/", {
         "old_password": "oldpassword123",
-        "new_password1": "s3curely-rotated-pw",
-        "new_password2": "s3curely-rotated-pw",
+        "new_password1": "rotated-password",
+        "new_password2": "rotated-password",
     })
     assert resp.status_code == 302
     assert resp["Location"] == "/ui/settings/"
     user.refresh_from_db()
-    assert user.check_password("s3curely-rotated-pw")
+    assert user.check_password("rotated-password")
     # update_session_auth_hash keeps THIS session valid — still authed on the next request
     assert client.get("/ui/settings/").status_code == 200
 
@@ -112,8 +112,8 @@ def test_change_password_wrong_old_is_rejected(client):
     client.force_login(user)
     resp = client.post("/ui/settings/change-password/", {
         "old_password": "not-the-old-one",
-        "new_password1": "s3curely-rotated-pw",
-        "new_password2": "s3curely-rotated-pw",
+        "new_password1": "rotated-password",
+        "new_password2": "rotated-password",
     })
     assert resp.status_code == 302
     user.refresh_from_db()
@@ -147,7 +147,7 @@ def test_change_password_mismatch_is_rejected(client):
     client.force_login(user)
     client.post("/ui/settings/change-password/", {
         "old_password": "oldpassword123",
-        "new_password1": "s3curely-rotated-pw",
+        "new_password1": "rotated-password",
         "new_password2": "different-typo-pw",
     })
     user.refresh_from_db()
