@@ -161,3 +161,18 @@ Use the [source/history/artifact review procedure](docs/upstream-contribution.md
 before publishing changes derived from operational examples or design material.
 The local content guard and `make publication-test` support an explicit source-only
 review; neither replaces human review or publication authorization.
+
+## Prototype decisions and cloud boundary
+
+PR #60's review identified explicit decisions still open: the assessment-first landing
+page/navigation, component CSS versus the Tailwind-only convention, RCA projection
+versus stored RCA records, and migration of the prototype's settings/processing to the
+existing feature-flag and queue-worker seams. ADR-031/033/050–055 record the current
+implementation state; the earlier decisions are not silently replaced.
+
+`make operations` is a local runtime. This change supplies no platform definition for
+staging/production processing. Its direct SLA timer is deliberately enabled only by
+`ESCALATION_LOCAL_MODE`; cloud escalation continues to belong to Step Functions.
+External delivery still requires the default-off flags and provider/runtime decisions
+from ADR-003/051. Deadline items fail independently; engine-start retries back off
+persistently and an authorized manual retry can bypass that wait.

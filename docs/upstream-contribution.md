@@ -4,6 +4,30 @@ A contribution is approved for publication only after its source, history and ex
 artifacts have been reviewed. Tests and secret scanners support that review; they do
 not establish that customer information is absent and do not authorize a push.
 
+## Check repository fit before building
+
+Read the ADRs on current upstream main, including accepted designs marked not yet
+built. Implement the existing decision or amend it in the same PR; make any departure
+explicit rather than introducing a parallel design labeled as a refinement.
+
+Reuse the established intake/outbound-event, queue-worker and feature-flag seams.
+External-reaching behavior defaults off. Persist raw actor identities and resolve
+labels for display. Follow the Tailwind-utilities convention until a change in UI
+direction is explicitly accepted by the maintainer.
+
+A coherent feature can remain one PR. Use a few logical commits that make the model,
+lifecycle, worker, UI and documentation changes reviewable. Include a **Deviations /
+decisions needed** section for ADR/convention departures and changes in product
+navigation or default landing behavior. Those decisions need explicit maintainer
+confirmation rather than being implied by the implementation.
+
+Include a **Local-only vs cloud** statement for any new runtime process or platform
+requirement. Supply the infrastructure integration or identify the remaining cloud
+follow-up clearly. Before opening, rebase on current main and report unit/coverage,
+integration, Playwright and Sonar results separately; name every check not run and
+why. Publication-content checks below establish a different boundary and do not
+replace these codebase-fit and quality checks.
+
 ## Scope the candidate
 
 1. Refresh the upstream base using read-only Git fetch. Record its exact commit and
