@@ -100,7 +100,7 @@ def workspace(request, pk):
                 elif action == "retry_engine":
                     operations.authorize(Assessment.objects.select_related("incident").get(pk=pk), request.user)
                     assessments.comment(pk, actor=actor, body=f"Requested escalation retry: {data['reason']}")
-                    assessments.start_engine(pk)
+                    assessments.start_engine(pk, force=True)
                 elif action == "email":
                     with transaction.atomic():
                         operations.lock_case(pk, request.user)
@@ -171,6 +171,9 @@ def workspace(request, pk):
     elif lens == "evidence":
         history = history.filter(Q(kind__in=["evidence_added", "evidence_attached", "query_started", "query_completed", "query_failed"]) | Q(kind="comment", data__has_key="attachments"))
     events = list(history.order_by("-occurred_at", "-pk").prefetch_related("annotations__author")[:500])[::-1]
+    labels = services.actor_labels(event.actor for event in events)
+    for event in events:
+        event.actor_label = labels.get(event.actor, event.actor)
     older_cursor = events[0].pk if len(events) == 500 else None
     projection = getattr(row, "rca_projection", None)
     current_action = action or request.GET.get("compose", "comment")

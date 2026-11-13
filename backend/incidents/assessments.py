@@ -1,16 +1,21 @@
 """Assessment decisions, evidence, and promotion. No customer communication is sent here."""
 import hashlib
 import json
+import logging
+from datetime import timedelta
 
 from django.db import transaction
 from django.conf import settings
 from django.utils import timezone
 
-from . import numbering
+from . import events, numbering
 from .models import (
     Assessment, AssessmentConfidence, AssessmentEvent, AssessmentStatus, AssessmentVerdict,
     Incident, Tier,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class AssessmentConflict(ValueError):
@@ -162,6 +167,11 @@ def promote(pk, *, actor, reason, policy_reason="", dispatch=True):
     # All durable writes above precede engine dispatch. The execution name is incident-id based;
     # failed dispatch is explicit and retryable, never a silent success or a second incident.
     if dispatch:
+        # Keep the existing outbound contract; exercise snapshots deliberately skip dispatch.
+        events.emit("incident.created", {
+            "incident_id": str(incident.pk), "number": incident.number,
+            "title": incident.title, "source": incident.source,
+        })
         transaction.on_commit(lambda: start_engine(assessment.pk))
     else:
         incident.escalation_execution_arn = f"local:exercise:{incident.pk}"
@@ -171,7 +181,7 @@ def promote(pk, *, actor, reason, policy_reason="", dispatch=True):
 
 
 @transaction.atomic
-def start_engine(pk):
+def start_engine(pk, *, force=False):
     from . import escalation, services
 
     assessment = Assessment.objects.get(pk=pk)
@@ -182,15 +192,29 @@ def start_engine(pk):
     incident = Incident.objects.select_for_update().get(pk=assessment.incident_id)
     if incident.escalation_execution_arn or incident.status != "OPEN" or incident.current_tier != Tier.T1:
         return
+    assessment = Assessment.objects.select_for_update().get(pk=pk)
+    now = timezone.now()
+    if not force and assessment.engine_start_retry_at and assessment.engine_start_retry_at > now:
+        return
     try:
         arn = escalation.start_escalation(incident)
     except Exception as exc:
-        append(assessment, "escalation_start_failed", "Incident created; escalation engine could not start. Retry required.",
-               data={"error_type": type(exc).__name__})
+        assessment.engine_start_failures += 1
+        delay = min(900, 30 * 2 ** min(assessment.engine_start_failures - 1, 5))
+        assessment.engine_start_retry_at = now + timedelta(seconds=delay)
+        assessment.save(update_fields=["engine_start_failures", "engine_start_retry_at"])
+        if assessment.engine_start_failures == 1 and not assessment.history.filter(kind="escalation_start_failed").exists():
+            append(assessment, "escalation_start_failed", "Incident created; escalation engine could not start. Automatic retries back off; an operator can retry now.",
+                   data={"error_type": type(exc).__name__, "retry_at": assessment.engine_start_retry_at.isoformat()})
+        logger.warning("Escalation start failed incident=%s error_type=%s retry_at=%s", incident.pk,
+                       type(exc).__name__, assessment.engine_start_retry_at.isoformat())
         return
+    assessment.engine_start_retry_at = None
+    assessment.save(update_fields=["engine_start_retry_at"])
     incident.escalation_execution_arn = arn
     incident.save(update_fields=["escalation_execution_arn", "updated_at"])
-    append(assessment, "escalation_started", "Incident escalation engine started at T1.")
+    append(assessment, "escalation_started", "Incident escalation engine started at T1.",
+           data={"attempts": assessment.engine_start_failures + 1})
     if settings.ESCALATION_LOCAL_MODE:
         services.record_tier_token(incident.pk, "T1", f"local:{incident.pk}:T1")
     services.page_on_tier_entry(incident, Tier.T1)
@@ -202,5 +226,4 @@ def mirror(record, *, kind, body, actor, data):
         return
     assessment = Assessment.objects.filter(incident_id=record.pk).first()
     if assessment:
-        from .services import actor_label
-        append(assessment, kind, body, actor_label(actor), {"source_event": data})
+        append(assessment, kind, body, str(actor) if actor is not None else "", {"source_event": data})

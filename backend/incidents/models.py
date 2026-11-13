@@ -788,6 +788,8 @@ class Assessment(models.Model):
     automation_state = models.CharField(max_length=16, default="manual", choices=[(s, s.capitalize()) for s in ("manual", "queued", "running", "complete", "failed")])
     automation_policy = models.ForeignKey("AssessmentPolicy", null=True, blank=True, on_delete=models.PROTECT)
     recurrence_key = models.CharField(max_length=128, blank=True)
+    engine_start_failures = models.PositiveIntegerField(default=0)
+    engine_start_retry_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]

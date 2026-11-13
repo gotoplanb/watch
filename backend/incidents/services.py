@@ -352,9 +352,13 @@ def timeline(record):
         from .models import Assessment
         assessment = Assessment.objects.filter(incident_id=record.pk).first()
         if assessment:
+            events = list(assessment.history.prefetch_related("annotations__author"))
+            labels = actor_labels(event.actor for event in events)
+            for event in events:
+                event.actor_label = labels.get(event.actor, event.actor)
             return [
                 {"kind": "event", "at": e.occurred_at, "obj": e, "target": f"case_event:{e.pk}"}
-                for e in assessment.history.prefetch_related("annotations__author")
+                for e in events
             ]
     items = []
     transitions = getattr(record, "transitions", None)
@@ -403,7 +407,8 @@ def _rca_line(item) -> str:
     if item["kind"] == "transition":
         head = _rca_transition_head(obj)
     else:
-        head = f"**{obj.type}** · `{obj.actor or 'system'}` — {obj.body}"
+        who = getattr(obj, "actor_label", None) or obj.actor or "system"
+        head = f"**{obj.type}** · `{who}` — {obj.body}"
     lines = [f"- `{ts}` {head}"]
     if getattr(obj, "kind", None) == "evidence_added":
         lines.append(f"    - Source event: `{obj.pk}` · {obj.data.get('source', 'operator')}")

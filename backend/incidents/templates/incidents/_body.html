@@ -94,7 +94,7 @@ The root keeps id="incident-body" so subsequent swaps still find it.
         {% endif %}
       {% elif e.kind == 'event' %}
         {% if e.obj.kind %}
-          <span class="text-xs text-indigo-300">{{ e.obj.label }} · {{ e.obj.actor }}</span>
+          <span class="text-xs text-indigo-300">{{ e.obj.label }} · {{ e.obj.actor_label|default:e.obj.actor }}</span>
         {% elif e.obj.type == 'ai' %}
           <span class="px-1.5 py-0.5 rounded text-xs bg-purple-500/15 text-purple-300">AI · {{ e.obj.actor|default:'argus' }}</span>
         {% elif e.obj.type == 'system' %}

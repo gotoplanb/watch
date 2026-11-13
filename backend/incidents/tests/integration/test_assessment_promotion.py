@@ -36,10 +36,14 @@ def test_concurrent_delivery_has_one_assessment():
     assert Assessment.objects.get().history.filter(kind="signal_received").count() == 1
 
 
-def test_concurrent_promotion_has_one_incident_and_one_engine_start(monkeypatch):
+def test_concurrent_promotion_has_one_incident_and_one_engine_start(monkeypatch, settings):
     row, _ = assessments.receive(title="Confirmed failure", source="test", signal="Checkout fails")
     assessments.add_evidence(row.pk, actor="system", summary="Journey failure", result="Repeated failures in a 15-minute observation")
     assessments.conclude(row.pk, actor="system", verdict="degraded", confidence="high", reason="Customer journey fails")
+    from incidents.models import WebhookDelivery, WebhookSubscription
+    settings.WEBHOOKS_LOCAL_MODE = False
+    WebhookSubscription.objects.create(url="https://receiver.example.test/hook", secret="test", event_types=["incident.created"])
+    monkeypatch.setattr("incidents.events.queue.enqueue", lambda *args: None)
     starts = []
 
     def start(incident):
@@ -52,6 +56,8 @@ def test_concurrent_promotion_has_one_incident_and_one_engine_start(monkeypatch)
     assert sorted(created for _, created in results) == [False, True]
     assert Incident.objects.count() == 1 and len(starts) == 1
     assert row.history.filter(kind="incident_promoted").count() == 1
+    delivery = WebhookDelivery.objects.get(event_type="incident.created")
+    assert delivery.payload["data"]["incident_id"] == str(results[0][0].pk)
 
 
 def test_concurrent_automatic_delivery_has_one_receipt_and_one_history_event():
@@ -122,3 +128,22 @@ def test_suppression_and_send_cannot_both_commit():
     assert "conflict" in results
     mail.refresh_from_db()
     assert OutboxMessage.objects.count() == (1 if mail.state == "sent" else 0)
+
+
+def test_concurrent_due_engine_retries_do_not_double_attempt_or_append_failures(monkeypatch):
+    from django.utils import timezone
+    calls = []
+    def failing_start(incident):
+        calls.append(incident.pk)
+        raise RuntimeError("Synthetic engine outage")
+    monkeypatch.setattr("incidents.escalation.start_escalation", failing_start)
+    row, _ = assessments.receive(title="Synthetic engine retry", source="test", signal="Confirm impact")
+    assessments.promote(row.pk, actor="system:test", reason="Immediate handling", policy_reason="Synthetic immediate-incident policy")
+    row.refresh_from_db()
+    assert row.engine_start_failures == 1
+    Assessment.objects.filter(pk=row.pk).update(engine_start_retry_at=timezone.now())
+    _race(lambda: assessments.start_engine(row.pk))
+    row.refresh_from_db()
+    assert len(calls) == row.engine_start_failures == 2
+    assert row.engine_start_retry_at > timezone.now()
+    assert row.history.filter(kind="escalation_start_failed").count() == 1

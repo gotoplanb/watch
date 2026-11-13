@@ -151,7 +151,7 @@ def test_failed_dispatch_is_durable_and_retryable(assessment, django_capture_on_
     assert not incident.escalation_execution_arn
     assert assessment.history.filter(kind="escalation_start_failed").count() == 1
     with patch("incidents.escalation.start_escalation", return_value="local:recovered") as start:
-        assessments.start_engine(assessment.pk)
+        assessments.start_engine(assessment.pk, force=True)
         assessments.start_engine(assessment.pk)
         assert start.call_count == 1
     incident.refresh_from_db()
