@@ -57,6 +57,79 @@ environments where the image can build.
 - **See telemetry:** Watchtower Grafana http://localhost:3000 → Explore → Tempo →
   service `watch-backend`.
 
+## Assessment workspace
+
+Open http://localhost:8010/ui/assessments/ after starting `make dev`. Responders can
+create a signal, record completed checks and results, save a conclusion, continue
+monitoring, close with no issue, or promote to an incident. Promotion preserves the
+assessment history and starts the incident clock. No-issue assessments do not create
+incidents. An explicit, audited policy reason can require immediate promotion.
+
+`make migrate-dev` applies new migrations to an already-running development stack.
+`make seed-assessments` adds four fictional, repeatable examples without sending
+notifications or contacting external systems. Log in as `t2a` to manage the examples.
+
+Machine intake: `POST /api/assessments/intake`, authenticated with the existing
+`X-Watch-Webhook-Secret` header, accepts `title`, `source`, `signal`, optional
+`source_event_id`, `customer`, `service`, `supplier`, `signal_at`, and object `payload`.
+Delivery dedupe is source-scoped and persists after closure. Authenticated reads are
+under `/api/assessments/`, including `/<id>/history/`.
+
+`make seed-operations` adds fictional supplier/customer assessment scenarios and a
+resolved incident with specialist handoff, curated RCA and owned corrective action.
+It also saves a real Watchtower Prometheus availability check (observability health,
+not a booking SLI). Start `make operations` in another terminal to process queued
+checks and enforce communication, specialist and local escalation deadlines. The
+worker runs without a browser, sweeps deadlines independently of diagnostic jobs,
+and exposes its last heartbeat under **Tools & configuration → Automation**.
+
+The Add to history composer sits above the case tabs, with a sticky-header shortcut
+for long evidence pages. Notes accept chosen, pasted or dropped photos, with previews
+and removal before posting. Text, clickable dashboard links and photos are saved as
+one source entry; a failed photo rejects the entire entry without orphaned files.
+Photos also appear in the evidence view and remain source-linked in RCA exports.
+
+The active workspace provides one history and composer for notes, executed checks,
+operator-recorded evidence, uploads/image paste, hypotheses, recovery actions,
+communications and specialist engagement. Separate severity/impact classification,
+ownership and incident tier controls retain role checks. Source events and immutable
+communication revisions remain inspectable. The RCA tab curates original events,
+records findings, and assigns corrective actions with owners, due dates and completion
+verification. Reports separate assessment receipt cohorts from incident promotion
+cohorts, use first acknowledgement/resolution transitions, and exclude fictional
+fixtures unless explicitly included.
+
+**Automation setup:** configure saved read-only diagnostic checks, explicit
+supplier → service → customer dependencies, and an active matching policy at
+`/ui/automation/` (Tier 2 or above). Policies choose checks, thresholds, sample coverage,
+severity, review/SLA windows, recipients, automatic promotion/no-issue closure and
+optional T2 routing. The most specific active policy wins. Missing, stale, ambiguous,
+nonfinite or insufficient results remain inconclusive. Local fixture checks require
+both development mode and an explicit fixture payload. Real Sumo checks require the
+existing Sumo endpoint/access credentials; each returns one numeric aggregate named
+`value`, with separate baseline/sample-count queries as needed. Queries support
+`${customer}`, `${service}`, `${supplier}` placeholders. Prometheus defaults to the
+local Watchtower URL. Business SLIs must be configured against real customer traffic.
+
+`POST /api/signals/intake` uses the same webhook authentication and payload as
+assessment intake, plus dependency fan-out for supplier notices. Each customer/service
+scope is independently deduplicated and assessed. Email/webhook collectors can adapt
+incoming signals to this contract; no mailbox or supplier account is connected by
+this implementation. Existing incident-only integrations retain their contract.
+
+Communication drafts have append-only revisions and separate review/SLA deadlines.
+Edit retains the original deadline; send/suppress use expected revision checks, and
+suppression requires a reason. Automatic delivery requires explicit authorization on
+the current revision. New checks/evidence revoke stale draft authorization. Worker
+restarts preserve queued work and deadlines; abandoned running jobs become visible
+failures after a one-hour lease and require review/retry.
+
+**Delivery is local:** messages produce a transactional outbox receipt and downloadable
+`.eml` at `/ui/outbox/`; no external email is sent. Assessment-driven incidents and SME
+engagement use local in-app pages. Real external mail/paging and inbound mailbox
+credentials require separate configuration and authorization. Runtime UI assets are
+pinned locally, with licenses included; no CDN is needed to use this workspace.
+
 ## Tests
 ```bash
 make test          # hermetic units — no Docker/network (idempotency, flag branches,
@@ -81,3 +154,10 @@ make integration   # spins the stack incl. Step Functions Local, then runs the
 
 Released under the [MIT No Attribution](LICENSE) license (MIT-0) — permissive, OSI-approved, no
 attribution required.
+
+## Preparing an upstream contribution
+
+Use the [source/history/artifact review procedure](docs/upstream-contribution.md)
+before publishing changes derived from operational examples or design material.
+The local content guard and `make publication-test` support an explicit source-only
+review; neither replaces human review or publication authorization.

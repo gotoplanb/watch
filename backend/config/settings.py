@@ -143,7 +143,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # @login_required (UI, ADR-011) redirects here; the DRF/Django auth login honors ?next.
 LOGIN_URL = "/api-auth/login/"
-LOGIN_REDIRECT_URL = "/ui/incidents/"
+LOGIN_REDIRECT_URL = "/ui/assessments/"
 
 REST_FRAMEWORK = {
     # ADR-008: session auth (cookies in Valkey). OIDC/SSO is a clean seam — add a
@@ -311,6 +311,10 @@ WORKER_VISIBILITY_SECONDS = int(_env("WORKER_VISIBILITY_SECONDS", "60") or "60")
 WORKER_BATCH_SIZE = int(_env("WORKER_BATCH_SIZE", "10") or "10")
 
 STATIC_URL = "static/"
+WATCH_DELIVERY_MODE = _env("WATCH_DELIVERY_MODE", "local")
+WATCH_AUTO_SEND_ENABLED = _bool("WATCH_AUTO_SEND_ENABLED", True)
+WATCH_PROMETHEUS_URL = _env("WATCH_PROMETHEUS_URL", "http://localhost:9090")
+WATCH_DIAGNOSTIC_TIMEOUT = int(_env("WATCH_DIAGNOSTIC_TIMEOUT", "10"))
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

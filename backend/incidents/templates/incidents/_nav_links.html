@@ -1,11 +1,17 @@
-{# Primary section nav — single source for the (growing) feature list; base.html renders it twice (desktop inline + mobile panel) via `item_class`/`active_class`. Add a nav entry HERE once. #}
-{# Active section is derived from request.path (so detail pages like /ui/problems/<id>/ light up their parent). #}
 {% with p=request.path %}
-<a href="{% url 'ui:incident_list' %}" class="{{ item_class }}{% if '/ui/incidents' in p %} {{ active_class }}{% endif %}"{% if '/ui/incidents' in p %} aria-current="page"{% endif %}>Incidents</a>
-<a href="{% url 'ui:schedule' %}" class="{{ item_class }}{% if '/ui/schedule' in p %} {{ active_class }}{% endif %}"{% if '/ui/schedule' in p %} aria-current="page"{% endif %}>Schedule</a>
-<a href="{% url 'ui:checks' %}" class="{{ item_class }}{% if '/ui/checks' in p %} {{ active_class }}{% endif %}"{% if '/ui/checks' in p %} aria-current="page"{% endif %}>Checks</a>
-<a href="{% url 'ui:problems' %}" class="{{ item_class }}{% if '/ui/problems' in p %} {{ active_class }}{% endif %}"{% if '/ui/problems' in p %} aria-current="page"{% endif %}>Problems</a>
-<a href="{% url 'ui:rcas' %}" class="{{ item_class }}{% if '/ui/rcas' in p %} {{ active_class }}{% endif %}"{% if '/ui/rcas' in p %} aria-current="page"{% endif %}>RCAs</a>
-<a href="{% url 'ui:webhooks' %}" class="{{ item_class }}{% if '/ui/webhooks' in p %} {{ active_class }}{% endif %}"{% if '/ui/webhooks' in p %} aria-current="page"{% endif %}>Webhooks</a>
-<a href="{% url 'ui:environments' %}" class="{{ item_class }}{% if '/ui/environments' in p %} {{ active_class }}{% endif %}"{% if '/ui/environments' in p %} aria-current="page"{% endif %}>Environments</a>
+<nav class="watch-nav" aria-label="Primary">
+<a href="{% url 'ui:assessment_inbox' %}" {% if '/ui/assessments' in p or '/ui/communications' in p %}aria-current="page"{% endif %}>Assessments</a>
+<a href="{% url 'ui:incident_list' %}" {% if '/ui/incidents' in p %}aria-current="page"{% endif %}>Incidents</a>
+<a href="{% url 'ui:reports' %}" {% if '/ui/reports' in p %}aria-current="page"{% endif %}>Reports</a>
+</nav>
+<details class="watch-tools"><summary>Tools &amp; configuration</summary>
+<a href="{% url 'ui:operations_configuration' %}">Automation &amp; dependencies</a>
+<a href="{% url 'ui:local_outbox' %}">Local outbox</a>
+<a href="{% url 'ui:schedule' %}">On-call schedule</a>
+<a href="{% url 'ui:checks' %}">Session checks</a>
+<a href="{% url 'ui:problems' %}">Problems</a>
+<a href="{% url 'ui:rcas' %}">Stored RCA documents</a>
+<a href="{% url 'ui:webhooks' %}">Webhooks</a>
+<a href="{% url 'ui:environments' %}">Environments</a>
+</details>
 {% endwith %}

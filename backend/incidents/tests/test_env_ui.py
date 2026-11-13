@@ -24,14 +24,14 @@ def test_env_dashboard_requires_login(client):
 def test_dashboard_renders_status_and_digests(client):
     EnvStatus.objects.create(environment="prod", payload={
         "worst_state": "squall",
-        "services": [{"display_name": "Gibraltar", "state": "squall", "message": "5xx from Expedia"}],
+        "services": [{"display_name": "Example Gateway", "state": "squall", "message": "5xx from Supplier A"}],
     })
     Digest.objects.create(environment="prod", content="## System Health\nall good", title="hourly", special=False)
     Digest.objects.create(environment="prod", content="INCIDENT digest", special=True)
     client.force_login(User.objects.create(username="ops"))
     html = client.get("/ui/environments/?env=prod").content.decode()
-    assert "Gibraltar" in html
-    assert "5xx from Expedia" in html
+    assert "Example Gateway" in html
+    assert "5xx from Supplier A" in html
     assert "bg-orange-500" in html                             # squall dot (Tailwind, ADR-039)
     # ONE digest at a time now (ADR-043), newest first, with its badge — the rest are behind the pager
     assert "SPECIAL" in html

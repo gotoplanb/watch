@@ -1,0 +1,13 @@
+<div id="composer" class="watch-composer">
+<h2 class="text-sm font-semibold mb-3">Add to history</h2>
+<nav class="composer-actions" aria-label="Add to history">
+{% for key,label in composer_actions %}<a href="?compose={{ key }}#composer" {% if compose == key %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+</nav>
+<form method="post" action="{% url 'ui:assessment_detail' assessment.pk %}" enctype="multipart/form-data" class="space-y-3" data-preserve-input {% if compose == 'comment' %}data-note-form{% endif %}>
+{% csrf_token %}<input type="hidden" name="action" value="{{ compose }}">
+{% include 'assessments/_fields.html' with form=current_form %}
+{% if compose == 'comment' %}<div class="note-photo-previews" data-photo-previews></div><p class="watch-muted" data-photo-status role="status" aria-live="polite"></p>{% endif %}
+<div class="flex flex-wrap justify-between items-center gap-3"><p class="watch-muted">{% if compose == 'query' %}Runs a saved read-only check in the background.{% elif compose == 'operation' %}Record an operational action; no shell command is executed by this form.{% elif compose == 'email' %}The review deadline is enforced by the background worker.{% else %}{% if compose == 'comment' %}Add your note and photos together. Dashboard links remain clickable in the history.{% else %}Add context, evidence or a decision to the original history.{% endif %}{% endif %}</p><button class="watch-button">{% if compose == 'comment' %}Add note{% elif compose == 'email' %}Create communication draft{% elif compose == 'query' %}Run saved check{% elif compose == 'attachment' %}Upload evidence{% elif compose == 'engage' %}Page specialist{% elif compose == 'evidence' %}Save evidence{% elif compose == 'retry_engine' %}Retry escalation start{% else %}Record action{% endif %}</button></div>
+</form>
+<form hidden method="post" action="{% url 'ui:assessment_detail' assessment.pk %}" data-paste-upload>{% csrf_token %}<input type="hidden" name="action" value="attachment"></form>
+</div>

@@ -4,6 +4,8 @@ HTMX replaces #incident-body (outerHTML), so the page updates without a full rel
 The root keeps id="incident-body" so subsequent swaps still find it.
 {% endcomment %}
 <div id="incident-body" class="mt-3">
+  {% if origin_assessment %}<div class="mb-4 rounded-lg border border-indigo-800 bg-indigo-500/10 p-4 text-sm text-indigo-200">Continues from <a class="underline" href="{% url 'ui:assessment_detail' origin_assessment.pk %}">{{ origin_assessment.number }}</a> · assessment evidence and decisions are preserved below. Incident clock started {{ origin_assessment.promoted_at|date:"M j, H:i:s" }}.</div>{% endif %}
+  {% if origin_assessment and not incident.escalation_execution_arn and incident.status == 'OPEN' %}<p role="alert" class="rounded-lg border border-rose-800 bg-rose-500/10 p-4 mb-4 text-sm text-rose-200">Escalation has not started. <a class="underline" href="{% url 'ui:assessment_detail' origin_assessment.pk %}">Review the failure and retry</a>.</p>{% endif %}
   <div class="bg-slate-900 border border-slate-800 rounded p-5">
     <div class="flex items-start justify-between gap-4">
       <div class="min-w-0">
@@ -91,7 +93,9 @@ The root keeps id="incident-body" so subsequent swaps still find it.
           <p data-testid="handoff-ready" class="mt-2 whitespace-pre-wrap text-slate-200">{{ e.obj.body }}</p>
         {% endif %}
       {% elif e.kind == 'event' %}
-        {% if e.obj.type == 'ai' %}
+        {% if e.obj.kind %}
+          <span class="text-xs text-indigo-300">{{ e.obj.label }} · {{ e.obj.actor }}</span>
+        {% elif e.obj.type == 'ai' %}
           <span class="px-1.5 py-0.5 rounded text-xs bg-purple-500/15 text-purple-300">AI · {{ e.obj.actor|default:'argus' }}</span>
         {% elif e.obj.type == 'system' %}
           <span class="px-1.5 py-0.5 rounded text-xs bg-sky-500/15 text-sky-300">system</span>
@@ -100,6 +104,7 @@ The root keeps id="incident-body" so subsequent swaps still find it.
         {% endif %}
         <span class="text-slate-400 text-xs"> · {{ e.at|date:"M j, H:i" }}</span>
         <p class="mt-1 whitespace-pre-wrap text-slate-300">{{ e.obj.body }}</p>
+        {% if e.obj.kind == 'evidence_added' %}<details class="mt-2 text-sm"><summary class="cursor-pointer text-sky-300">View recorded check · {{ e.obj.data.source }}</summary>{% if e.obj.data.query %}<pre class="mt-2 whitespace-pre-wrap break-words text-xs text-slate-300">{{ e.obj.data.query }}</pre>{% endif %}<p class="mt-2 whitespace-pre-wrap text-slate-300">{{ e.obj.data.result }}</p></details>{% endif %}
       {% else %}
         <span class="text-slate-300">{{ e.obj.from_tier }} → {{ e.obj.to_tier }}{% if e.obj.to_status == 'RESOLVED' %} · resolved{% endif %}</span>
         <span class="text-slate-400 text-xs"> · {{ e.obj.actor_label|default:e.obj.actor }} · {{ e.at|date:"M j, H:i" }}</span>

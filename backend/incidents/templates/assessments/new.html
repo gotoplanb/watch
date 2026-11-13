@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}New assessment · Watch{% endblock %}
+{% block content %}
+<a href="{% url 'ui:assessment_inbox' %}" class="text-sm text-indigo-300">← Assessment inbox</a>
+<div class="max-w-2xl mt-5">
+  <p class="text-xs uppercase tracking-widest text-indigo-300">Signal intake</p>
+  <h1 class="text-2xl font-semibold text-slate-100 mt-2">What needs a closer look?</h1>
+  <p class="text-sm text-slate-400 mt-2 mb-6">Preserve the original concern, then gather evidence. This creates an assessment; incident escalation starts only after promotion.</p>
+  <form method="post" class="space-y-5 rounded-xl bg-slate-900 border border-slate-800 p-5">
+    {% csrf_token %}{% include 'assessments/_fields.html' with form=form %}
+    <button class="rounded-lg bg-indigo-600 hover:bg-indigo-500 px-5 py-2.5 text-sm text-white font-medium">Create assessment</button>
+  </form>
+</div>
+{% endblock %}

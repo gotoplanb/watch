@@ -3,6 +3,17 @@
 
 > This document describes the **v1 vertical slice** — the minimal end-to-end spine that exercises every architectural decision once. Design decisions and their rationale live in the companion file, `watch-adrs.md`.
 
+> **Assessment-first extension (ADR-054/055).** The primary operational entry point
+> is `/ui/assessments/`: signal → customer-scoped evidence → conclusion → monitoring,
+> no issue, or promotion. The implementation includes saved diagnostic execution,
+> explicit automation policies, versioned communication review, specialist engagement,
+> bounded evidence uploads, curated RCA and separate assessment/incident reporting.
+> Incident clocks start at promotion and preserve the original signal history.
+> Delivery is currently a local outbox/in-app receipt; external provider connections
+> require separate configuration. Existing incident-only integrations keep their
+> contract until deliberately migrated. The original vertical slice below remains
+> the compatibility baseline; ADR-054/055 describe the operational extension.
+
 ---
 
 ## 1. Purpose & framing
@@ -157,9 +168,9 @@ React SPA (S3 + CloudFront) ─────────────────�
 ## 7. Non-goals (explicitly out of v1)
 - Multi-region / active-passive failover (v1 is single-region Multi-AZ; seams left clean — ADR-005).
 - Synchronization with any other ticketing system. Integrations ride the outbound event webhook (ADR-023/049); fan-out to several systems is the alerting platform's job.
-- SLA dashboards / reporting.
+- Enterprise cross-system reporting (local assessment/incident reporting is included under ADR-055).
 - On-call / paging integration.
-- Rich document management (v1 stores attachment metadata only).
+- General-purpose document management (bounded case evidence uploads are included under ADR-055).
 
 ---
 
@@ -171,3 +182,23 @@ React SPA (S3 + CloudFront) ─────────────────�
 | E2E OTel instrumentation | `smokeshow` |
 | Terragrunt multi-stack pattern | existing Terragrunt project |
 | AI-assisted exception triage (later) | `argus` |
+
+
+### Assessment operations extension (ADR-055)
+
+The local assessment workspace now includes saved read-only diagnostic execution,
+customer/service/supplier dependency fan-out, explicit policy automation, immutable
+communication revisions, separate human-review and customer-SLA deadlines, and an
+independent durable operations worker. Automatic send captures a transactional local
+outbox receipt only. A stale draft cannot silently overwrite a newer revision; new
+checks/evidence revoke automatic approval. Suppression requires an audited reason.
+
+The active workspace projects one canonical history, with evidence uploads/image
+paste, operational observations/hypotheses, owned incident actions, named/subject-area
+specialist handoffs, acknowledgement and action receipts. Handoffs never pause or
+change incident tier clocks. RCA is a curated projection referencing source events,
+with analysis and owned corrective actions requiring completion verification.
+Reports separate assessment receipt and incident promotion cohorts, exclude no-issue
+assessments from MTTA/MTTR, and expose source-linked drilldowns and scoped filters.
+Legacy incident-only intake remains compatible; new collectors use assessment/signal
+intake. Provider accounts and actual external delivery are separate integration work.

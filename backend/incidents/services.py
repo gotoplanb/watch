@@ -81,6 +81,15 @@ def paging_topic(kind: str, ident, seed: str = "") -> str:
 
 def _page(incident, tier) -> None:
     try:
+        from .models import Assessment
+        case = Assessment.objects.filter(incident=incident).first()
+        if settings.ESCALATION_LOCAL_MODE and case:
+            user = on_call_user(tier)
+            Page.objects.create(incident=incident, tier=tier, topic=f"local:in-app:{tier}", target=user, status=PageStatus.SENT)
+            from .assessments import append
+            append(case, "tier_paged", f"{tier} on-call notified in the local workspace.",
+                   data={"tier": str(tier), "target_id": user.pk if user else None, "transport": "in_app"})
+            return
         # Rollout gate (ADR-014): keyed on the incident so `sample:R` keeps a given incident
         # consistently in-or-out across all its tier entries.
         if not flags.active("paging_enabled", key=str(incident.id)):
@@ -102,7 +111,7 @@ def _page(incident, tier) -> None:
 
 
 def _record(incident, *, to_status, to_tier, actor, reason, from_status, from_tier):
-    Transition.objects.create(
+    transition = Transition.objects.create(
         incident=incident,
         from_status=from_status,
         from_tier=from_tier,
@@ -111,6 +120,11 @@ def _record(incident, *, to_status, to_tier, actor, reason, from_status, from_ti
         actor=actor,
         reason=reason,
     )
+    from .assessments import mirror
+    mirror(incident, kind="lifecycle_transition",
+           body=f"{from_tier} → {to_tier} · {to_status}. {reason}", actor=actor,
+           data={"transition_id": transition.pk, "from_tier": str(from_tier),
+                 "to_tier": str(to_tier), "from_status": str(from_status), "to_status": str(to_status)})
 
 
 @transaction.atomic
@@ -156,6 +170,10 @@ def escalate(incident_id, actor: str, reason: str = "") -> Incident:
             "current_tier", "acknowledged_at", "current_task_token", "assignee", "updated_at"
         ]
     )
+    if incident.escalation_execution_arn.startswith("local:execution:"):
+        from .models import Assessment
+        if Assessment.objects.filter(incident=incident).exists():
+            record_tier_token(incident.pk, target.value, f"local:{incident.pk}:{target.value}")
     _record(
         incident,
         from_status=incident.status,
@@ -210,6 +228,10 @@ def record_tier_token(incident_id, tier: str, token: str, sla_seconds: int | Non
     incident = Incident.objects.select_for_update().get(pk=incident_id)
     if incident.status != Status.OPEN:
         return incident  # resolved between dispatch and entry — leave it terminal
+    from .models import Assessment
+    case = Assessment.objects.filter(incident=incident).first()
+    if case and incident.current_tier == tier and incident.current_task_token == token and incident.sla_deadline_at:
+        return incident
     if sla_seconds is None:
         sla_seconds = settings.TIER_SLA_SECONDS.get(tier, 0)
     incident.current_tier = tier
@@ -221,6 +243,10 @@ def record_tier_token(incident_id, tier: str, token: str, sla_seconds: int | Non
             "current_tier", "current_task_token", "sla_deadline_at", "assignee", "updated_at"
         ]
     )
+    if case:
+        from .assessments import append
+        append(case, "tier_timer_started", f"{tier} escalation timer started.",
+               data={"tier": str(tier), "sla_seconds": sla_seconds, "deadline": incident.sla_deadline_at.isoformat()})
     return incident
 
 
@@ -253,32 +279,53 @@ def resolve(incident_id, actor: str, reason: str = "") -> Incident:
 
 # --- Timeline events, annotations, and RCA assembly (ADR-021) ---
 
+@transaction.atomic
 def add_note(record, actor: str, body: str) -> TimelineEvent:
     """Human note (work note) on a record's timeline — incident/problem/rca (ADR-031)."""
-    return TimelineEvent.objects.create(
+    event = TimelineEvent.objects.create(
         record=record, type=EventType.NOTE, actor=actor, body=body
     )
+    from .assessments import mirror
+    mirror(record, kind="comment", body=body, actor=actor, data={"timeline_event_id": event.pk})
+    return event
 
 
+@transaction.atomic
 def post_system_event(record, body: str, data: dict | None = None) -> TimelineEvent:
     """Engine/automation narrative event — complements a Transition (which stays the audit record)."""
-    return TimelineEvent.objects.create(
+    event = TimelineEvent.objects.create(
         record=record, type=EventType.SYSTEM, actor="system", body=body, data=data or {}
     )
+    from .assessments import mirror
+    mirror(record, kind="system_event", body=body, actor="system",
+           data={**(data or {}), "timeline_event_id": event.pk})
+    return event
 
 
+@transaction.atomic
 def post_ai_event(record, body: str, actor: str = "argus", data: dict | None = None) -> TimelineEvent:
     """AI-assisted finding on the timeline (§8 / #17) — the hook the AI agent posts through, so its
     findings land in the record's history and feed the RCA."""
-    return TimelineEvent.objects.create(
+    event = TimelineEvent.objects.create(
         record=record, type=EventType.AI, actor=actor, body=body, data=data or {}
     )
+    from .assessments import mirror
+    mirror(record, kind="ai_event", body=body or "Assistant work started.", actor=actor,
+           data={**(data or {}), "timeline_event_id": event.pk})
+    return event
 
 
+@transaction.atomic
 def annotate_event(target, *, author, body: str = "", tag: str = "note") -> Annotation:
     """Attach an annotation/tag to ANY timeline event — a Transition or a TimelineEvent. Orthogonal
     to the event; never mutates it, so an authoritative Transition stays intact."""
-    return Annotation.objects.create(target=target, author=author, body=body, tag=tag)
+    annotation = Annotation.objects.create(target=target, author=author, body=body, tag=tag)
+    from .models import AssessmentEvent
+    if isinstance(target, AssessmentEvent):
+        from .assessments import append
+        append(target.assessment, "event_annotated", body or f"Tagged source event: {tag}",
+               author.username if author else "system", {"source_event_id": target.pk, "annotation_id": annotation.pk, "tag": tag})
+    return annotation
 
 
 def actor_labels(actors) -> dict:
@@ -301,6 +348,14 @@ def timeline(record):
     """Merged, time-ordered history for any record (ADR-031): its TimelineEvents, plus Transitions
     when the record has them (incidents only — Transitions stay incident-only). Each item carries its
     annotations prefetched. Items: {kind: transition|event, at, obj, target: 'kind:id'}."""
+    if isinstance(record, Incident):
+        from .models import Assessment
+        assessment = Assessment.objects.filter(incident_id=record.pk).first()
+        if assessment:
+            return [
+                {"kind": "event", "at": e.occurred_at, "obj": e, "target": f"case_event:{e.pk}"}
+                for e in assessment.history.prefetch_related("annotations__author")
+            ]
     items = []
     transitions = getattr(record, "transitions", None)
     if transitions is not None:  # incidents only
@@ -350,6 +405,11 @@ def _rca_line(item) -> str:
     else:
         head = f"**{obj.type}** · `{obj.actor or 'system'}` — {obj.body}"
     lines = [f"- `{ts}` {head}"]
+    if getattr(obj, "kind", None) == "evidence_added":
+        lines.append(f"    - Source event: `{obj.pk}` · {obj.data.get('source', 'operator')}")
+        for label, value in (("Check", obj.data.get("query")), ("Result", obj.data.get("result"))):
+            if value:
+                lines.append(f"    - {label}: " + str(value).replace("\n", "\n      "))
     for a in obj.annotations.all():
         who = a.author.username if a.author else "unknown"
         note = f" — {a.body}" if a.body else ""
@@ -491,6 +551,9 @@ def write_handoff_brief(event_id) -> TimelineEvent:
     event.data = {"kind": "handoff", "status": "ready", "to_tier": data.get("to_tier"),
                   "provider": result.provider, "model": result.model}
     event.save(update_fields=["body", "data"])
+    from .assessments import mirror
+    mirror(event.record, kind="handoff_ready", body=event.body, actor=event.actor,
+           data={**event.data, "timeline_event_id": event.pk})
     return event
 
 

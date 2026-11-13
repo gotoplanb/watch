@@ -1,10 +1,30 @@
 from django.urls import path
+from django.views.generic import RedirectView
 
 from . import ui_views
+from . import assessment_ui
+from . import operations_ui
 
 app_name = "ui"
 
 urlpatterns = [
+    path("", RedirectView.as_view(pattern_name="ui:assessment_inbox"), name="index"),
+    path("assessments/", assessment_ui.inbox, name="assessment_inbox"),
+    path("assessments/new/", assessment_ui.new, name="assessment_new"),
+    path("assessments/<uuid:pk>/", operations_ui.workspace, name="assessment_detail"),
+    path("assessments/<uuid:pk>/state/", operations_ui.case_state, name="case_state"),
+    path("communications/<uuid:pk>/state/", operations_ui.communication_state, name="communication_state"),
+    path("assessments/<uuid:pk>/incident-action/", operations_ui.incident_action, name="case_incident_action"),
+    path("assessments/<uuid:pk>/rca.md", operations_ui.rca_export, name="case_rca_export"),
+    path("communications/<uuid:pk>/", operations_ui.communication_detail, name="communication_detail"),
+    path("evidence/<uuid:pk>/", operations_ui.attachment, name="evidence_attachment"),
+    path("engagements/<uuid:pk>/respond/", operations_ui.engagement_action, name="engagement_action"),
+    path("remediations/<uuid:pk>/update/", operations_ui.remediation_action, name="remediation_action"),
+    path("outbox/", operations_ui.outbox, name="local_outbox"),
+    path("outbox/<uuid:pk>/message.eml", operations_ui.outbox_download, name="outbox_download"),
+    path("automation/", operations_ui.configuration, name="operations_configuration"),
+    path("reports/", operations_ui.reports, name="reports"),
+    path("reports/data/", operations_ui.reports_data, name="reports_data"),
     path("incidents/", ui_views.incident_list, name="incident_list"),
     path("incidents/<uuid:pk>/", ui_views.incident_detail, name="incident_detail"),
     path("incidents/<uuid:pk>/body/", ui_views.incident_body, name="incident_body"),

@@ -10,7 +10,7 @@ PY := python3.12
 VENV := backend/.venv
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: help venv test e2e a11y demo dev infra status-page up down logs seed seed-dev smoke \
+.PHONY: help venv test e2e a11y demo dev infra status-page up down logs seed seed-dev seed-incidents seed-assessments seed-operations operations migrate-dev smoke \
         coverage sonar-scan sonar-scan-only install-hooks integration clean \
         tunnel-domain tunnel-up tunnel-down tunnel-status
 
@@ -176,6 +176,16 @@ seed-dev: venv infra ## Reseed the make-dev (host-venv) DB, applying SEED_USER/A
 seed-env-dev: venv infra ## Seed ~24h of env status snapshots + digests (the environments screen, ADR-043)
 	$(subst seed_demo,seed_env_ops,$(SEED_CMD))
 
+SCENARIO_FILE ?= ../local/fixtures/incident-examples.json
+migrate-dev: venv infra ## Apply database migrations to the host development stack
+	$(subst seed_demo,migrate,$(SEED_CMD))
+
+seed-assessments: venv infra ## Load fictional assessment workflow examples (no external notifications)
+	$(subst seed_demo,seed_assessments,$(SEED_CMD))
+
+seed-incidents: venv infra ## Load local example incidents + linked Problems/RCAs (preserves existing records)
+	$(subst seed_demo,seed_incident_examples "$(SCENARIO_FILE)",$(SEED_CMD))
+
 smoke: ## Push an incident through the intake webhook
 	curl -fsS -X POST http://localhost:8010/api/intake/webhook \
 	  -H "X-Watch-Webhook-Secret: $$(grep INTAKE_WEBHOOK_SECRET .env | cut -d= -f2)" \
@@ -213,3 +223,13 @@ tunnel-down: ## Stop ngrok tunnel(s). TUN=watch|status|both
 	local/tunnel/tunnel.sh down $(TUN)
 tunnel-status: ## Show tunnel(s) up/down. TUN=watch|status|both
 	local/tunnel/tunnel.sh status $(TUN)
+
+# Persistent worker; local outbox deadlines do not depend on an open browser.
+operations: ## Process diagnostic jobs, communication deadlines and local escalation timers
+	$(subst seed_demo,operations_tick --loop,$(SEED_CMD))
+
+seed-operations: ## Add fictional end-to-end operations scenarios and a live Watchtower check
+	$(subst seed_demo,seed_operations,$(SEED_CMD))
+
+publication-test: ## Verify the local source-publication guard (no network)
+	python3 -m unittest discover -s scripts/tests -v
