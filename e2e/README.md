@@ -20,6 +20,16 @@ Runners:
 make e2e                 # local: @local tests vs http://localhost:8010 (needs `make dev` up)
 make e2e E2E_INSTALL=1    # also (re)install browsers via npx — opt-in (see macOS note below)
 ```
+`operations.spec.ts` (ADR-054/055) also needs the assessment worker running and the example
+checks seeded. Without them its policy test waits forever for automation, and the investigation
+test can't find the "Watchtower · Prometheus scrape availability" rule:
+```
+make migrate-dev && make seed-operations   # once per DB
+make operations                            # keep running (tmux window `watch:operations`)
+```
+Run the suite through `make e2e`, not bare `npx playwright test`: the target passes the seeded
+`SMOKE_PASSWORD`, and without it every login silently fails.
+
 Browser install is **opt-in**: `E2E_INSTALL` defaults to `0`, so `make e2e` never runs
 `npx playwright install` unless you ask. Seed browsers once with `ditto` (below) and every later
 run — including the pre-commit hook's `make e2e` — just uses them. CI is unaffected: the pipeline

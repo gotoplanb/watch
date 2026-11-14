@@ -54,7 +54,8 @@ def test_concurrent_promotion_has_one_incident_and_one_engine_start(monkeypatch,
     results = _race(lambda: assessments.promote(row.pk, actor="system", reason="Confirmed impact"))
     assert results[0][0].pk == results[1][0].pk
     assert sorted(created for _, created in results) == [False, True]
-    assert Incident.objects.count() == 1 and len(starts) == 1
+    assert Incident.objects.count() == 1
+    assert len(starts) == 1
     assert row.history.filter(kind="incident_promoted").count() == 1
     delivery = WebhookDelivery.objects.get(event_type="incident.created")
     assert delivery.payload["data"]["incident_id"] == str(results[0][0].pk)
@@ -99,9 +100,11 @@ def test_edit_and_send_serialize_without_sending_an_unreviewed_revision():
     mail.refresh_from_db()
     assert "conflict" in results
     if mail.state == "sent":
-        assert mail.revision == 1 and OutboxMessage.objects.get().revision.subject == "Original"
+        assert mail.revision == 1
+        assert OutboxMessage.objects.get().revision.subject == "Original"
     else:
-        assert mail.revision == 2 and not OutboxMessage.objects.exists()
+        assert mail.revision == 2
+        assert not OutboxMessage.objects.exists()
 
 
 def test_suppression_and_send_cannot_both_commit():

@@ -7,7 +7,7 @@ from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from . import assessments, automation, communications, operations, reporting, services
 from .assessment_forms import ConclusionForm, EvidenceForm, PromotionForm, ReasonForm
@@ -21,6 +21,17 @@ from .operations_forms import (
     OperationalActionForm, PhotoNoteForm, PolicyForm, QueryForm, RcaForm, RemediationForm, RevisionForm, SmeForm, SubjectAreaForm,
 )
 from .permissions import can_act_on, user_tier_rank
+
+
+ASSESSMENT_DETAIL = "ui:assessment_detail"
+PARTICIPANT_ACTIONS = {"comment", "attachment", "query", "evidence"}
+RCA_ACTIONS = {"curate", "rca", "remediation"}
+CLOSED_STATUSES = {"no_issue", "promoted"}
+HISTORY_PAGE = 500
+CASE_TABS = [("conversation", "Conversation"), ("evidence", "Evidence"), ("communications", "Communications"), ("sme", "Specialists"), ("rca", "RCA")]
+CASE_TAB_KEYS = {key for key, _ in CASE_TABS}
+COMPOSER_ACTIONS = [("comment", "Note"), ("query", "Run check"), ("attachment", "Upload evidence"), ("evidence", "Record evidence"), ("operation", "Action / hypothesis"), ("email", "Communication"), ("engage", "Engage specialist")]
+ASSESSMENT_DECISIONS = [("conclusion", "Record conclusion"), ("monitor", "Monitor / inconclusive"), ("no_issue", "Close · no issue"), ("promote", "Promote to incident")]
 
 
 def participates(row, user):
@@ -51,113 +62,163 @@ def _forms(row, data=None, files=None, action=None):
     return forms
 
 
-@login_required
-@require_http_methods(["GET", "POST"])
-def workspace(request, pk):
-    row = get_object_or_404(Assessment.objects.select_related("assignee", "incident"), pk=pk)
-    action = request.POST.get("action") if request.method == "POST" else None
-    forms = _forms(row, request.POST if action else None, request.FILES if action else None, action)
-    can_manage = can_act_on(request.user, row.incident) if row.incident_id else user_tier_rank(request.user) >= 0
-    can_participate = participates(row, request.user)
-    error, code = "", 200
-    if action:
-        participant_actions = {"comment", "attachment", "query", "evidence"}
-        if not (can_manage or (action in participant_actions and can_participate)):
-            return HttpResponseForbidden("Your responder role does not permit this action.")
-        if action not in forms:
-            error, code = "Choose a valid action.", 400
-        elif not forms[action].is_valid():
-            error, code = "Check the highlighted fields.", 400
-        else:
-            data = forms[action].cleaned_data
-            try:
-                actor = request.user.username
-                if action == "comment":
-                    operations.add_history_note(pk, user=request.user, **data)
-                elif action == "evidence":
-                    if row.incident_id:
-                        assessments.append(row, "evidence_added", data["summary"], actor,
-                                           {"query": data["query"], "result": data["result"], "source": data["source"], "execution": "operator_recorded"})
-                    else:
-                        assessments.add_evidence(pk, actor=actor, **data)
-                elif action == "conclusion":
-                    assessments.conclude(pk, actor=actor, **data)
-                elif action in {"monitor", "no_issue"}:
-                    assessments.dispose(pk, actor=actor, outcome="monitoring" if action == "monitor" else "no_issue", **data)
-                elif action == "promote":
-                    incident, _ = assessments.promote(pk, actor=actor, **data)
-                    return redirect("ui:incident_detail", pk=incident.pk)
-                elif action == "retry_automation":
-                    with transaction.atomic():
-                        current = operations.lock_case(pk, request.user)
-                        if current.status in {"no_issue", "promoted"} or current.automation_state != "failed":
-                            raise ValueError("Only failed, open automated assessments can be retried.")
-                        current.automation_state = "manual"
-                        current.save(update_fields=["automation_state", "updated_at"])
-                        if not automation.schedule(current):
-                            raise ValueError("Configure an active matching policy before retrying.")
-                        assessments.append(current, "automation_retry_requested", data["reason"], actor)
-                elif action == "retry_engine":
-                    operations.authorize(Assessment.objects.select_related("incident").get(pk=pk), request.user)
-                    assessments.comment(pk, actor=actor, body=f"Requested escalation retry: {data['reason']}")
-                    assessments.start_engine(pk, force=True)
-                elif action == "email":
-                    with transaction.atomic():
-                        operations.lock_case(pk, request.user)
-                        mail = communications.draft(pk, actor=actor, **data)
-                    return redirect("ui:communication_detail", pk=mail.pk)
-                elif action == "operation":
-                    data["selected"] = [e.pk for e in data["selected"]]
-                    operations.record_action(pk, user=request.user, **data)
-                elif action == "attachment":
-                    operations.upload(pk, user=request.user, **data)
-                elif action == "query":
-                    with transaction.atomic():
-                        current = Assessment.objects.select_for_update().get(pk=pk)
-                        assessments.invalidate_conclusion(current)
-                        run = DiagnosticRun.objects.create(assessment=current, rule=data["rule"])
-                        assessments.append(current, "query_queued", f"Queued saved check: {data['rule'].name}", actor, {"run_id": str(run.pk)})
-                elif action == "engage":
-                    data["selected"] = [e.pk for e in data["selected"]]
-                    operations.engage(pk, user=request.user, **data)
-                elif action == "curate":
-                    operations.curate(pk, user=request.user, **data)
-                elif action == "rca":
-                    operations.save_rca(pk, user=request.user, **data)
-                elif action == "remediation":
-                    operations.remediation(pk, user=request.user, **data)
-                elif action == "context":
-                    with transaction.atomic():
-                        current = operations.lock_case(pk, request.user)
-                        current.severity, current.impact = data["severity"], data["impact"]
-                        current.save(update_fields=["severity", "impact", "updated_at"])
-                        assessments.append(current, "impact_classified", data["reason"], actor, {"severity": current.severity, "impact": current.impact})
-                elif action == "claim":
-                    with transaction.atomic():
-                        claimed = operations.lock_case(pk, request.user)
-                        claimed.assignee = request.user
-                        claimed.save(update_fields=["assignee", "updated_at"])
-                        if claimed.incident_id:
-                            claimed.incident.assignee = request.user
-                            claimed.incident.save(update_fields=["assignee"])
-                        assessments.append(claimed, "ownership_changed", f"{request.user.username} took ownership: {data['reason']}", actor)
-                tab = "rca" if action in {"curate", "rca", "remediation"} else ("sme" if action == "engage" else "conversation")
-                return redirect(reverse("ui:assessment_detail", args=[pk]) + f"?tab={tab}")
-            except PermissionError as exc:
-                return HttpResponseForbidden(str(exc))
-            except assessments.AssessmentConflict as exc:
-                error, code = str(exc), 409
-            except ValueError as exc:
-                error, code = str(exc), 400
-    elif request.method == "POST":
-        error, code = "Choose a valid action.", 400
-    tab = request.GET.get("tab", "conversation")
-    if action in {"curate", "rca", "remediation"}:
-        tab = "rca"
-    elif action == "engage":
-        tab = "sme"
-    if tab not in {"conversation", "evidence", "communications", "sme", "rca"}:
-        tab = "conversation"
+def _can_manage_case(user, assessment):
+    if assessment.incident_id:
+        return can_act_on(user, assessment.incident)
+    return user_tier_rank(user) >= 0
+
+
+def _tab_for_action(action, default):
+    if action in RCA_ACTIONS:
+        return "rca"
+    if action == "engage":
+        return "sme"
+    return default
+
+
+def _handle_comment(request, pk, row, data, actor):
+    operations.add_history_note(pk, user=request.user, **data)
+
+
+def _handle_evidence(request, pk, row, data, actor):
+    if row.incident_id:
+        assessments.append(row, "evidence_added", data["summary"], actor,
+                           {"query": data["query"], "result": data["result"], "source": data["source"], "execution": "operator_recorded"})
+    else:
+        assessments.add_evidence(pk, actor=actor, **data)
+
+
+def _handle_conclusion(request, pk, row, data, actor):
+    assessments.conclude(pk, actor=actor, **data)
+
+
+def _handle_monitor(request, pk, row, data, actor):
+    assessments.dispose(pk, actor=actor, outcome="monitoring", **data)
+
+
+def _handle_no_issue(request, pk, row, data, actor):
+    assessments.dispose(pk, actor=actor, outcome="no_issue", **data)
+
+
+def _handle_promote(request, pk, row, data, actor):
+    incident, _ = assessments.promote(pk, actor=actor, **data)
+    return redirect("ui:incident_detail", pk=incident.pk)
+
+
+def _handle_retry_automation(request, pk, row, data, actor):
+    with transaction.atomic():
+        current = operations.lock_case(pk, request.user)
+        if current.status in CLOSED_STATUSES or current.automation_state != "failed":
+            raise ValueError("Only failed, open automated assessments can be retried.")
+        current.automation_state = "manual"
+        current.save(update_fields=["automation_state", "updated_at"])
+        if not automation.schedule(current):
+            raise ValueError("Configure an active matching policy before retrying.")
+        assessments.append(current, "automation_retry_requested", data["reason"], actor)
+
+
+def _handle_retry_engine(request, pk, row, data, actor):
+    operations.authorize(Assessment.objects.select_related("incident").get(pk=pk), request.user)
+    assessments.comment(pk, actor=actor, body=f"Requested escalation retry: {data['reason']}")
+    assessments.start_engine(pk, force=True)
+
+
+def _handle_email(request, pk, row, data, actor):
+    with transaction.atomic():
+        operations.lock_case(pk, request.user)
+        mail = communications.draft(pk, actor=actor, **data)
+    return redirect("ui:communication_detail", pk=mail.pk)
+
+
+def _handle_operation(request, pk, row, data, actor):
+    data["selected"] = [e.pk for e in data["selected"]]
+    operations.record_action(pk, user=request.user, **data)
+
+
+def _handle_attachment(request, pk, row, data, actor):
+    operations.upload(pk, user=request.user, **data)
+
+
+def _handle_query(request, pk, row, data, actor):
+    with transaction.atomic():
+        current = Assessment.objects.select_for_update().get(pk=pk)
+        assessments.invalidate_conclusion(current)
+        run = DiagnosticRun.objects.create(assessment=current, rule=data["rule"])
+        assessments.append(current, "query_queued", f"Queued saved check: {data['rule'].name}", actor, {"run_id": str(run.pk)})
+
+
+def _handle_engage(request, pk, row, data, actor):
+    data["selected"] = [e.pk for e in data["selected"]]
+    operations.engage(pk, user=request.user, **data)
+
+
+def _handle_curate(request, pk, row, data, actor):
+    operations.curate(pk, user=request.user, **data)
+
+
+def _handle_rca(request, pk, row, data, actor):
+    operations.save_rca(pk, user=request.user, **data)
+
+
+def _handle_remediation(request, pk, row, data, actor):
+    operations.remediation(pk, user=request.user, **data)
+
+
+def _handle_context(request, pk, row, data, actor):
+    with transaction.atomic():
+        current = operations.lock_case(pk, request.user)
+        current.severity, current.impact = data["severity"], data["impact"]
+        current.save(update_fields=["severity", "impact", "updated_at"])
+        assessments.append(current, "impact_classified", data["reason"], actor, {"severity": current.severity, "impact": current.impact})
+
+
+def _handle_claim(request, pk, row, data, actor):
+    with transaction.atomic():
+        claimed = operations.lock_case(pk, request.user)
+        claimed.assignee = request.user
+        claimed.save(update_fields=["assignee", "updated_at"])
+        if claimed.incident_id:
+            claimed.incident.assignee = request.user
+            claimed.incident.save(update_fields=["assignee"])
+        assessments.append(claimed, "ownership_changed", f"{request.user.username} took ownership: {data['reason']}", actor)
+
+
+# Per-action POST handlers for the assessment workspace. Each returns an optional response;
+# None means "redirect back to the workspace tab for this action".
+WORKSPACE_ACTIONS = {
+    "comment": _handle_comment, "evidence": _handle_evidence, "conclusion": _handle_conclusion,
+    "monitor": _handle_monitor, "no_issue": _handle_no_issue, "promote": _handle_promote,
+    "retry_automation": _handle_retry_automation, "retry_engine": _handle_retry_engine,
+    "email": _handle_email, "operation": _handle_operation, "attachment": _handle_attachment,
+    "query": _handle_query, "engage": _handle_engage, "curate": _handle_curate, "rca": _handle_rca,
+    "remediation": _handle_remediation, "context": _handle_context, "claim": _handle_claim,
+}
+
+
+def _workspace_post(request, pk, row, forms, action, can_manage, can_participate):
+    """Run a workspace POST action. Returns (response, error, status); response is None to re-render."""
+    if not (can_manage or (action in PARTICIPANT_ACTIONS and can_participate)):
+        return HttpResponseForbidden("Your responder role does not permit this action."), "", 200
+    if action not in forms:
+        return None, "Choose a valid action.", 400
+    if not forms[action].is_valid():
+        return None, "Check the highlighted fields.", 400
+    data = forms[action].cleaned_data
+    try:
+        response = WORKSPACE_ACTIONS[action](request, pk, row, data, request.user.username)
+        if response is None:
+            response = redirect(reverse(ASSESSMENT_DETAIL, args=[pk]) + f"?tab={_tab_for_action(action, 'conversation')}")
+        return response, "", 200
+    except PermissionError as exc:
+        return HttpResponseForbidden(str(exc)), "", 200
+    except assessments.AssessmentConflict as exc:
+        return None, str(exc), 409
+    except ValueError as exc:
+        return None, str(exc), 400
+
+
+def _workspace_history(request, row, tab):
+    """Filter the case history for the requested cursor/event/lens. Returns (events, before, source_event, lens)."""
     history = row.history.all()
     before = request.GET.get("before", "")
     if before.isdigit():
@@ -170,24 +231,30 @@ def workspace(request, pk):
         history = history.filter(kind__in=["comment", "hypothesis", "decision", "incident_promoted", "lifecycle_transition"])
     elif lens == "evidence":
         history = history.filter(Q(kind__in=["evidence_added", "evidence_attached", "query_started", "query_completed", "query_failed"]) | Q(kind="comment", data__has_key="attachments"))
-    events = list(history.order_by("-occurred_at", "-pk").prefetch_related("annotations__author")[:500])[::-1]
+    events = list(history.order_by("-occurred_at", "-pk").prefetch_related("annotations__author")[:HISTORY_PAGE])[::-1]
     labels = services.actor_labels(event.actor for event in events)
     for event in events:
         event.actor_label = labels.get(event.actor, event.actor)
-    older_cursor = events[0].pk if len(events) == 500 else None
+    return events, before, source_event, lens
+
+
+def _workspace_context(request, row, forms, action, can_manage, can_participate, error):
+    tab = _tab_for_action(action, request.GET.get("tab", "conversation"))
+    if tab not in CASE_TAB_KEYS:
+        tab = "conversation"
+    events, before, source_event, lens = _workspace_history(request, row, tab)
     projection = getattr(row, "rca_projection", None)
     current_action = action or request.GET.get("compose", "comment")
-    current_form = forms.get(current_action, forms["comment"])
-    return render(request, "operations/workspace.html", {
-        "assessment": row, "history": events, "forms": forms, "current_form": current_form,
-        "older_cursor": older_cursor, "before": before,
+    return {
+        "assessment": row, "history": events, "forms": forms, "current_form": forms.get(current_action, forms["comment"]),
+        "older_cursor": events[0].pk if len(events) == HISTORY_PAGE else None, "before": before,
         "history_version": row.history.order_by("-pk").values_list("pk", flat=True).first() or 0,
-        "case_tabs": [("conversation", "Conversation"), ("evidence", "Evidence"), ("communications", "Communications"), ("sme", "Specialists"), ("rca", "RCA")],
-        "composer_actions": [(key, label) for key, label in [("comment", "Note"), ("query", "Run check"), ("attachment", "Upload evidence"), ("evidence", "Record evidence"), ("operation", "Action / hypothesis"), ("email", "Communication"), ("engage", "Engage specialist")] if can_manage or key in {"comment", "query", "attachment", "evidence"}],
-        "assessment_decisions": [("conclusion", "Record conclusion"), ("monitor", "Monitor / inconclusive"), ("no_issue", "Close · no issue"), ("promote", "Promote to incident")],
+        "case_tabs": CASE_TABS,
+        "composer_actions": [(key, label) for key, label in COMPOSER_ACTIONS if can_manage or key in PARTICIPANT_ACTIONS],
+        "assessment_decisions": ASSESSMENT_DECISIONS,
         "compose": current_action if current_action in forms else "comment", "tab": tab, "lens": lens,
         "error": error, "can_manage": can_manage, "can_participate": can_participate,
-        "is_open": row.status not in {"no_issue", "promoted"}, "source_event": source_event,
+        "is_open": row.status not in CLOSED_STATUSES, "source_event": source_event,
         "evidence_count": row.history.filter(Q(kind__in=["evidence_added", "evidence_attached"]) | Q(kind="comment", data__has_key="attachments")).count(),
         "communications": row.communications.prefetch_related("revisions"),
         "engagements": row.engagements.select_related("target", "area", "acknowledged_by").prefetch_related("evidence"),
@@ -196,7 +263,57 @@ def workspace(request, pk):
         "remediations": row.remediations.select_related("owner"),
         "engine_pending": bool(row.incident_id and row.incident.status == "OPEN" and not row.incident.escalation_execution_arn),
         "pending_communications": row.communications.filter(state__in=["review", "expired"]),
-    }, status=code)
+    }
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def workspace(request, pk):
+    row = get_object_or_404(Assessment.objects.select_related("assignee", "incident"), pk=pk)
+    action = request.POST.get("action") if request.method == "POST" else None
+    forms = _forms(row, request.POST if action else None, request.FILES if action else None, action)
+    can_manage = _can_manage_case(request.user, row)
+    can_participate = participates(row, request.user)
+    error, code = "", 200
+    if action:
+        response, error, code = _workspace_post(request, pk, row, forms, action, can_manage, can_participate)
+        if response is not None:
+            return response
+    elif request.method == "POST":
+        error, code = "Choose a valid action.", 400
+    context = _workspace_context(request, row, forms, action, can_manage, can_participate, error)
+    return render(request, "operations/workspace.html", context, status=code)
+
+
+def _apply_communication_action(request, pk, form):
+    action = request.POST.get("action")
+    if action == "edit":
+        if not form.is_valid():
+            raise ValueError("Check the highlighted draft fields.")
+        communications.edit(pk, actor=request.user.username, **form.cleaned_data)
+        return
+    if action not in {"send", "suppress"}:
+        raise ValueError("Choose edit, send, or suppress.")
+    version = int(request.POST.get("expected_version", "0"))
+    if action == "send":
+        communications.send(pk, actor=request.user.username, expected_version=version)
+    else:
+        communications.suppress(pk, actor=request.user.username, expected_version=version, reason=request.POST.get("reason", ""))
+
+
+def _communication_post(request, pk, row, form):
+    """Apply a communication POST under the case lock. Returns (response, error, status)."""
+    try:
+        with transaction.atomic():
+            operations.lock_case(row.assessment_id, request.user)
+            _apply_communication_action(request, pk, form)
+        return redirect("ui:communication_detail", pk=pk), "", 200
+    except PermissionError as exc:
+        return HttpResponseForbidden(str(exc)), "", 200
+    except assessments.AssessmentConflict as exc:
+        return None, str(exc), 409
+    except ValueError as exc:
+        return None, str(exc), 400
 
 
 @login_required
@@ -208,33 +325,13 @@ def communication_detail(request, pk):
                "auto_send": row.auto_send, "expected_version": row.revision}
     form = RevisionForm(request.POST if request.POST.get("action") == "edit" else None, prefix="draft", initial=initial)
     error, code = "", 200
-    allowed = can_act_on(request.user, row.assessment.incident) if row.assessment.incident_id else user_tier_rank(request.user) >= 0
+    allowed = _can_manage_case(request.user, row.assessment)
     if request.method == "POST":
         if not allowed:
             return HttpResponseForbidden("Incident tier permissions are required to send, edit, or suppress this communication.")
-        try:
-            with transaction.atomic():
-                operations.lock_case(row.assessment_id, request.user)
-                action = request.POST.get("action")
-                if action == "edit":
-                    if not form.is_valid():
-                        raise ValueError("Check the highlighted draft fields.")
-                    communications.edit(pk, actor=request.user.username, **form.cleaned_data)
-                elif action in {"send", "suppress"}:
-                    version = int(request.POST.get("expected_version", "0"))
-                    if action == "send":
-                        communications.send(pk, actor=request.user.username, expected_version=version)
-                    else:
-                        communications.suppress(pk, actor=request.user.username, expected_version=version, reason=request.POST.get("reason", ""))
-                else:
-                    raise ValueError("Choose edit, send, or suppress.")
-            return redirect("ui:communication_detail", pk=pk)
-        except PermissionError as exc:
-            return HttpResponseForbidden(str(exc))
-        except assessments.AssessmentConflict as exc:
-            error, code = str(exc), 409
-        except ValueError as exc:
-            error, code = str(exc), 400
+        response, error, code = _communication_post(request, pk, row, form)
+        if response is not None:
+            return response
     return render(request, "operations/communication.html", {
         "communication": row, "current": current, "form": form, "can_manage": allowed,
         "error": error, "revisions": row.revisions.all(), "now": timezone.now(),
@@ -242,6 +339,7 @@ def communication_detail(request, pk):
 
 
 @login_required
+@require_GET
 def attachment(request, pk):
     item = get_object_or_404(EvidenceAttachment, pk=pk)
     inline = request.GET.get("inline") == "1" and item.content_type.startswith("image/")
@@ -258,7 +356,7 @@ def engagement_action(request, pk):
     item = get_object_or_404(SmeEngagement, pk=pk)
     try:
         operations.respond_engagement(pk, user=request.user, action=request.POST.get("action"), body=request.POST.get("body", ""))
-        return redirect(reverse("ui:assessment_detail", args=[item.assessment_id]) + "?tab=sme")
+        return redirect(reverse(ASSESSMENT_DETAIL, args=[item.assessment_id]) + "?tab=sme")
     except PermissionError as exc:
         return HttpResponseForbidden(str(exc))
     except ValueError as exc:
@@ -271,7 +369,7 @@ def remediation_action(request, pk):
     task = get_object_or_404(RemediationTask, pk=pk)
     try:
         operations.update_remediation(pk, user=request.user, state=request.POST.get("state"), verification=request.POST.get("verification", ""))
-        return redirect(reverse("ui:assessment_detail", args=[task.assessment_id]) + "?tab=rca")
+        return redirect(reverse(ASSESSMENT_DETAIL, args=[task.assessment_id]) + "?tab=rca")
     except PermissionError as exc:
         return HttpResponseForbidden(str(exc))
     except ValueError as exc:
@@ -279,6 +377,7 @@ def remediation_action(request, pk):
 
 
 @login_required
+@require_GET
 def rca_export(request, pk):
     row = get_object_or_404(Assessment, pk=pk)
     response = HttpResponse(operations.rca_markdown(row), content_type="text/markdown; charset=utf-8")
@@ -287,11 +386,13 @@ def rca_export(request, pk):
 
 
 @login_required
+@require_GET
 def outbox(request):
     return render(request, "operations/outbox.html", {"receipts": OutboxMessage.objects.select_related("revision", "communication__assessment").order_by("-delivered_at")[:100]})
 
 
 @login_required
+@require_GET
 def outbox_download(request, pk):
     receipt = get_object_or_404(OutboxMessage.objects.select_related("revision"), pk=pk)
     response = HttpResponse(communications.message_bytes(receipt), content_type="message/rfc822")
@@ -323,6 +424,7 @@ def configuration(request):
 
 
 @login_required
+@require_GET
 def reports(request):
     try:
         days = min(365, max(1, int(request.GET.get("days", "30"))))
@@ -338,8 +440,8 @@ def reports(request):
 
 
 @login_required
+@require_GET
 def reports_data(request):
-    from django.http import JsonResponse
     try:
         days = min(365, max(1, int(request.GET.get("days", "30"))))
     except ValueError:
@@ -348,36 +450,44 @@ def reports_data(request):
         **{key: request.GET.get(key, "")[:128] for key in ("customer", "service", "supplier", "severity")}))
 
 
-@login_required
-@require_http_methods(["POST"])
-def incident_action(request, pk):
+def _apply_incident_action(request, row):
+    """Act on the linked incident under its row lock. Returns an error response, or None on success."""
     from . import escalation
     from django.conf import settings
+    kind = request.POST.get("action")
+    incident = type(row.incident).objects.select_for_update().get(pk=row.incident_id)
+    if not can_act_on(request.user, incident):
+        return HttpResponseForbidden("Incident tier permissions changed; refresh before acting.")
+    if request.POST.get("expected_tier") != incident.current_tier:
+        return HttpResponse("The incident moved tier; refresh before acting.", status=409)
+    reason = request.POST.get("reason", "").strip()[:512]
+    actor = str(request.user.pk)
+    if kind == "ack":
+        services.acknowledge(incident.pk, actor=actor, reason=reason)
+        return None
+    if kind not in {"escalate", "resolve"}:
+        return HttpResponse("Choose acknowledge, escalate, or resolve.", status=400)
+    if not incident.escalation_execution_arn:
+        return HttpResponse("Escalation has not started. Retry the engine first.", status=409)
+    escalating = kind == "escalate"
+    escalation.send_outcome(incident, escalation.OUTCOME_ESCALATE if escalating else escalation.OUTCOME_RESOLVE,
+                            actor=actor, reason=reason)
+    if settings.ESCALATION_LOCAL_MODE:
+        (services.escalate if escalating else services.resolve)(incident.pk, actor=actor, reason=reason)
+    return None
+
+
+@login_required
+@require_POST
+def incident_action(request, pk):
     row = get_object_or_404(Assessment.objects.select_related("incident"), pk=pk)
     if not row.incident or not can_act_on(request.user, row.incident):
         return HttpResponseForbidden("Incident tier permissions are required.")
-    kind = request.POST.get("action")
-    expected = request.POST.get("expected_tier")
     with transaction.atomic():
-        incident = type(row.incident).objects.select_for_update().get(pk=row.incident_id)
-        if not can_act_on(request.user, incident):
-            return HttpResponseForbidden("Incident tier permissions changed; refresh before acting.")
-        if expected != incident.current_tier:
-            return HttpResponse("The incident moved tier; refresh before acting.", status=409)
-        reason = request.POST.get("reason", "").strip()[:512]
-        actor = str(request.user.pk)
-        if kind == "ack":
-            services.acknowledge(incident.pk, actor=actor, reason=reason)
-        elif kind in {"escalate", "resolve"}:
-            if not incident.escalation_execution_arn:
-                return HttpResponse("Escalation has not started. Retry the engine first.", status=409)
-            escalation.send_outcome(incident, escalation.OUTCOME_ESCALATE if kind == "escalate" else escalation.OUTCOME_RESOLVE,
-                                    actor=actor, reason=reason)
-            if settings.ESCALATION_LOCAL_MODE:
-                (services.escalate if kind == "escalate" else services.resolve)(incident.pk, actor=actor, reason=reason)
-        else:
-            return HttpResponse("Choose acknowledge, escalate, or resolve.", status=400)
-    return redirect("ui:assessment_detail", pk=pk)
+        response = _apply_incident_action(request, row)
+    if response is not None:
+        return response
+    return redirect(ASSESSMENT_DETAIL, pk=pk)
 
 
 @login_required

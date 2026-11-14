@@ -49,9 +49,12 @@ def test_dedupe_is_source_scoped_and_survives_closure(assessment):
     conclusion(assessment, "no_issue")
     assessments.dispose(assessment.pk, actor="responder", outcome="no_issue", reason="No impact found.")
     retry, created = assessments.receive(title="Retry", source="customer", signal="Redelivery", source_event_id="signal-1")
-    assert not created and retry.pk == assessment.pk and retry.status == "no_issue"
+    assert not created
+    assert retry.pk == assessment.pk
+    assert retry.status == "no_issue"
     other, created = assessments.receive(title="Different source", source="supplier", signal="New source", source_event_id="signal-1")
-    assert created and other.pk != assessment.pk
+    assert created
+    assert other.pk != assessment.pk
     assert not Incident.objects.exists()
 
 
@@ -59,7 +62,8 @@ def test_payload_identity_is_stable_without_external_id():
     data = {"title": "Concern", "source": "operator", "signal": "Check this", "payload": {"a": 1, "b": 2}}
     first, _ = assessments.receive(**data)
     again, created = assessments.receive(**{**data, "payload": {"b": 2, "a": 1}})
-    assert not created and first.pk == again.pk
+    assert not created
+    assert first.pk == again.pk
 
 
 @pytest.mark.parametrize("verdict", ["no_issue", "degraded"])
@@ -82,7 +86,8 @@ def test_new_evidence_invalidates_previous_conclusion(assessment):
 def test_monitoring_keeps_assessment_out_of_incident_counts(assessment):
     assessments.dispose(assessment.pk, actor="responder", outcome="monitoring", reason="Need a longer window.")
     assessment.refresh_from_db()
-    assert assessment.status == "monitoring" and assessment.closed_at is None
+    assert assessment.status == "monitoring"
+    assert assessment.closed_at is None
     assert not Incident.objects.exists()
     with pytest.raises(ValueError, match="no-issue conclusion"):
         assessments.dispose(assessment.pk, actor="responder", outcome="no_issue", reason="Close prematurely")
@@ -111,10 +116,12 @@ def test_promotion_is_idempotent_and_retains_one_history(assessment, responder, 
             assert created
         assert start.call_count == 1
         repeated, created = assessments.promote(assessment.pk, actor=responder.username, reason="Repeated submit")
-        assert not created and repeated.pk == incident.pk
+        assert not created
+        assert repeated.pk == incident.pk
         assert start.call_count == 1
     assessment.refresh_from_db()
-    assert assessment.status == "promoted" and assessment.promoted_at == incident.created_at
+    assert assessment.status == "promoted"
+    assert assessment.promoted_at == incident.created_at
     assert assessment.signal_at < incident.created_at
     assert Incident.objects.count() == 1
     services.add_note(incident, actor=responder.username, body="T2 investigation")
@@ -127,7 +134,8 @@ def test_promotion_is_idempotent_and_retains_one_history(assessment, responder, 
     assert any("Specialist authority needed" in e["obj"].body for e in history)
     assert any("Journey restored" in e["obj"].body for e in history)
     exported = services.rca_markdown(incident)
-    assert "A customer reports failures." in exported and "sample window 15 minutes" in exported
+    assert "A customer reports failures." in exported
+    assert "sample window 15 minutes" in exported
     assert "compare successful requests" in exported
 
 
@@ -167,8 +175,9 @@ def test_history_is_append_only(assessment):
         event.delete()
     with pytest.raises(ValueError, match="append-only"):
         assessment.history.update(body="Overwrite")
+    everything = assessment.history.all()
     with pytest.raises(ValueError, match="append-only"):
-        assessment.history.all().delete()
+        everything.delete()
 
 
 @pytest.mark.parametrize("function,kwargs", [
@@ -184,7 +193,8 @@ def test_invalid_decisions_leave_history_unchanged(assessment, function, kwargs)
     count = assessment.history.count()
     with pytest.raises(ValueError):
         function(assessment.pk, actor="responder", **kwargs)
-    assert assessment.history.count() == count and not Incident.objects.exists()
+    assert assessment.history.count() == count
+    assert not Incident.objects.exists()
 
 
 def test_intake_api_creates_assessments_without_incidents_and_protects_reads():
@@ -196,7 +206,8 @@ def test_intake_api_creates_assessments_without_incidents_and_protects_reads():
     assert client.post(url, data, format="json", HTTP_X_WATCH_WEBHOOK_SECRET="test-secret").status_code == 200
     bad = {**data, "payload": []}
     assert client.post(url, bad, format="json", HTTP_X_WATCH_WEBHOOK_SECRET="test-secret").status_code == 400
-    assert Assessment.objects.count() == 1 and not Incident.objects.exists()
+    assert Assessment.objects.count() == 1
+    assert not Incident.objects.exists()
     assert client.get("/api/assessments/").status_code in (401, 403)
 
 
@@ -267,7 +278,8 @@ def test_generic_demo_is_repeatable_and_has_no_external_side_effects(settings):
          patch("incidents.escalation.start_escalation", side_effect=AssertionError("No execution")):
         call_command("seed_assessments", stdout=StringIO())
         call_command("seed_assessments", stdout=StringIO())
-    assert Assessment.objects.count() == 4 and Incident.objects.count() == 1
+    assert Assessment.objects.count() == 4
+    assert Incident.objects.count() == 1
     assert Assessment.objects.get(status="no_issue").incident is None
     assert Assessment.objects.get(status="monitoring").verdict == "unknown"
 
@@ -280,8 +292,10 @@ def test_ui_creates_a_signal_and_preserves_duplicate_submit(responder):
             "signal-signal": "Please establish impact", "signal-source_event_id": str(uuid.uuid4())}
     first = client.post("/ui/assessments/new/", body)
     again = client.post("/ui/assessments/new/", body)
-    assert first.status_code == 302 and first.url == again.url
-    assert Assessment.objects.count() == 1 and not Incident.objects.exists()
+    assert first.status_code == 302
+    assert first.url == again.url
+    assert Assessment.objects.count() == 1
+    assert not Incident.objects.exists()
 
 
 def test_ui_retry_is_visible_and_recovers_dispatch(assessment, responder, django_capture_on_commit_callbacks):

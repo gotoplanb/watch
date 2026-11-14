@@ -106,9 +106,12 @@ def test_bad_communication_does_not_block_other_deadlines(case, operator, django
     with django_capture_on_commit_callbacks(execute=True):
         counts = cadence.tick()
     incident.refresh_from_db(); handoff.refresh_from_db(); message.refresh_from_db()
-    assert incident.current_tier == "T2" and handoff.state == "overdue"
-    assert message.state == "review" and message.sent_at is None
-    assert counts["communications"] == 0 and counts["errors"] == 1
+    assert incident.current_tier == "T2"
+    assert handoff.state == "overdue"
+    assert message.state == "review"
+    assert message.sent_at is None
+    assert counts["communications"] == 0
+    assert counts["errors"] == 1
     assert counts["handoffs"] == counts["escalations"] == 1
     assert OperationsHeartbeat.objects.get(name="operations").detail["errors"] == 1
 
@@ -123,7 +126,8 @@ def test_failed_item_rolls_back_before_next_item_in_the_same_batch(case):
         return True
     cadence._sweep([case.pk, other.pk], action, counts, "changed")
     case.refresh_from_db(); other.refresh_from_db()
-    assert case.impact == "unknown" and other.impact == "low"
+    assert case.impact == "unknown"
+    assert other.impact == "low"
     assert counts == {"errors": 1, "changed": 1}
 
 

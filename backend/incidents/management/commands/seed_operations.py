@@ -10,6 +10,9 @@ from django.utils import timezone
 from incidents import assessments, automation, communications, operations, services
 from incidents.models import AssessmentPolicy, DiagnosticRule, ServiceDependency, SubjectArea
 
+SUPPLIER = "Supplier A"
+EXAMPLE_ACTOR = "system:example"
+
 
 class Command(BaseCommand):
     help = "Seed fictional full-lifecycle scenarios, plus a saved real Watchtower health check."
@@ -27,26 +30,26 @@ class Command(BaseCommand):
         errors = self.rule("Example order errors · elevated", "above", 2, {"value": 3.7, "baseline": 0.2, "samples": 640})
         unknown = self.rule("Example low-traffic check · inconclusive", "above", 2, {"value": 0, "samples": 0})
         for customer, rule in [("Example Customer", healthy), ("Example Customer B", errors), ("Example Customer C", unknown)]:
-            ServiceDependency.objects.get_or_create(customer=customer, service="Catalog", supplier="Supplier A")
-            policy, _ = AssessmentPolicy.objects.get_or_create(name=f"Local example · {customer}", defaults={"customer": customer, "service": "Catalog", "supplier": "Supplier A", "active": True, "auto_promote": True, "auto_close_no_issue": True, "auto_send": True, "recipients": ["operations@example.test"], "review_seconds": 300, "route_to_t2": True})
+            ServiceDependency.objects.get_or_create(customer=customer, service="Catalog", supplier=SUPPLIER)
+            policy, _ = AssessmentPolicy.objects.get_or_create(name=f"Local example · {customer}", defaults={"customer": customer, "service": "Catalog", "supplier": SUPPLIER, "active": True, "auto_promote": True, "auto_close_no_issue": True, "auto_send": True, "recipients": ["operations@example.test"], "review_seconds": 300, "route_to_t2": True})
             policy.rules.set([rule])
         live, _ = DiagnosticRule.objects.get_or_create(name="Watchtower · Prometheus scrape availability", defaults={"provider": "prometheus", "query": 'up{job="prometheus"}', "sample_query": 'count(up{job="prometheus"})', "minimum_samples": 1, "comparator": "below", "threshold": 0.5})
         self.stdout.write(f"Saved live diagnostic: {live.name} (observability only, not checkout health).")
-        results = automation.receive_signal(title="Supplier A advisory · customer-specific impact", source="supplier", signal="Fictional advisory: supplier reports degraded orders. Verify each customer's actual impact independently.", supplier="Supplier A", payload={"fixture": True}, source_event_id="operations-supplier-example-v1")
+        results = automation.receive_signal(title="Supplier A advisory · customer-specific impact", source="supplier", signal="Fictional advisory: supplier reports degraded orders. Verify each customer's actual impact independently.", supplier=SUPPLIER, payload={"fixture": True}, source_event_id="operations-supplier-example-v1")
         for row, created in results:
             if created:
                 automation.run(row.pk)
                 row.refresh_from_db()
                 mail = row.communications.first()
                 if mail and row.verdict == "no_issue":
-                    communications.send(mail.pk, actor="system:example")
+                    communications.send(mail.pk, actor=EXAMPLE_ACTOR)
                     automation.finalize_no_issue(row.pk)
             self.stdout.write(f"{row.number} → /ui/assessments/{row.pk}/")
-        row, created = assessments.receive(title="Example recovery · processing backlog", source="monitor", signal="Synthetic elevated order failures in one region.", customer="Example Customer", service="Checkout", supplier="Supplier A", source_event_id="operations-rca-example-v1", payload={"fixture": True})
+        row, created = assessments.receive(title="Example recovery · processing backlog", source="monitor", signal="Synthetic elevated order failures in one region.", customer="Example Customer", service="Checkout", supplier=SUPPLIER, source_event_id="operations-rca-example-v1", payload={"fixture": True})
         if created:
-            event = assessments.add_evidence(row.pk, actor="system:example", summary="Regional errors confirmed", query='order failures grouped by region; 15-minute window', result='Example region: 3.7% failures, baseline 0.2%, 640 requests. Other regions healthy.')
-            assessments.conclude(row.pk, actor="system:example", verdict="degraded", confidence="high", reason="Regional request failures exceed the configured threshold.")
-            incident, _ = assessments.promote(row.pk, actor="system:example", reason="Confirmed regional degradation.", dispatch=False)
+            event = assessments.add_evidence(row.pk, actor=EXAMPLE_ACTOR, summary="Regional errors confirmed", query='order failures grouped by region; 15-minute window', result='Example region: 3.7% failures, baseline 0.2%, 640 requests. Other regions healthy.')
+            assessments.conclude(row.pk, actor=EXAMPLE_ACTOR, verdict="degraded", confidence="high", reason="Regional request failures exceed the configured threshold.")
+            incident, _ = assessments.promote(row.pk, actor=EXAMPLE_ACTOR, reason="Confirmed regional degradation.", dispatch=False)
             services.acknowledge(incident.pk, actor=str(user.pk), reason="Investigating regional connection failures.")
             services.escalate(incident.pk, actor=str(user.pk), reason="Tier 2 investigation required.")
             handoff = operations.engage(row.pk, user=user, area=area, reason="Synthetic processing backlog; inspect retry queue depth.", selected=[event.pk], request_id=uuid.uuid4())

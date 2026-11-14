@@ -64,7 +64,12 @@
       remove.onclick = () => { photos.splice(index, 1); dirty = true; showPhotos(); };
       figure.append(img, caption, remove); previews.append(figure);
     });
-    noteForm.querySelector('[data-photo-status]').textContent = message || (photos.length ? `${photos.length} photo${photos.length === 1 ? '' : 's'} ready. Saved with your note when you choose Add note.` : '');
+    let status = message;
+    if (!status && photos.length) {
+      const plural = photos.length === 1 ? '' : 's';
+      status = `${photos.length} photo${plural} ready. Saved with your note when you choose Add note.`;
+    }
+    noteForm.querySelector('[data-photo-status]').textContent = status || '';
   }
   function stagePhotos(files) {
     const incoming = Array.from(files);
@@ -90,13 +95,17 @@
     const pasted = Array.from(event.clipboardData?.files || []).filter(item => item.type.startsWith('image/'));
     if (!pasted.length) return;
     event.preventDefault();
-    if (noteForm && noteForm.contains(event.target)) { stagePhotos(pasted); return; }
+    if (noteForm?.contains(event.target)) { stagePhotos(pasted); return; }
     const file = pasted[0];
     const data = new FormData(form); data.set('attachment-file', file, file.name || 'pasted-image.png'); data.set('attachment-description', 'Image pasted by the operator.');
     try {
       const response = await fetch(form.getAttribute('action') || location.pathname, { method: 'POST', body: data });
       if (response.ok) { if (dirty) notify('Image attached. Your unsaved text is preserved.'); else location.reload(); }
       else notify('Image could not be attached. Use Upload evidence to check the file and try again.');
-    } catch (_) { notify('Image could not be attached. Your unsaved text is preserved.'); }
+    } catch (error) {
+      // Network failure: tell the operator; their unsaved note text stays in the form.
+      console.warn('Pasted image upload failed', error);
+      notify('Image could not be attached. Your unsaved text is preserved.');
+    }
   });
 })();

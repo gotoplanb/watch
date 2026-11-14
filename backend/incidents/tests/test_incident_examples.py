@@ -58,11 +58,13 @@ def test_import_is_linked_chronological_and_preserves_operator_edits(example_fil
     incident = Incident.objects.get()
     assert (incident.status, incident.current_tier) == ("RESOLVED", "T2")
     assert incident.assignee.username == "responder2"
-    assert not incident.current_task_token and not incident.escalation_execution_arn
+    assert not incident.current_task_token
+    assert not incident.escalation_execution_arn
     assert incident.payload["fixture"] is True
     times = [item["at"] for item in timeline(incident)]
     assert times == sorted(times)
-    assert times[0] == incident.created_at and times[-1] == incident.updated_at
+    assert times[0] == incident.created_at
+    assert times[-1] == incident.updated_at
     assert incident.created_at < incident.acknowledged_at < incident.updated_at
     assert Transition.objects.count() == 4
     assert Annotation.objects.get().tag == "root-cause"
@@ -76,7 +78,8 @@ def test_import_is_linked_chronological_and_preserves_operator_edits(example_fil
     assert "preserved 1" in _run(path)
     incident.refresh_from_db()
     assert incident.title == "Edited by operator"
-    assert Transition.objects.count() == 4 and RecordLink.objects.count() == 3
+    assert Transition.objects.count() == 4
+    assert RecordLink.objects.count() == 3
 
 
 @pytest.mark.parametrize("field,value", [("DEBUG", False), ("ESCALATION_LOCAL_MODE", False)])
@@ -117,5 +120,7 @@ def test_database_failure_rolls_back_entire_collection(example_file):
     with patch.object(Rca.objects, "create", side_effect=RuntimeError("database failure")):
         with pytest.raises(RuntimeError, match="database failure"):
             _run(path)
-    assert not Incident.objects.exists() and not Problem.objects.exists()
-    assert not Transition.objects.exists() and not Annotation.objects.exists()
+    assert not Incident.objects.exists()
+    assert not Problem.objects.exists()
+    assert not Transition.objects.exists()
+    assert not Annotation.objects.exists()

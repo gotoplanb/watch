@@ -16,9 +16,14 @@ from .models import Assessment, Communication, DiagnosticRun, Incident, Operatio
 
 logger = logging.getLogger(__name__)
 
+DEADLINE_ACTOR = "system:deadline"
+T2_ROUTE_REASON = "Confirmed impact: configured Tier 2 routing."
+
 
 def _sweep(ids, action, counts, counter=None):
-    for pk in list(ids[:100]):
+    # Slicing a queryset (or list) yields a value that is fully materialized on first
+    # iteration, so no cursor stays open across the per-item write transactions.
+    for pk in ids[:100]:
         try:
             # A failed database write must not poison the next item's transaction.
             with transaction.atomic():
@@ -35,7 +40,7 @@ def _expire_assessment(pk, cutoff):
     if row.automation_state == "running" and row.updated_at < cutoff:
         row.automation_state = "failed"
         row.save(update_fields=["automation_state", "updated_at"])
-        assessments.append(row, "automation_failed", "Worker lease expired. Review retained evidence and retry automated assessment.", "system:deadline")
+        assessments.append(row, "automation_failed", "Worker lease expired. Review retained evidence and retry automated assessment.", DEADLINE_ACTOR)
 
 
 def _expire_run(pk, cutoff, now):
@@ -43,7 +48,7 @@ def _expire_run(pk, cutoff, now):
     if run.state == "running" and run.started_at < cutoff:
         run.state, run.error, run.finished_at = "failed", "Worker lease expired; run the saved check again.", now
         run.save(update_fields=["state", "error", "finished_at"])
-        assessments.append(run.assessment, "query_failed", run.error, "system:deadline", {"run_id": str(run.pk)})
+        assessments.append(run.assessment, "query_failed", run.error, DEADLINE_ACTOR, {"run_id": str(run.pk)})
 
 
 def _expire_handoff(pk):
@@ -53,7 +58,7 @@ def _expire_handoff(pk):
     item.state = "overdue"
     item.save(update_fields=["state"])
     assessments.append(item.assessment, "sme_page_expired", "Specialist acknowledgement deadline elapsed; incident escalation clock continues.",
-                       "system:deadline", {"engagement_id": str(item.pk)})
+                       DEADLINE_ACTOR, {"engagement_id": str(item.pk)})
     return True
 
 
@@ -64,10 +69,10 @@ def _route_to_t2(pk):
         return
     if not settings.ESCALATION_LOCAL_MODE and not incident.current_task_token:
         return
-    escalation.send_outcome(incident, escalation.OUTCOME_ESCALATE, actor="system:automation", reason="Confirmed impact: configured Tier 2 routing.")
+    escalation.send_outcome(incident, escalation.OUTCOME_ESCALATE, actor=automation.AUTOMATION_ACTOR, reason=T2_ROUTE_REASON)
     if settings.ESCALATION_LOCAL_MODE:
-        services.escalate(incident.pk, actor="system:automation", reason="Confirmed impact: configured Tier 2 routing.")
-    assessments.append(row, "automatic_t2_route", "Confirmed impact routed to Tier 2 through the incident engine.", "system:automation")
+        services.escalate(incident.pk, actor=automation.AUTOMATION_ACTOR, reason=T2_ROUTE_REASON)
+    assessments.append(row, "automatic_t2_route", "Confirmed impact routed to Tier 2 through the incident engine.", automation.AUTOMATION_ACTOR)
 
 
 def _expire_local_tier(pk, now):
@@ -77,7 +82,7 @@ def _expire_local_tier(pk, now):
     if incident.current_tier == Tier.T3:
         incident.sla_deadline_at = None
         incident.save(update_fields=["sla_deadline_at"])
-        assessments.append(incident.origin_assessment, "escalation_exhausted", "Tier 3 SLA expired. No higher tier is available; operator action is required.", "system:deadline")
+        assessments.append(incident.origin_assessment, "escalation_exhausted", "Tier 3 SLA expired. No higher tier is available; operator action is required.", DEADLINE_ACTOR)
     else:
         services.escalate(pk, actor="system:auto-escalation", reason="Tier SLA deadline expired.")
     return True
@@ -92,7 +97,7 @@ def tick():
     _sweep(DiagnosticRun.objects.filter(state="running", started_at__lt=cutoff).values_list("pk", flat=True),
            lambda pk: _expire_run(pk, cutoff, now), counts)
     _sweep(Communication.objects.filter(state="review", review_deadline__lte=now).values_list("pk", flat=True),
-           lambda pk: communications.send(pk, actor="system:deadline", automatic=True), counts, "communications")
+           lambda pk: communications.send(pk, actor=DEADLINE_ACTOR, automatic=True), counts, "communications")
     _sweep(Assessment.objects.filter(verdict="no_issue", automation_policy__auto_close_no_issue=True).exclude(status__in=["no_issue", "promoted"]).values_list("pk", flat=True),
            automation.finalize_no_issue, counts)
     _sweep(SmeEngagement.objects.filter(state="paged", ack_deadline__lte=now).values_list("pk", flat=True),

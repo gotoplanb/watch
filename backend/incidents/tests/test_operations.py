@@ -69,15 +69,20 @@ def test_review_edit_send_receipt_is_versioned_and_idempotent(row):
     assert deadline < sla
     communications.edit(item.pk, actor="operator", expected_version=1, subject="Edited update", body="Reviewed evidence.", recipients="ops@example.test, OPS@example.test", auto_send=True)
     item.refresh_from_db()
-    assert item.revision == 2 and item.review_deadline == deadline and item.sla_deadline == sla
-    assert item.revisions.count() == 2 and item.revisions.get(version=1).subject == "Example update"
+    assert item.revision == 2
+    assert item.review_deadline == deadline
+    assert item.sla_deadline == sla
+    assert item.revisions.count() == 2
+    assert item.revisions.get(version=1).subject == "Example update"
     assert item.current.recipients == ["ops@example.test"]
     with pytest.raises(assessments.AssessmentConflict):
         communications.send(item.pk, actor="operator", expected_version=1)
     communications.send(item.pk, actor="operator", expected_version=2)
     communications.send(item.pk, actor="operator", expected_version=2)
     item.refresh_from_db()
-    assert item.state == "sent" and item.sla_met and not item.is_automatic
+    assert item.state == "sent"
+    assert item.sla_met
+    assert not item.is_automatic
     assert OutboxMessage.objects.count() == 1
     assert item.receipt.revision.version == 2
     assert b"Edited update" in communications.message_bytes(item.receipt)
@@ -92,14 +97,16 @@ def test_deadline_authorization_and_suppression(row, settings):
     due(item)
     cadence.tick()
     item.refresh_from_db()
-    assert item.state == "sent" and item.is_automatic
+    assert item.state == "sent"
+    assert item.is_automatic
     assert row.history.filter(kind="review_window_expired").count() == 1
     assert row.history.filter(kind="communication_auto_sent").count() == 1
     manual = mail(row)
     due(manual)
     cadence.tick()
     manual.refresh_from_db()
-    assert manual.state == "expired" and manual.sent_at is None
+    assert manual.state == "expired"
+    assert manual.sent_at is None
     communications.send(manual.pk, actor="operator", expected_version=1)
     suppressed = mail(row, auto_send=True)
     with pytest.raises(ValueError, match="reason"):
@@ -149,7 +156,8 @@ def test_fresh_evidence_revokes_stale_automatic_draft(row, rule, settings):
     item = mail(row, auto_send=True)
     diagnostics.execute(row, rule)
     item.refresh_from_db(); row.refresh_from_db()
-    assert not item.auto_send and row.verdict == "unknown"
+    assert not item.auto_send
+    assert row.verdict == "unknown"
     assert row.history.filter(kind="communication_review_required").exists()
     due(item)
     assert communications.send(item.pk, actor="system", automatic=True).state == "expired"
@@ -161,10 +169,13 @@ def test_diagnostics_preserve_actual_checks(row, rule, settings, value, baseline
     rule.comparator = comparator
     rule.fixture_result = {"value": value, "baseline": baseline, "samples": samples}
     run = diagnostics.execute(row, rule)
-    assert run.state == "done" and run.result["breached"] is expected
-    assert run.result["samples"] == samples and run.result["window_from"] < run.result["window_to"]
+    assert run.state == "done"
+    assert run.result["breached"] is expected
+    assert run.result["samples"] == samples
+    assert run.result["window_from"] < run.result["window_to"]
     event = row.history.get(kind="evidence_added")
-    assert event.data["execution"] == "executed" and 'customer="Example Customer"' in event.data["query"]
+    assert event.data["execution"] == "executed"
+    assert 'customer="Example Customer"' in event.data["query"]
     assert row.history.filter(kind="query_completed").count() == 1
 
 
@@ -175,7 +186,8 @@ def test_bad_or_missing_diagnostic_data_is_not_healthy(row, rule, settings, chan
         setattr(rule, key, value)
     run = DiagnosticRun.objects.create(assessment=row, rule=rule)
     result = diagnostics.execute(row, rule, run_id=run.pk)
-    assert result.state == "failed" and error in result.error
+    assert result.state == "failed"
+    assert error in result.error
     assert not row.history.filter(kind="evidence_added").exists()
     assert diagnostics.execute(row, rule, run_id=run.pk).state == "failed"
 
@@ -196,7 +208,9 @@ def test_prometheus_real_adapter_requires_fresh_unambiguous_data(row, rule):
     rule.provider, rule.sample_query, rule.baseline_query = "prometheus", "count_samples", "baseline"
     with patch("incidents.diagnostics.requests.get", side_effect=[metric(6), metric(0.2), metric(800)]) as get:
         run = diagnostics.execute(row, rule)
-    assert run.state == "done" and run.result["breached"] and get.call_count == 3
+    assert run.state == "done"
+    assert run.result["breached"]
+    assert get.call_count == 3
     with patch("incidents.diagnostics.requests.get", return_value=response({"status": "success", "data": {"resultType": "scalar", "result": [now, "1"]}})):
         assert diagnostics.prometheus("query") == 1
     for payload in [{"status": "error"}, {"status": "success", "warnings": ["partial"]}, {"status": "success", "data": {"resultType": "vector", "result": []}}, {"status": "success", "data": {"resultType": "scalar", "result": [now - 301, "1"]}}, {"status": "success", "data": {"resultType": "scalar", "result": [now]}}, {"status": "success", "data": {"resultType": "scalar", "result": [now, "bad"]}}]:
@@ -204,7 +218,8 @@ def test_prometheus_real_adapter_requires_fresh_unambiguous_data(row, rule):
             diagnostics.prometheus("query")
     with patch("incidents.diagnostics.requests.get", side_effect=requests.Timeout("SECRET")):
         failed = diagnostics.execute(row, rule)
-    assert failed.state == "failed" and "SECRET" not in failed.error
+    assert failed.state == "failed"
+    assert "SECRET" not in failed.error
     rule.sample_query = ""
     with patch("incidents.diagnostics.prometheus", return_value=1):
         assert diagnostics.execute(row, rule).state == "failed"
@@ -236,7 +251,8 @@ def test_supplier_fanout_is_scoped_and_idempotent(policy):
         ServiceDependency.objects.create(customer=customer, supplier="Supplier A", service="Catalog")
     args = dict(title="Supplier advisory", source="supplier", signal="Investigate actual impact", supplier="Supplier A", source_event_id="example-1")
     rows = automation.receive_signal(**args)
-    assert len(rows) == 2 and all(created for _, created in rows)
+    assert len(rows) == 2
+    assert all(created for _, created in rows)
     assert sum(created for _, created in automation.receive_signal(**args)) == 0
     assert {row.customer for row, _ in rows} == {"Example Customer", "Example Customer B"}
     assert not Incident.objects.exists()
@@ -256,10 +272,13 @@ def test_automatic_assessment_end_to_end(row, rule, policy, settings, django_cap
     with django_capture_on_commit_callbacks(execute=True):
         automation.run(row.pk)
     row.refresh_from_db()
-    assert row.verdict == verdict and row.status == status and row.automation_state == "complete"
+    assert row.verdict == verdict
+    assert row.status == status
+    assert row.automation_state == "complete"
     assert row.communications.count() == 1
     if scenario == "degraded":
-        assert row.incident_id and row.promoted_at == row.incident.created_at
+        assert row.incident_id
+        assert row.promoted_at == row.incident.created_at
         policy.route_to_t2 = True; policy.save()
         with django_capture_on_commit_callbacks(execute=True):
             cadence.tick()
@@ -268,7 +287,8 @@ def test_automatic_assessment_end_to_end(row, rule, policy, settings, django_cap
         assert Page.objects.filter(incident=row.incident, topic="local:in-app:T2").exists()
     elif scenario == "healthy":
         due(row.communications.get()); cadence.tick(); row.refresh_from_db()
-        assert row.status == "no_issue" and not row.incident_id
+        assert row.status == "no_issue"
+        assert not row.incident_id
     else:
         assert not row.incident_id
     automation.run(row.pk)
@@ -293,11 +313,13 @@ def test_policy_precedence_intervention_failure_and_no_mail_closure(row, rule, p
     with patch("incidents.automation.diagnostics.execute", side_effect=intervening):
         automation.run(other.pk)
     other.refresh_from_db()
-    assert other.status == "investigating" and other.verdict == "unknown"
+    assert other.status == "investigating"
+    assert other.verdict == "unknown"
     assert other.history.filter(kind="automation_review_required").exists()
     missing = assessments.receive(title="No policy rules", signal="Check", source="test", customer="Other", service="Catalog")[0]
     automation.schedule(missing); automation.run(missing.pk); missing.refresh_from_db()
-    assert missing.automation_state == "failed" and not missing.incident_id
+    assert missing.automation_state == "failed"
+    assert not missing.incident_id
 
 
 def test_stale_worker_jobs_are_visible_and_recoverable(row, rule, policy):
@@ -346,16 +368,20 @@ def test_evidence_files_and_source_scoped_rca(row, actor, django_capture_on_comm
     event = row.history.filter(kind="evidence_added").get()
     for data in [b"\x89PNG\r\n\x1a\nexample", b"\xff\xd8\xffimage", b"%PDF-example", b"RIFFabcdWEBPexample", b"plain text"]:
         item = operations.upload(row.pk, user=actor, file=SimpleUploadedFile('../../example.txt', data), description="Evidence sample")
-        assert len(item.sha256) == 64 and "/" not in item.filename
+        assert len(item.sha256) == 64
+        assert "/" not in item.filename
     for data in [b"", b"\x00binary", b"\xff", b"a" * (5 * 1024 * 1024 + 1)]:
+        bad = SimpleUploadedFile("bad", data)
         with pytest.raises(ValueError):
-            operations.upload(row.pk, user=actor, file=SimpleUploadedFile("bad", data), description="Bad")
+            operations.upload(row.pk, user=actor, file=bad, description="Bad")
     other = assessments.receive(title="Unrelated", source="test", signal="Other")[0]
+    foreign = other.history.first()
     with pytest.raises(ValueError, match="belong"):
-        operations.curate(row.pk, user=actor, event=other.history.first(), section="impact")
+        operations.curate(row.pk, user=actor, event=foreign, section="impact")
     projection = operations.curate(row.pk, user=actor, event=event, section="impact", note="Confirmed scope")
     operations.curate(row.pk, user=actor, event=event, section="impact", note="Updated enrichment")
-    assert projection.selections.count() == 1 and event.body == "Confirmed errors"
+    assert projection.selections.count() == 1
+    assert event.body == "Confirmed errors"
     with pytest.raises(ValueError, match="Final RCA"):
         operations.save_rca(row.pk, user=actor, state="final", summary="Summary", root_cause="Cause")
     services.resolve(incident.pk, actor=str(actor.pk), reason="Recovery confirmed")
@@ -366,10 +392,13 @@ def test_evidence_files_and_source_scoped_rca(row, actor, django_capture_on_comm
         operations.update_remediation(task.pk, user=owner, state="done")
     operations.update_remediation(task.pk, user=owner, state="done", verification="Alert fired in controlled replay.")
     exported = operations.rca_markdown(row)
-    assert f"?event={event.pk}" in exported and "Pool exhaustion" in exported and "controlled replay" in exported
+    assert f"?event={event.pk}" in exported
+    assert "Pool exhaustion" in exported
+    assert "controlled replay" in exported
     assert "6% failures" in exported
     operations.curate(row.pk, user=actor, event=event, section="impact", remove=True)
-    assert not CuratedEvent.objects.exists() and row.history.filter(kind="rca_selection_changed").count() == 3
+    assert not CuratedEvent.objects.exists()
+    assert row.history.filter(kind="rca_selection_changed").count() == 3
 
 
 def test_invalid_operations_are_atomic(row, actor):
@@ -381,8 +410,9 @@ def test_invalid_operations_are_atomic(row, actor):
             operations.record_action(row.pk, user=actor, kind=kind, body=body)
     with pytest.raises(ValueError):
         operations.engage(row.pk, user=actor, target=actor, reason="Help", selected=[], request_id=uuid.uuid4())
+    first = row.history.first()
     with pytest.raises(ValueError):
-        operations.curate(row.pk, user=actor, event=row.history.first(), section="impact")
+        operations.curate(row.pk, user=actor, event=first, section="impact")
     with pytest.raises(ValueError):
         operations.save_rca(row.pk, user=actor, summary="Premature")
 
@@ -400,9 +430,12 @@ def test_reports_do_not_mix_assessments_with_confirmed_incident_clocks(row, acto
     assessments.conclude(other.pk, actor="system", verdict="no_issue", confidence="high", reason="No errors")
     assessments.dispose(other.pk, actor="system", outcome="no_issue", reason="Healthy")
     result = reporting.summarize(include_examples=True)
-    assert result["assessments"] == 2 and result["incidents"] == 1
-    assert result["mtta_minutes"] == 2 and result["mttr_minutes"] == 10
-    assert result["automatic_no_issue"] == 1 and result["conversion_percent"] == 50
+    assert result["assessments"] == 2
+    assert result["incidents"] == 1
+    assert result["mtta_minutes"] == 2
+    assert result["mttr_minutes"] == 10
+    assert result["automatic_no_issue"] == 1
+    assert result["conversion_percent"] == 50
     assert reporting.summarize()["incidents"] == 0  # synthetic fixture excluded
     assert reporting.summarize()["assessments"] == 1  # non-fixture JSON with no key remains included
     assert reporting.summarize(customer="Missing")["mtta_minutes"] is None
@@ -419,7 +452,8 @@ def test_operations_ui_and_api_full_flow(row, actor, rule, django_capture_on_com
     assert client.post(url, {"action": "attachment", "attachment-description": "Regional evidence", "attachment-file": SimpleUploadedFile("region.txt", b"Errors by region")}).status_code == 302
     item = row.attachments.get()
     downloaded = client.get(f"/ui/evidence/{item.pk}/")
-    assert downloaded.content == b"Errors by region" and downloaded["X-Content-Type-Options"] == "nosniff"
+    assert downloaded.content == b"Errors by region"
+    assert downloaded["X-Content-Type-Options"] == "nosniff"
     assert client.post(url, {"action": "operation", "operation-kind": "hypothesis", "operation-body": "Regional connection churn"}).status_code == 302
     assert client.post(url, {"action": "claim", "claim-reason": "Taking investigation"}).status_code == 302
     row.refresh_from_db(); assert row.assignee == actor
@@ -468,7 +502,8 @@ def test_operations_ui_and_api_full_flow(row, actor, rule, django_capture_on_com
     assert client.get("/ui/reports/?days=bad").status_code == 200
     assert client.get("/ui/reports/data/?days=bad").status_code == 400
     report = client.get("/ui/reports/data/?examples=1&customer=Example%20Customer").json()
-    assert report["incidents"] == 1 and report["remediations_complete"] == 1
+    assert report["incidents"] == 1
+    assert report["remediations_complete"] == 1
     assert client.get("/ui/reports/?examples=1").status_code == 200
     from rest_framework.test import APIClient
     api = APIClient()
@@ -491,12 +526,14 @@ def test_configuration_validates_policy_and_queries(actor, rule):
     assert client.get(url + f"?kind=dependency&item_id={item.pk}").status_code == 200
     rule_data = {"name": "Real check", "provider": "prometheus", "query": "up", "minimum_samples": 0, "comparator": "deviation", "threshold": "nan", "lookback_minutes": 0}
     form = DiagnosticRuleForm(rule_data)
-    assert not form.is_valid() and {"minimum_samples", "sample_query", "threshold", "baseline_query", "lookback_minutes"}.issubset(form.errors)
+    assert not form.is_valid()
+    assert {"minimum_samples", "sample_query", "threshold", "baseline_query", "lookback_minutes"}.issubset(form.errors)
     valid = {**rule_data, "minimum_samples": 1, "threshold": 20, "lookback_minutes": 15, "baseline_query": "baseline", "sample_query": "samples"}
     form = DiagnosticRuleForm(valid); assert form.is_valid(), form.errors
     form.save()
     form = PolicyForm({"name": "Policy", "active": True, "severity": "bad", "impact": "bad", "review_seconds": 0, "communication_sla_seconds": 0, "recipients": "bad"})
-    assert not form.is_valid() and {"rules", "recipients", "severity", "impact", "review_seconds", "communication_sla_seconds"}.issubset(form.errors)
+    assert not form.is_valid()
+    assert {"rules", "recipients", "severity", "impact", "review_seconds", "communication_sla_seconds"}.issubset(form.errors)
     form = PolicyForm({"name": "Policy", "active": True, "rules": [rule.pk], "severity": "P2", "impact": "moderate", "review_seconds": 300, "communication_sla_seconds": 900, "recipients": "ops@example.test"})
     assert form.is_valid(), form.errors
     policy = form.save(); assert PolicyForm(instance=policy).initial["recipients"] == "ops@example.test"
@@ -551,7 +588,8 @@ def test_local_scenarios_are_repeatable_and_do_not_send_external_notifications(s
     with patch("incidents.notify.send", side_effect=AssertionError("external notification")):
         call_command("seed_operations", stdout=StringIO())
         call_command("seed_operations", stdout=StringIO())
-    assert Assessment.objects.count() == 4 and Incident.objects.count() == 2
+    assert Assessment.objects.count() == 4
+    assert Incident.objects.count() == 2
     assert Assessment.objects.filter(status="no_issue").count() == 1
     assert RemediationTask.objects.count() == 1
     assert OutboxMessage.objects.count() == 1
@@ -561,15 +599,18 @@ def test_append_only_history_cannot_be_overwritten_through_explicit_primary_key_
     from django.db import IntegrityError, transaction
     from incidents.models import AssessmentEvent
     event = row.history.get()
+    forged = AssessmentEvent(pk=event.pk, assessment=row, kind="forged", actor="operator", body="Overwrite")
     with pytest.raises(IntegrityError), transaction.atomic():
-        AssessmentEvent(pk=event.pk, assessment=row, kind="forged", actor="operator", body="Overwrite").save()
+        forged.save()
     event.refresh_from_db(); assert event.kind == "signal_received"
+    upsert = [AssessmentEvent(pk=event.pk, assessment=row, kind="forged", actor="operator", body="Overwrite")]
     with pytest.raises(ValueError, match="upserted"):
-        AssessmentEvent.objects.bulk_create([AssessmentEvent(pk=event.pk, assessment=row, kind="forged", actor="operator", body="Overwrite")], update_conflicts=True, update_fields=["body"], unique_fields=["pk"])
+        AssessmentEvent.objects.bulk_create(upsert, update_conflicts=True, update_fields=["body"], unique_fields=["pk"])
     item = mail(row)
     revision = item.current
+    overwrite = CommunicationRevision(pk=revision.pk, communication=item, version=1, subject="Overwrite", body="Overwrite", recipients=[])
     with pytest.raises(IntegrityError), transaction.atomic():
-        CommunicationRevision(pk=revision.pk, communication=item, version=1, subject="Overwrite", body="Overwrite", recipients=[]).save()
+        overwrite.save()
     revision.refresh_from_db(); assert revision.subject == "Example update"
 
 
@@ -595,35 +636,45 @@ def test_note_and_photos_are_one_source_event_and_dashboard_links_are_safe(row, 
     result = client.post(url, {"action": "comment", "comment-body": body, "comment-photos": [SimpleUploadedFile("air.png", b"\x89PNG\r\n\x1a\nexample"), SimpleUploadedFile("region.jpg", b"\xff\xd8\xffexample")]})
     assert result.status_code == 302
     event = row.history.get(kind="comment")
-    assert row.history.count() == before + 1 and event.body == body
+    assert row.history.count() == before + 1
+    assert event.body == body
     assert len(event.data["attachments"]) == row.attachments.count() == 2
     assert all(len(photo["sha256"]) == 64 for photo in event.data["attachments"])
     page = client.get(url).content.decode()
     assert 'href="https://dashboards.example.test/d/air?region=example"' in page
-    assert '<script>alert(1)</script>' not in page and '&lt;script&gt;alert(1)&lt;/script&gt;' in page
-    assert 'Open full-size air.png' in page and 'Download region.jpg' in page
+    assert '<script>alert(1)</script>' not in page
+    assert '&lt;script&gt;alert(1)&lt;/script&gt;' in page
+    assert 'Open full-size air.png' in page
+    assert 'Download region.jpg' in page
     evidence = client.get(url + '?tab=evidence').content.decode()
-    assert 'air.png' in evidence and 'errors recovered' in evidence
+    assert 'air.png' in evidence
+    assert 'errors recovered' in evidence
     for photo in event.data["attachments"]:
         response = client.get(f"/ui/evidence/{photo['attachment_id']}/?inline=1")
-        assert response.status_code == 200 and response["Content-Type"].startswith("image/")
+        assert response.status_code == 200
+        assert response["Content-Type"].startswith("image/")
 
 
 def test_bad_photo_rolls_back_the_entire_note_without_orphaned_files(row, actor):
     before = row.history.count()
+    photos = [SimpleUploadedFile("valid.png", b"\x89PNG\r\n\x1a\nexample"), SimpleUploadedFile("not-a-photo.png", b"plain text")]
     with pytest.raises(ValueError, match="Photos must"):
-        operations.add_history_note(row.pk, user=actor, body="Keep this text if photos fail", photos=[SimpleUploadedFile("valid.png", b"\x89PNG\r\n\x1a\nexample"), SimpleUploadedFile("not-a-photo.png", b"plain text")])
-    assert row.history.count() == before and row.attachments.count() == 0
+        operations.add_history_note(row.pk, user=actor, body="Keep this text if photos fail", photos=photos)
+    assert row.history.count() == before
+    assert row.attachments.count() == 0
     client = Client(); client.force_login(actor)
     response = client.post(f"/ui/assessments/{row.pk}/", {"action": "comment", "comment-body": "Retained operator note", "comment-photos": SimpleUploadedFile("bad.png", b"plain text")})
-    assert response.status_code == 400 and b"Retained operator note" in response.content
-    assert row.history.count() == before and row.attachments.count() == 0
+    assert response.status_code == 400
+    assert b"Retained operator note" in response.content
+    assert row.history.count() == before
+    assert row.attachments.count() == 0
 
 
 def test_photo_only_notes_and_upload_limits(row, actor):
     from incidents.operations_forms import PhotoNoteForm
     event = operations.add_history_note(row.pk, user=actor, photos=[SimpleUploadedFile("photo.webp", b"RIFFabcdWEBPexample")])
-    assert event.body == "Added photos." and len(event.data["attachments"]) == 1
+    assert event.body == "Added photos."
+    assert len(event.data["attachments"]) == 1
     assert not PhotoNoteForm({"body": " "}).is_valid()
     assert not PhotoNoteForm({}, {"photos": [SimpleUploadedFile(f"photo-{i}.png", b"\x89PNG\r\n\x1a\nexample") for i in range(9)]}).is_valid()
     assert not PhotoNoteForm({}, {"photos": [SimpleUploadedFile("large.png", b"x" * (5 * 1024 * 1024 + 1))]}).is_valid()
