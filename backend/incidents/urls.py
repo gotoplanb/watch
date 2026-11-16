@@ -5,8 +5,8 @@ from . import operations_api
 from .api_common import MeView
 from .health import HealthView, StatusView, status_stream_view
 from .assessment_api import (
-    AssessmentIntakeView, AssessmentViewSet, EmailIntakeView, HeartbeatListView, HeartbeatView,
-    SignalIntakeView,
+    AlertmanagerView, AssessmentIntakeView, AssessmentViewSet, EmailIntakeView, HeartbeatListView,
+    HeartbeatView, SignalIntakeView, StatuspageView, UptimeRobotView,
 )
 from .views import (
     DigestIngestView,
@@ -44,6 +44,10 @@ urlpatterns = [
     path("assessments/intake", AssessmentIntakeView.as_view(), name="assessment-intake"),
     path("signals/intake", SignalIntakeView.as_view(), name="signal-intake"),
     path("email/inbound", EmailIntakeView.as_view(), name="email-inbound"),
+    # Vendor adapters (ADR-065): payloads that can't be templated into the signal shape.
+    path("signals/uptimerobot", UptimeRobotView.as_view(), name="signal-uptimerobot"),
+    path("signals/alertmanager", AlertmanagerView.as_view(), name="signal-alertmanager"),
+    path("signals/statuspage/<str:token>", StatuspageView.as_view(), name="signal-statuspage"),
     path("heartbeats/", HeartbeatListView.as_view(), name="heartbeats"),
     path("heartbeats/<str:token>", HeartbeatView.as_view(), name="heartbeat"),
     path("checks/webhook", SessionCheckWebhookView.as_view(), name="checks-webhook"),

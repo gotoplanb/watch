@@ -1323,3 +1323,21 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 - Planned work stops paging people while its effects stay visible and get rechecked.
 - Real impact during maintenance waits until the window ends to promote automatically; a long window with real harm needs a person to promote. Windows are capped at 7 days for this reason.
 - Windows are entered by hand. Picking them out of a supplier's maintenance email automatically is a possible follow-up.
+
+## ADR-065 — Thin adapters for vendors that can't send Watch's signal shape
+**Status:** Accepted. Refines ADR-057 and ADR-064. Resolves #69.
+
+**Context.** `POST /api/signals/intake` expects Watch's own shape and secret header. Sumo Logic can template both. Uptime Robot can send custom headers and a templated JSON body, but its up/down state is its own `alertType` code. Alertmanager and Grafana send their own fixed payload and can only authenticate with a bearer token. Atlassian Statuspage (used by Square, GitHub and many suppliers) sends its own payload and can't send headers at all.
+
+**Decision.**
+1. **One adapter per vendor format, each a pure translation into the core path** (`incidents/adapters.py` → `automation.receive_signal`), so routing, fan-out, correlation, maintenance and evidence capture behave exactly as for any signal:
+   - `POST /api/signals/uptimerobot`: alertType 1 → active, 2 → resolved, 3 (SSL/domain expiry) → active; the monitor id is the correlation key; scope from the webhook URL's query string. A payload with unfilled `*variables*` is refused with a pointer to Uptime Robot's Send Test.
+   - `POST /api/signals/alertmanager`: one signal per alert; `firing`/`resolved`; the fingerprint is the correlation key; `customer`/`service`/`supplier` labels set the scope.
+   - `POST /api/signals/statuspage/<token>`: incidents and component updates become supplier signals citing the supplier's page (screenshotted under ADR-060); `resolved`/`postmortem` and `operational` are recoveries; **scheduled maintenance creates or updates a maintenance window** (ADR-064), keyed by the supplier's incident id, and a `completed` notice ends it.
+2. **Authentication.** Adapters accept the intake secret as `X-Watch-Webhook-Secret` or `Authorization: Bearer`. Statuspage can't send either, so each allow-listed status page carries its own random webhook token, used in the URL; it both authenticates and names the supplier.
+3. **Sumo needs no adapter**; the signals guide gives its template, along with Uptime Robot's.
+
+**Consequences.**
+- The common monitoring sources connect without glue code of our own outside Watch.
+- Vendors change payloads. Each adapter is small, tested against the documented shape, and refuses what it doesn't understand with a 400 rather than guessing.
+- A Statuspage webhook token in the wrong hands can inject signals for that one supplier, or announce fake maintenance that holds automatic promotion for its scope (capped at 7 days, and never holding a person). Tokens are random per page and visible only in the admin.

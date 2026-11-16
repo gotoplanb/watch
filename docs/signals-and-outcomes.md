@@ -183,12 +183,13 @@ to come from Workspace.
 3. **Maintenance windows** (#66): done in ADR-064. Signals in scope are annotated and automatic
    promotion is held until the window ends (scenario 6).
 4. **Email in / email out:** the parser (#71, local) and the SES transport (#72, `cloud`).
-5. **Vendor adapters** (#69): Alertmanager, status page and any monitor that can't template our schema.
+5. **Vendor adapters** (#69): done in ADR-065 (Uptime Robot, Alertmanager/Grafana, Statuspage; Sumo
+   uses a template). Statuspage's scheduled maintenance also creates maintenance windows.
 6. **Monitor silence** (#68): done in ADR-062. Watched sources call a heartbeat URL; silence opens an
    assessment (scenario 7).
 7. **`http` diagnostic provider** (#70): done in ADR-063.
 8. **Monitoring rechecks** (#67): done. A recovery signal triggers a recheck (ADR-059), and policies
    recheck monitoring assessments on a timer (ADR-061, default every 30 minutes).
 
-Gap 5 can all be built and tested locally. The SES transport and
+All the local gaps are done. The SES transport and
 provider accounts are `cloud` work.

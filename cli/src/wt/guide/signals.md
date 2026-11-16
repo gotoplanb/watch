@@ -77,3 +77,39 @@ still promote at any time. A supplier window covers every customer and service d
 
     wt --as t1a maintenance add --supplier Square --until +2h --reason "Square upgrade"
     wt --as t1a maintenance
+
+## Connecting monitors (ADR-065)
+
+Each source either sends Watch's signal shape directly or goes through a small adapter. Every
+endpoint takes the intake secret as `X-Watch-Webhook-Secret`, or as `Authorization: Bearer`.
+
+**Sumo Logic** (no adapter): a webhook connection to `/api/signals/intake`, with the secret as a
+custom header and a payload such as
+
+    {"title": "{{Name}}", "source": "sumo", "signal": "{{Description}} {{ResultsJson}}",
+     "service": "checkout", "source_event_id": "{{Id}}", "correlation_key": "{{Id}}"}
+
+(Use your Sumo version's variable names; the shape is what matters.)
+
+**Uptime Robot**: an alert contact of type webhook, with the URL
+`/api/signals/uptimerobot?supplier=Square&service=checkout` (the scope this contact's monitors
+cover), the secret as a custom header, "Send as JSON" ticked, and this POST value:
+
+    {"monitorID": "*monitorID*", "monitorURL": "*monitorURL*",
+     "monitorFriendlyName": "*monitorFriendlyName*", "alertType": "*alertType*",
+     "alertTypeFriendlyName": "*alertTypeFriendlyName*", "alertDetails": "*alertDetails*",
+     "alertDateTime": "*alertDateTime*"}
+
+Down opens or re-fires; up is a recovery; the monitor id is the correlation key. Use Uptime Robot's
+Send Test: Watch refuses a payload whose `*variables*` weren't filled in.
+
+**Prometheus Alertmanager / Grafana**: a webhook to `/api/signals/alertmanager` with the secret as a
+bearer token. Each alert is a signal; `firing`/`resolved` map across, the fingerprint is the
+correlation key, and labels named `customer`, `service` and `supplier` set the scope.
+
+**Atlassian Statuspage** (Square, GitHub, and many others): a webhook subscription to
+`/api/signals/statuspage/<token>`, where the token belongs to that supplier's entry on the
+status-page allow-list (shown in the admin). Statuspage can't send headers, so the token is the
+credential and names the supplier. Incidents and component changes become supplier signals that
+cite the page (so it's screenshotted); resolved and operational are recoveries; **scheduled
+maintenance becomes a maintenance window** automatically.

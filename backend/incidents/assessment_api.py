@@ -10,10 +10,10 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import assessments, automation, email_intake, heartbeats, operations_api
+from . import adapters, assessments, automation, email_intake, heartbeats, operations_api
 from .assessment_forms import SignalForm
 from .api_common import NumberLookupMixin, filtered
-from .models import Assessment, MonitoredSource
+from .models import Assessment, MaintenanceWindow, MonitoredSource, StatusPage
 from .permissions import user_tier_rank
 
 
@@ -23,6 +23,21 @@ def _secret_denied(request):
     if settings.INTAKE_WEBHOOK_SECRET and hmac.compare_digest(secret, settings.INTAKE_WEBHOOK_SECRET):
         return None
     return Response({"detail": "Invalid webhook secret."}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+def routed_response(rows, **extra):
+    """What happened to a signal: created / attached / correlated / duplicate / nothing open."""
+    hows = {routed.how for routed in rows}
+    if "created" in hows:
+        outcome = "created"
+    elif rows:
+        outcome = next(iter(hows)) if len(hows) == 1 else "attached"
+    else:
+        outcome = "nothing open"  # a recovery for a condition no assessment is working
+    return Response({"outcome": outcome, **extra,
+                     "assessments": [{**AssessmentSerializer(routed[0]).data, "created": routed[1],
+                                      "how": routed.how} for routed in rows]},
+                    status=201 if outcome == "created" else 200)
 
 
 class SignalSerializer(serializers.Serializer):
@@ -140,18 +155,7 @@ class SignalIntakeView(AssessmentIntakeView):
             return denied
         serializer = SignalSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        rows = automation.receive_signal(**serializer.validated_data)
-        hows = {routed.how for routed in rows}
-        if "created" in hows:
-            outcome = "created"
-        elif rows:
-            outcome = next(iter(hows)) if len(hows) == 1 else "attached"  # attached/correlated/duplicate
-        else:
-            outcome = "nothing open"  # a recovery for a condition no assessment is working
-        return Response({"outcome": outcome,
-                         "assessments": [{**AssessmentSerializer(routed[0]).data, "created": routed[1],
-                                          "how": routed.how} for routed in rows]},
-                        status=201 if outcome == "created" else 200)
+        return routed_response(automation.receive_signal(**serializer.validated_data))
 
 
 class RawEmailParser(BaseParser):
@@ -216,3 +220,77 @@ class HeartbeatListView(APIView):
                           "last_seen_at": s.last_seen_at, "silent_since": s.silent_since,
                           "state": "silent" if s.silent_since else ("waiting" if not s.last_seen_at else "ok")}
                          for s in MonitoredSource.objects.filter(active=True).order_by("name")])
+
+
+# --- vendor adapters (ADR-065) --------------------------------------------------------------------
+
+def _adapter_denied(request):
+    """The intake secret, as our header or as `Authorization: Bearer` (Alertmanager and Grafana
+    can only send the latter)."""
+    auth = request.headers.get("Authorization", "")
+    secret = request.headers.get("X-Watch-Webhook-Secret", "") or auth.removeprefix("Bearer ").strip()
+    if settings.INTAKE_WEBHOOK_SECRET and hmac.compare_digest(secret, settings.INTAKE_WEBHOOK_SECRET):
+        return None
+    return Response({"detail": "Invalid webhook secret."}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+def _payload(request) -> dict:
+    data = request.data
+    if hasattr(data, "lists"):  # form-encoded (Uptime Robot without "Send as JSON")
+        return dict(data.items())
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def _adapted(build):
+    try:
+        return build(), None
+    except adapters.AdapterError as exc:
+        return None, Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UptimeRobotView(APIView):
+    """Uptime Robot's alert webhook. Scope comes from the URL: ?supplier=Square&service=checkout."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        if (denied := _adapter_denied(request)) is not None:
+            return denied
+        signal, error = _adapted(lambda: adapters.uptimerobot(_payload(request), request.query_params))
+        return error or routed_response(automation.receive_signal(**signal))
+
+
+class AlertmanagerView(APIView):
+    """Prometheus Alertmanager / Grafana webhook: one signal per alert."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        if (denied := _adapter_denied(request)) is not None:
+            return denied
+        signals, error = _adapted(lambda: adapters.alertmanager(_payload(request)))
+        if error:
+            return error
+        return routed_response([row for signal in signals for row in automation.receive_signal(**signal)])
+
+
+class StatuspageView(APIView):
+    """Atlassian Statuspage subscriber webhook. Statuspage can't send headers, so the token in the
+    URL (one per allow-listed status page) is the credential and names the supplier."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, token):
+        page = StatusPage.objects.filter(webhook_token=token, active=True).first()
+        if page is None:
+            return Response({"detail": "Unknown status page webhook."}, status=status.HTTP_404_NOT_FOUND)
+        result, error = _adapted(lambda: adapters.statuspage(_payload(request), page))
+        if error:
+            return error
+        if isinstance(result, MaintenanceWindow):
+            return Response({"outcome": "maintenance window", "window": {
+                "id": result.pk, "supplier": result.supplier, "starts_at": result.starts_at,
+                "ends_at": result.ends_at, "reason": result.reason}}, status=status.HTTP_200_OK)
+        return routed_response(automation.receive_signal(**result))

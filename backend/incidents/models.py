@@ -1096,9 +1096,14 @@ class StatusPage(models.Model):
     supplier = models.CharField(max_length=128)
     host = models.CharField(max_length=253, unique=True)
     active = models.BooleanField(default=True)
+    # ADR-065: Statuspage can't send headers, so its webhook URL carries this token.
+    webhook_token = models.CharField(max_length=64, unique=True, blank=True, editable=False)
 
     def save(self, *args, **kwargs):
         self.host = self.host.strip().lower().removeprefix("https://").split("/")[0]
+        if not self.webhook_token:
+            import secrets
+            self.webhook_token = secrets.token_urlsafe(24)
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -1151,6 +1156,8 @@ class MaintenanceWindow(models.Model):
     reason = models.CharField(max_length=512)
     created_by = models.CharField(max_length=128)
     created_at = models.DateTimeField(auto_now_add=True)
+    # ADR-065: the supplier's own id when a status page announced it, so updates edit one window.
+    external_id = models.CharField(max_length=128, blank=True, db_index=True)
 
     def __str__(self):
         scope = " / ".join(filter(None, [self.supplier, self.customer, self.service]))

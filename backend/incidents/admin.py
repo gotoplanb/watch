@@ -145,6 +145,7 @@ class EmailRouteAdmin(admin.ModelAdmin):
 @admin.register(StatusPage)
 class StatusPageAdmin(admin.ModelAdmin):
     list_display = ("supplier", "host", "active")
+    readonly_fields = ("webhook_token",)
 
 
 @admin.register(EvidenceCapture)
