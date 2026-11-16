@@ -1137,3 +1137,21 @@ class MonitoredSource(models.Model):
 
     def __str__(self):
         return f"{self.name} (every {self.max_silence_minutes} min)"
+
+
+class MaintenanceWindow(models.Model):
+    """Planned work by a supplier or by us (ADR-064). Signals in scope still open or attach to
+    assessments, annotated with the window, but automatic promotion is held until it ends. Scope is
+    a supplier (which covers every customer/service depending on it) and/or a customer and service."""
+    supplier = models.CharField(max_length=128, blank=True)
+    customer = models.CharField(max_length=128, blank=True)
+    service = models.CharField(max_length=128, blank=True)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    reason = models.CharField(max_length=512)
+    created_by = models.CharField(max_length=128)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        scope = " / ".join(filter(None, [self.supplier, self.customer, self.service]))
+        return f"{scope}: {self.starts_at:%Y-%m-%d %H:%M} → {self.ends_at:%H:%M} ({self.reason})"

@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from . import session_index
 
 from .models import (
-    EmailRoute, EvidenceCapture, MonitoredSource, StatusPage,
+    EmailRoute, EvidenceCapture, MaintenanceWindow, MonitoredSource, StatusPage,
     Annotation,
     ErrorSpan,
     Incident,
@@ -157,6 +157,11 @@ class EvidenceCaptureAdmin(admin.ModelAdmin):
 class MonitoredSourceAdmin(admin.ModelAdmin):
     list_display = ("name", "max_silence_minutes", "last_seen_at", "silent_since", "active")
     readonly_fields = ("token", "last_seen_at", "silent_since")
+
+
+@admin.register(MaintenanceWindow)
+class MaintenanceWindowAdmin(admin.ModelAdmin):
+    list_display = ("starts_at", "ends_at", "supplier", "customer", "service", "reason")
 
 
 admin.site.unregister(User)

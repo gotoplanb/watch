@@ -105,7 +105,8 @@ history rather than opening a new one.
 
 **6. Square emails planned maintenance next Tuesday.**
 *Expected:* an informational signal. It shouldn't page anyone or need an assessment closed by
-hand. *Today:* no concept of a maintenance window (see gaps).
+hand. *Now:* a maintenance window (`wt maintenance add --supplier Square ...`) annotates signals in scope and
+holds automatic promotion until it ends (ADR-064). Entering the window from the email is still by hand.
 
 **7. Uptime Robot itself goes quiet** (expired subscription, broken webhook).
 *Expected:* the absence of check-ins is visible. This mirrors the operations heartbeat Watch already
@@ -179,8 +180,8 @@ to come from Workspace.
    attaches to the open assessment and rechecks it (scenario 4).
 2. **Cross-signal correlation** (#65): done in ADR-060. A signal for a customer/service already being
    assessed is evidence on that assessment, and cited status pages are screenshotted (scenario 3).
-3. **Maintenance windows** (#66): scheduled supplier or our own maintenance should suppress or annotate
-   signals for that scope and time (scenario 6).
+3. **Maintenance windows** (#66): done in ADR-064. Signals in scope are annotated and automatic
+   promotion is held until the window ends (scenario 6).
 4. **Email in / email out:** the parser (#71, local) and the SES transport (#72, `cloud`).
 5. **Vendor adapters** (#69): Alertmanager, status page and any monitor that can't template our schema.
 6. **Monitor silence** (#68): done in ADR-062. Watched sources call a heartbeat URL; silence opens an
@@ -189,5 +190,5 @@ to come from Workspace.
 8. **Monitoring rechecks** (#67): done. A recovery signal triggers a recheck (ADR-059), and policies
    recheck monitoring assessments on a timer (ADR-061, default every 30 minutes).
 
-Gaps 3 and 5 can all be built and tested locally. The SES transport and
+Gap 5 can all be built and tested locally. The SES transport and
 provider accounts are `cloud` work.

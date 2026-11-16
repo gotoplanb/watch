@@ -169,8 +169,19 @@ def receive_signal(*, correlation_key="", state=ACTIVE, evidence_url="", **data)
             return results
     data["correlation_key"] = correlation_key
     results = [_route_scope(data, customer, service) for customer, service in _scopes(data)]
+    _note_maintenance(results)
     _link_evidence(evidence_url, results)
     return results
+
+
+def _note_maintenance(results):
+    from . import maintenance
+
+    for routed in results:
+        if routed.how in {"created", "attached"}:
+            window = maintenance.active_for(routed[0])
+            if window is not None:
+                maintenance.annotate(routed[0], window)
 
 
 def _link_evidence(url, results):
@@ -240,7 +251,12 @@ def _rules(assessment, policy):
 
 
 def _dispose(pk, policy, verdict, breached, reason):
-    if breached and policy.auto_promote:
+    from . import maintenance
+
+    window = maintenance.active_for(Assessment.objects.get(pk=pk)) if breached else None
+    if breached and policy.auto_promote and window is not None:
+        maintenance.hold_promotion(Assessment.objects.get(pk=pk), window, reason)
+    elif breached and policy.auto_promote:
         assessments.promote(pk, actor=AUTOMATION_ACTOR, reason=reason)
     elif verdict == "no_issue" and policy.auto_close_no_issue and not policy.recipients:
         assessments.dispose(pk, actor=AUTOMATION_ACTOR, outcome="no_issue", reason=reason)

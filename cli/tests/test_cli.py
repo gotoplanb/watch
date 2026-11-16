@@ -292,3 +292,18 @@ def test_email_in_posts_the_raw_message(server, tmp_path, monkeypatch, capsys):
     assert body == eml.read_bytes()
     out = capsys.readouterr().out
     assert "signal: new signal" in out and "ASM-0007" in out
+
+
+def test_maintenance_list_and_add_with_relative_times(server, capsys):
+    window = {"supplier": "Square", "customer": "", "service": "", "reason": "upgrade",
+              "starts_at": "2026-11-20T02:00:00Z", "ends_at": "2026-11-20T04:00:00Z"}
+    server.reply("GET", "/api/maintenance/", body=[window])
+    server.reply("POST", "/api/maintenance/", 201, window)
+    cli.main(["--as", "t1a", "maintenance"])
+    cli.main(["--as", "t1a", "maintenance", "add", "--supplier", "Square", "--until", "+2h",
+              "--from", "2026-11-20T02:00:00Z", "--reason", "upgrade"])
+    sent = server.calls[-1][3]
+    assert sent["starts_at"] == "2026-11-20T02:00:00Z"
+    assert sent["ends_at"].endswith("+00:00")
+    assert "Square: upgrade" in capsys.readouterr().out
+    assert cli.when("") == ""

@@ -6,6 +6,7 @@ UI is. wt never touches the database.
 """
 import json
 import os
+import re
 import sys
 import time
 from importlib import resources
@@ -144,7 +145,7 @@ def run(args, client: Api):
             return _wait(args, client)
         case "new" | "do" | "note" | "comms" | "sme" | "remediations" | "rca" | "comm" \
                 | "sme-respond" | "remediation" | "report" | "outbox" | "rules" | "areas" \
-                | "heartbeats":
+                | "heartbeats" | "maintenance":
             return _workspace(args, client)
         case "api":
             reply = client.send(args.method.upper(), args.path, args.data)
@@ -337,8 +338,38 @@ def _workspace(args, client):
     elif command == "remediation":
         reply = client.send("POST", f"remediations/{args.id}/", pairs(args.pairs)[0])
         _out(args, reply, lambda t: print(f"{t['id']}  {t['state']}  {t['title']}"))
+    elif command == "maintenance":
+        _maintenance(args, client)
     elif command == "rca":
         _out(args, client.get(f"assessments/{args.number}/rca/"), lambda r: print(r["markdown"]))
     elif command == "report":
         report = client.get(f"reports/?days={args.days}")
         print(json.dumps(report, indent=2))
+
+
+def when(text: str):
+    """ISO 8601 as given, or +30m / +2h / +1d from now (UTC). Empty stays empty."""
+    from datetime import UTC, datetime, timedelta
+
+    match = re.fullmatch(r"\+(\d+)([mhd])", text.strip())
+    if not match:
+        return text.strip()
+    unit = {"m": "minutes", "h": "hours", "d": "days"}[match.group(2)]
+    return (datetime.now(UTC) + timedelta(**{unit: int(match.group(1))})).isoformat()
+
+
+def _window_line(w) -> str:
+    scope = " / ".join(filter(None, [w["supplier"], w["customer"], w["service"]]))
+    return f"{w['starts_at'][:16]} → {w['ends_at'][:16]}  {scope}: {w['reason']}"
+
+
+def _maintenance(args, client):
+    if args.verb != "add":
+        _out(args, client.get("maintenance/"),
+             lambda rows: _print_rows(rows, _window_line, "No current or upcoming maintenance."))
+        return
+    body = {"supplier": args.supplier, "customer": args.customer, "service": args.service,
+            "reason": args.reason, "ends_at": when(args.ends)}
+    if args.starts:
+        body["starts_at"] = when(args.starts)
+    _out(args, client.send("POST", "maintenance/", body), lambda w: print(_window_line(w)))

@@ -274,6 +274,22 @@ def _workspace(sub):
              "of an endpoint such as a supplier's API (ADR-063), that policies run automatically "
              "and responders run on demand.", ["wt --as t1a rules",
                                                             "wt --as t1a do ASM-0007 query rule=2"])
+    maint = _command(sub, "maintenance", "List current and upcoming maintenance windows, or plan one.",
+                     "Planned work by a supplier or by us (ADR-064). Signals in scope still open or "
+                     "attach to assessments, annotated with the window, but automatic promotion is "
+                     "held until it ends; degradation inside it is monitored and rechecked just after. "
+                     "A supplier window covers every customer/service that depends on that supplier. "
+                     "Times are ISO 8601 or relative (+30m, +2h, +1d); --from defaults to now.",
+                     ["wt --as t1a maintenance",
+                      "wt --as t1a maintenance add --supplier Square --until +2h --reason \"Square upgrade\"",
+                      "wt --as t1a maintenance add --customer \"Example Gateway\" --service checkout "
+                      "--from 2026-11-20T02:00:00Z --until 2026-11-20T04:00:00Z --reason \"DB migration\""])
+    maint.add_argument("verb", nargs="?", choices=["add"])
+    for field in ("supplier", "customer", "service"):
+        maint.add_argument(f"--{field}", default="")
+    maint.add_argument("--from", dest="starts", default="", help="ISO time or +duration (default now)")
+    maint.add_argument("--until", dest="ends", default="", help="ISO time or +duration")
+    maint.add_argument("--reason", default="", help="What the planned work is.")
     _command(sub, "heartbeats", "Monitoring sources watched for silence, and their state.",
              "Alert-only monitors are quiet when all is well, so a broken webhook looks like good "
              "news. A watched source proves it's alive via its heartbeat URL or any signal; silence "

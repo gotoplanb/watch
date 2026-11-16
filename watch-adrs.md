@@ -1307,3 +1307,19 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 - An assessment can record a supplier endpoint's state at that moment as evidence, next to our own telemetry.
 - A few requests is a spot check, not an availability measurement; the result says so through its sample count.
 - DNS can change between the address check and the request (rebinding). Accepted for a feature whose URLs are configured by T2+ responders.
+
+## ADR-064 — Maintenance windows hold automatic promotion, not signals
+**Status:** Accepted. Refines ADR-054, ADR-060 and ADR-061. Resolves #66.
+
+**Context.** Planned work, by a supplier (Square's scheduled upgrade) or by us, produces alerts that are expected. Paging people for them is noise, but dropping them is wrong too: the work can hurt customers more than planned, and that's exactly when we need to notice.
+
+**Decision.**
+1. **A maintenance window is a scope and a time range**, with a reason. The scope is a supplier, and/or a customer and service. A supplier window covers every customer/service that depends on that supplier (`ServiceDependency`), including signals from our own monitoring. A window scoped to nothing matches nothing. Any responder can plan one (UI admin, `POST /api/maintenance/`, `wt maintenance add`), for at most 7 days.
+2. **Signals still flow.** In-scope signals open or attach to assessments as usual; each assessment notes the window once (`maintenance_window`).
+3. **Automatic promotion is held while the window lasts.** If a policy's checks find degradation inside a window, the assessment goes to monitoring instead of promoting, with its recheck set for just after the window ends (ADR-061), when the normal rules decide.
+4. **People are never held.** A responder can promote at any time, inside a window or not.
+
+**Consequences.**
+- Planned work stops paging people while its effects stay visible and get rechecked.
+- Real impact during maintenance waits until the window ends to promote automatically; a long window with real harm needs a person to promote. Windows are capped at 7 days for this reason.
+- Windows are entered by hand. Picking them out of a supplier's maintenance email automatically is a possible follow-up.

@@ -5,11 +5,14 @@ API and the page cannot drift: same validation, same permissions, same history e
 plain field names (`{"body": "…"}`); the form prefix is added here. Users are accepted by username
 where a form expects a user (`target`, `owner`).
 """
+from datetime import timedelta
+
 from django import forms
 from django.contrib.auth.models import User
 from django.db import transaction
 from django.http import QueryDict
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.utils.datastructures import MultiValueDict
 from rest_framework import status
 from rest_framework.decorators import api_view
@@ -17,9 +20,11 @@ from rest_framework.response import Response
 
 from . import assessments, communications, operations, reporting, services
 from .models import (
-    Communication, DiagnosticRule, OutboxMessage, RemediationTask, SmeEngagement, SubjectArea,
+    Communication, DiagnosticRule, MaintenanceWindow, OutboxMessage, RemediationTask, SmeEngagement,
+    SubjectArea,
 )
 from .operations_forms import RevisionForm
+from .permissions import user_tier_rank
 from .operations_ui import (
     PARTICIPANT_ACTIONS, WORKSPACE_ACTIONS, _can_manage_case, _forms, participates,
 )
@@ -285,3 +290,49 @@ def reports(request):
                for key in ("customer", "service", "supplier", "severity")}
     return Response(reporting.summarize(
         days=days, include_examples=request.query_params.get("examples") == "1", **filters))
+
+
+# --- maintenance windows (ADR-064) ----------------------------------------------------------------
+
+def _window_json(w):
+    return {"id": w.pk, "supplier": w.supplier, "customer": w.customer, "service": w.service,
+            "starts_at": _iso(w.starts_at), "ends_at": _iso(w.ends_at), "reason": w.reason,
+            "created_by": w.created_by}
+
+
+def _window_errors(data):
+    from django.utils.dateparse import parse_datetime
+
+    errors = {}
+    starts = parse_datetime(str(data.get("starts_at") or "")) if data.get("starts_at") else timezone.now()
+    ends = parse_datetime(str(data.get("ends_at") or ""))
+    if not any(str(data.get(k) or "").strip() for k in ("supplier", "customer", "service")):
+        errors["scope"] = "Name a supplier, or a customer and/or service."
+    if starts is None:
+        errors["starts_at"] = "Use an ISO 8601 time, e.g. 2026-11-20T02:00:00Z."
+    if ends is None:
+        errors["ends_at"] = "Use an ISO 8601 time, e.g. 2026-11-20T04:00:00Z."
+    elif starts is not None and not timedelta(0) < ends - starts <= timedelta(days=7):
+        errors["ends_at"] = "End after the start, within 7 days."
+    if not str(data.get("reason") or "").strip():
+        errors["reason"] = "Say what the planned work is."
+    return errors, starts, ends
+
+
+@api_view(["GET", "POST"])
+def maintenance_windows(request):
+    """GET: current and upcoming windows. POST: plan one (any responder)."""
+    if request.method == "GET":
+        rows = MaintenanceWindow.objects.filter(ends_at__gt=timezone.now()).order_by("starts_at")
+        return Response([_window_json(w) for w in rows])
+    if user_tier_rank(request.user) < 0:
+        return _error("A responder role is required to plan maintenance.", status.HTTP_403_FORBIDDEN)
+    errors, starts, ends = _window_errors(request.data)
+    if errors:
+        return _error("Check the fields.", status.HTTP_400_BAD_REQUEST,
+                      errors={k: [{"message": v}] for k, v in errors.items()})
+    window = MaintenanceWindow.objects.create(
+        starts_at=starts, ends_at=ends, reason=str(request.data["reason"]).strip()[:512],
+        created_by=request.user.username,
+        **{k: str(request.data.get(k) or "").strip()[:128] for k in ("supplier", "customer", "service")})
+    return Response(_window_json(window), status=status.HTTP_201_CREATED)

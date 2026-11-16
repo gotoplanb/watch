@@ -66,3 +66,14 @@ counts. Silence past the source's limit opens an assessment ("uptimerobot has go
 the next sign of life records the recovery on it, so someone checks what might have been missed.
 
     wt --as t1a heartbeats
+
+## Planned maintenance (ADR-064)
+
+Planned work (a supplier's, or ours) makes noise that is expected but not ignorable: customers can
+still be hurt more than planned. Signals in a window's scope still open or attach to assessments,
+annotated with the window, but automatic promotion is held until it ends. Degradation inside the
+window is monitored and rechecked just after it ends, when the normal rules apply. A responder can
+still promote at any time. A supplier window covers every customer and service depending on it.
+
+    wt --as t1a maintenance add --supplier Square --until +2h --reason "Square upgrade"
+    wt --as t1a maintenance

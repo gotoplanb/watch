@@ -39,6 +39,7 @@ urlpatterns = [
     path("subject-areas/", operations_api.subject_areas, name="api-subject-areas"),
     path("outbox/", operations_api.outbox, name="api-outbox"),
     path("reports/", operations_api.reports, name="api-reports"),
+    path("maintenance/", operations_api.maintenance_windows, name="api-maintenance"),
     path("intake/webhook", IntakeWebhookView.as_view(), name="intake-webhook"),
     path("assessments/intake", AssessmentIntakeView.as_view(), name="assessment-intake"),
     path("signals/intake", SignalIntakeView.as_view(), name="signal-intake"),
