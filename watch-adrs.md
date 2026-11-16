@@ -1191,3 +1191,36 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 - Deadline-driven behavior still waits on real time. A development clock to fast-forward SLAs is a later decision, not part of this ADR.
 
 **Refinement: the assessment workspace over the API.** `POST /api/assessments/<n>/actions/<action>/` runs any workspace action through the page's own forms and handlers (`operations_ui.WORKSPACE_ACTIONS`), so validation, permissions and history events cannot drift between the API and the page. Callers send plain field names. Fields they leave out get the page's pre-filled values (review windows, the drafted email text, a select's first option), and users are named by username. Alongside it: `POST /api/assessments/` (a responder opens one by hand), the case's communications (show, edit, send, suppress, each pinned to `expected_version`), specialist engagements (respond), corrective actions (update), the RCA (JSON and markdown), outbox, reports, saved checks and subject areas. Automation configuration (policies, rules, dependencies, subject areas) stays page-only for now.
+
+## ADR-057 — Synthetic monitoring lives outside Watch; Watch verifies on demand
+**Status:** Accepted. Refines ADR-002 and ADR-054. Catalog and scenarios in `docs/signals-and-outcomes.md`.
+
+**Context.** Watch sits between customers and suppliers (Square for payments, GitHub, inventory providers). Detecting supplier trouble needs continuous synthetic checks. Mature, inexpensive tools (Uptime Robot, Checkly, Grafana synthetic monitoring) already run them from many regions, independently of our own infrastructure.
+
+**Decision.**
+1. **Watch receives and assesses; it does not probe.** Continuous synthetic monitoring runs in an external service that sends webhooks to `POST /api/signals/intake`. We prove it with an inexpensive Uptime Robot plan. A prober inside Watch would fail exactly when Watch's own infrastructure is degraded (the ADR-002 argument).
+2. **A supplier signal is a question.** A synthetic failure or status-page notice against a supplier fans out to the dependent customers and services (`ServiceDependency`). Each assessment is answered with our own telemetry before anything is promoted (ADR-054).
+3. **On-demand verification stays in Watch.** Diagnostics run during an assessment may include an `http` provider: one request, with a timeout, expected status and latency threshold. It is a check in context, never a schedule (#70).
+4. **Vendors that can't send our signal shape get thin adapters** into `signals/intake` (#69).
+
+**Consequences.**
+- No scheduler, regional probers or uptime history to build or run.
+- A monitoring vendor is now a dependency whose silence must itself be detected (#68).
+- Recovery and cross-signal correlation become Watch's job (#64, #65), since external monitors send down and up as separate events.
+
+## ADR-058 — Email in and out through SES on a dedicated subdomain
+**Status:** Accepted. Refines ADR-055 (the local outbox becomes one transport). Replaces the ServiceNow-hosted intake address over time.
+
+**Context.** People report problems by email. Today that address is hosted by ServiceNow and opens a ServiceNow incident. Watch needs to receive those messages as signals, thread replies onto the assessment they belong to, and send communications that people can reply to. The options were SES on a subdomain, a Google Workspace mailbox read through the Gmail API, or an inbound-parse vendor.
+
+**Decision.**
+1. **SES on a dedicated subdomain** (e.g. `watch.<company domain>`) for both receiving and sending. The receipt rule stores the raw message in S3, then a Lambda passes it to the parser. Outbound communications use SES behind the outbox's transport interface. Bounces and complaints arrive via SNS and are recorded in the communication's history. Infrastructure lives in `gotoplanb/platform` as Terraform (#72).
+2. **Why not Google Workspace:** reading a mailbox through the Gmail API needs a service account with domain-wide delegation, a much broader grant than Watch needs. SES on a subdomain is isolated: the company's main domain, its mail and the ServiceNow address are untouched, and the only IT dependency is DNS for the subdomain. An inbound-parse vendor would add a third party that sees customer email.
+3. **The parser is independent of the transport** (#71): a raw RFC 822 message becomes a new signal, a reply on an existing assessment, or is ignored. It maps senders to customers or suppliers, threads replies (`In-Reply-To`/`References`, or an `[ASM-…]` subject token), dedupes on `Message-ID`, stores attachments as evidence within existing limits, drops auto-replies, bounces and our own mail, and keeps the SPF/DKIM/DMARC verdict on the assessment. It is built and tested locally (`wt email-in message.eml`).
+4. **Cutover:** while both systems run, the ServiceNow address also forwards a copy to the Watch address.
+
+**Consequences.**
+- Replies to Watch's communications come back to Watch and land on the right assessment.
+- Sending reputation is isolated from company mail.
+- SES starts in sandbox mode and needs a production-access request before mail reaches real recipients (`cloud` work).
+- Customer email and attachments become operational data in S3 and Postgres, under the same retention questions ADR-055 already raises for evidence.
