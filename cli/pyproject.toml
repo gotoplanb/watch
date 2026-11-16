@@ -24,3 +24,8 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Help prose and examples read better unbroken than split mid-sentence to fit 100 columns.
+"src/wt/parser.py" = ["E501"]
+"src/wt/actions.py" = ["E501"]

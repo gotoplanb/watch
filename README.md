@@ -10,6 +10,20 @@ escalation.
 > tradeoffs. This scaffold implements that slice — code follows the ADRs, not the
 > other way round.
 
+## Understanding Watch (start here)
+
+The `wt` CLI explains Watch as well as operates it. Its guide needs no server, database or install
+beyond [uv](https://docs.astral.sh/uv/):
+
+```bash
+uvx --from ./cli wt guide              # how Watch works, and the list of topics
+uvx --from ./cli wt guide lifecycle    # e.g. what acknowledge / escalate / resolve really do
+uvx --from ./cli wt --help             # every command, each with what it means and examples
+```
+
+Using an AI assistant? Point it at this repo and ask it to read `AGENTS.md`, then ask your
+questions. With the local stack running (`make dev`), `wt guide tour` walks through it hands-on.
+
 ## Repository layout
 ```
 backend/        Django + DRF — system of record (incidents app)

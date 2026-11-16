@@ -1,34 +1,17 @@
-"""wt — drive Watch from the terminal, as any user (ADR-056).
-
-  wt --as t1a incidents                   open incidents
-  wt --as t1a intake "cpu high on web-2"  fire the alert webhook (no user needed)
-  wt --as t1a ack INC-0042
-  wt --as t1a escalate INC-0042 --expect T1 --reason "needs T2"
-  wt --as t2a wait INC-0042 --tier T2
-  wt --as t2a show INC-0042               detail + transitions
-  wt --as t1a show ASM-0007               an assessment + its history
-  wt --as t1a new "checkout errors" --signal "5xx up" --customer "Example Gateway"
-  wt --as t1a note ASM-0024 "dashboards: https://…" --photo shot.png
-  wt --as t1a do ASM-0024 conclusion verdict=degraded confidence=high reason="5xx 4%"
-  wt --as t1a do ASM-0024 promote reason="customer impact"
-  wt --as t1a comm <id> send              edit / send / suppress a communication
-  wt --as t3a sme-respond <id> ack
-  wt --as t1a rca ASM-0024                the RCA as markdown
-  wt email-in message.eml                 an inbound email, as SES would deliver it
-  wt --as admin api incidents/?current_tier=T3
-  wt --as t1a api -X POST incidents/INC-0042/ack/ -d '{"reason": "x"}'
+"""wt — drive Watch from the terminal, as any user (ADR-056). `wt --help` and `wt guide` explain
+Watch itself; the command definitions and their help text live in parser.py.
 
 Every call goes to the server's /api/ with that user's key, so it is authorized exactly as the
 UI is. wt never touches the database.
 """
-import argparse
 import json
 import os
 import sys
 import time
+from importlib import resources
 from pathlib import Path
 
-from . import __version__, config
+from . import __version__, config, parser
 from .http import ApiError, request
 
 ASSESSMENT_PREFIX = "ASM-"
@@ -57,133 +40,15 @@ class Api:
 
 
 def _parser():
-    p = argparse.ArgumentParser(prog="wt", description="Drive Watch from the terminal (ADR-056).")
-    p.add_argument("--server", help="local (default) or a URL. Env: WT_SERVER.")
-    p.add_argument("--as", dest="user", help="Act as this user. Env: WT_AS.")
-    p.add_argument("--json", action="store_true", help="Print the server's reply as JSON.")
-    sub = p.add_subparsers(dest="command", metavar="COMMAND")
-
-    sub.add_parser("version", help="wt's version.")
-    sub.add_parser("whoami", help="Who the key belongs to, and their tiers.")
-    sub.add_parser("users", help="Users wt has keys for on this server.")
-    key = sub.add_parser("key", help="Store a key copied from /ui/settings.")
-    key.add_argument("action", choices=["set"])
-    key.add_argument("username")
-    key.add_argument("key")
-
-    inc = sub.add_parser("incidents", help="List incidents (open by default).")
-    inc.add_argument("--status", default="OPEN", help="OPEN, RESOLVED or ALL")
-    inc.add_argument("--tier", help="T1, T2 or T3")
-    asm = sub.add_parser("assessments", help="List assessments.")
-    asm.add_argument("--status", help="new, investigating, monitoring, no_issue, promoted")
-    show = sub.add_parser("show", help="One incident (INC-…) or assessment (ASM-…).")
-    show.add_argument("number")
-
-    for verb, what in (("ack", "Acknowledge"), ("escalate", "Escalate"), ("resolve", "Resolve")):
-        act = sub.add_parser(verb, help=f"{what} an incident.")
-        act.add_argument("number")
-        act.add_argument("--reason", default="")
-        act.add_argument("--expect", metavar="TIER", help="Fail with 409 unless still at TIER.")
-
-    intake = sub.add_parser("intake", help="Fire the incident intake webhook.")
-    intake.add_argument("title")
-    intake.add_argument("--source", default="wt")
-    intake.add_argument("--event-id", default="", help="Same id twice = deduped while open.")
-    intake.add_argument("--payload", default="{}", type=json.loads)
-
-    for name, what in (("assess", "Open one assessment from a signal."),
-                       ("signal", "Send a signal through the routing policies.")):
-        sig = sub.add_parser(name, help=what)
-        sig.add_argument("title")
-        sig.add_argument("--signal", required=True, help="What was observed.")
-        sig.add_argument("--source", default="wt")
-        for field in ("customer", "service", "supplier"):
-            sig.add_argument(f"--{field}", default="")
-        sig.add_argument("--event-id", default="")
-        sig.add_argument("--payload", default="{}", type=json.loads)
-        sig.add_argument("--key", default="",
-                         help="Correlation key: the source's stable id for the condition (e.g. the "
-                         "monitor id). A re-fire or recovery with the same key "
-                         "attaches to the assessment already working it (ADR-059).")
-        sig.add_argument("--resolved", action="store_true",
-                         help="The source reports recovery. Opens nothing; rechecks the open "
-                         "assessment with our own diagnostics, and never resolves an incident.")
-
-    email = sub.add_parser("email-in", help="Deliver a raw email (.eml) as inbound mail (ADR-058).",
-                           description="Posts the message to /api/email/inbound exactly as the SES "
-                           "receipt Lambda will. The outcome is a new signal, a reply appended to "
-                           "the assessment it answers, or ignored (auto-reply, bounce, our own "
-                           "mail, a repeat) with the reason.")
-    email.add_argument("file", help="An .eml file, or - for stdin.")
-
-    wait = sub.add_parser("wait", help="Poll an incident until every given condition holds.")
-    wait.add_argument("number")
-    wait.add_argument("--tier")
-    wait.add_argument("--status")
-    wait.add_argument("--acked", action="store_true")
-    wait.add_argument("--timeout", type=float, default=60)
-    wait.add_argument("--interval", type=float, default=1)
-
-    _workspace_parsers(sub)
-
-    api = sub.add_parser("api", help="Any /api/ path, raw.")
-    api.add_argument("-X", dest="method", default="GET")
-    api.add_argument("-d", dest="data", type=json.loads, help="JSON body")
-    api.add_argument("path")
-    return p
+    return parser.build()
 
 
-def _workspace_parsers(sub):
-    pairs_help = "key=value fields (JSON values parse; key=@file uploads; repeat a key for a list)"
-    new = sub.add_parser("new", help="Open an assessment by hand, owned by you.")
-    new.add_argument("title")
-    new.add_argument("--signal", required=True)
-    new.add_argument("--source", default="operator",
-                     choices=["operator", "customer", "supplier", "monitor"])
-    for field in ("customer", "service", "supplier"):
-        new.add_argument(f"--{field}", default="")
-
-    do = sub.add_parser("do", help="Any workspace action on an assessment (see `wt do -h`).",
-                        description="Actions: " + ", ".join(WORKSPACE_ACTIONS))
-    do.add_argument("number")
-    do.add_argument("action", choices=WORKSPACE_ACTIONS, metavar="ACTION")
-    do.add_argument("pairs", nargs="*", help=pairs_help)
-
-    note = sub.add_parser("note", help="Add a note (and photos) to an assessment's history.")
-    note.add_argument("number")
-    note.add_argument("body", nargs="?", default="")
-    note.add_argument("--photo", action="append", default=[], help="Image file; repeatable.")
-
-    for name, what in (("comms", "Communications"), ("sme", "Specialist engagements"),
-                       ("remediations", "Corrective actions"), ("rca", "The RCA (markdown)")):
-        sub.add_parser(name, help=f"{what} for an assessment.").add_argument("number")
-
-    comm = sub.add_parser("comm", help="Show a communication, or edit / send / suppress it.")
-    comm.add_argument("id")
-    comm.add_argument("verb", nargs="?", choices=["edit", "send", "suppress"])
-    comm.add_argument("pairs", nargs="*",
-                      help=pairs_help + "; expected_version defaults to current")
-
-    respond = sub.add_parser("sme-respond", help="As the paged specialist: ack or complete.")
-    respond.add_argument("id")
-    respond.add_argument("verb", choices=["ack", "complete"])
-    respond.add_argument("--body", default="", help="What you did (needed to complete).")
-
-    fix = sub.add_parser("remediation", help="Update a corrective action: state=… verification=…")
-    fix.add_argument("id")
-    fix.add_argument("pairs", nargs="+", help=pairs_help)
-
-    report = sub.add_parser("report", help="Assessment/incident reporting summary.")
-    report.add_argument("--days", type=int, default=30)
-    for name, what in (("outbox", "Locally delivered communications."),
-                       ("rules", "Saved diagnostic checks (ids for `do … query rule=ID`)."),
-                       ("areas", "Specialist subject areas (ids for `do … engage area=ID`).")):
-        sub.add_parser(name, help=what)
-
-
-WORKSPACE_ACTIONS = ["comment", "evidence", "conclusion", "monitor", "no_issue", "promote", "email",
-                     "operation", "attachment", "query", "engage", "curate", "rca", "remediation",
-                     "context", "claim", "retry_automation", "retry_engine"]
+def guide(topic: str) -> str:
+    """A guide topic's text (packaged markdown; no server needed)."""
+    topics = sorted(p.stem for p in resources.files("wt.guide").iterdir() if p.name.endswith(".md"))
+    if topic not in topics:
+        raise SystemExit(f"wt: no guide topic {topic!r}; topics: {', '.join(topics)}")
+    return resources.files("wt.guide").joinpath(f"{topic}.md").read_text(encoding="utf-8")
 
 
 def pairs(items) -> tuple[dict, dict]:
@@ -236,6 +101,8 @@ def run(args, client: Api):
             _parser().print_help()
         case "version":
             print(f"wt {__version__}")
+        case "guide":
+            print(guide(args.topic))
         case "whoami":
             _out(args, client.get("me"), lambda me: print(
                 f"{me['username']} (id {me['id']}) tiers: {', '.join(me['tiers']) or 'none'}"

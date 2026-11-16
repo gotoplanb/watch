@@ -106,6 +106,8 @@ can't reach PyPI, so `make dev` is the working loop.
   `wt --as t1a escalate INC-0042 --expect T1`, `wt --as t2a wait INC-0042 --tier T3`. Prefer it to
   raw `curl` or Playwright for state checks. Build order: **API → `wt` → browser → MCP subset**. A
   feature `wt` can't drive is an API gap to fix on the server, not something to script around.
+  `wt` is also how people learn Watch (#63): when behavior changes, update the affected command's
+  help in `cli/src/wt/parser.py`/`actions.py` and the `wt guide` topic in `cli/src/wt/guide/`.
 
 ## Quality gates (before committing)
 Mirror the conduct project. **Both must be green before a commit:**

@@ -7,6 +7,12 @@ feature is a few commands instead of `curl` with hand-built headers or a browser
 The order we build in: **API → `wt` → browser → MCP subset.** A feature is drivable here first,
 then checked in the browser, then (only if an assistant should have it) exposed over MCP.
 
+## Learn Watch with it
+
+`wt guide` explains how Watch works, topic by topic, citing the decisions (ADRs) behind each
+part, and every command's `--help` says what it means, who may run it and what changes. Neither
+needs a server: `uvx --from ./cli wt guide` from the repo root.
+
 ## Install
 
 ```bash
