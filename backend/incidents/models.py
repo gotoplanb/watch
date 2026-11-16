@@ -869,7 +869,7 @@ class ServiceDependency(models.Model):
 
 class DiagnosticRule(models.Model):
     name = models.CharField(max_length=160)
-    provider = models.CharField(max_length=16, choices=[("prometheus", "Watchtower / Prometheus"), ("sumo", "Sumo Logic"), ("fixture", "Local example")])
+    provider = models.CharField(max_length=16, choices=[("prometheus", "Watchtower / Prometheus"), ("sumo", "Sumo Logic"), ("http", "HTTP check (one-off requests)"), ("fixture", "Local example")])
     query = models.TextField()
     baseline_query = models.TextField(blank=True)
     sample_query = models.TextField(blank=True)

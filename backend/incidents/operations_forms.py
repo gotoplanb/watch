@@ -99,13 +99,30 @@ class DiagnosticRuleForm(StyledModelForm):
             self.add_error("minimum_samples", "At least one sample is required.")
         if data.get("threshold") is not None and not math.isfinite(data["threshold"]):
             self.add_error("threshold", "Use a finite threshold.")
-        if data.get("provider") != "fixture" and not data.get("sample_query"):
+        if data.get("provider") == "http":
+            self._clean_http(data)
+        elif data.get("provider") != "fixture" and not data.get("sample_query"):
             self.add_error("sample_query", "A sample-count query is required for real diagnostics.")
         if data.get("comparator") == "deviation" and data.get("provider") != "fixture" and not data.get("baseline_query"):
             self.add_error("baseline_query", "Deviation checks require a baseline query.")
         if not 1 <= data.get("lookback_minutes", 0) <= 10080:
             self.add_error("lookback_minutes", "Choose between 1 and 10,080 minutes.")
         return data
+
+    def _clean_http(self, data):
+        """An HTTP check: query is an https URL, minimum_samples is how many requests (1-10), the
+        value is the failure percentage, so compare with above/below (ADR-063)."""
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(data.get("query", "").strip())
+        if parts.scheme not in {"https", "http"} or not parts.netloc:
+            self.add_error("query", "Enter the URL to request, e.g. https://api.example.com/health.")
+        elif "${" in parts.netloc:
+            self.add_error("query", "Template variables aren't allowed in the host.")
+        if data.get("minimum_samples", 0) > 10:
+            self.add_error("minimum_samples", "Make at most 10 requests.")
+        if data.get("comparator") == "deviation":
+            self.add_error("comparator", "HTTP checks measure failure %: use above or below.")
 
 
 class PolicyForm(StyledModelForm):

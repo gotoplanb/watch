@@ -270,8 +270,9 @@ def _workspace(sub):
                       ["wt --as t1a report --days 7"])
     report.add_argument("--days", type=int, default=30)
     _command(sub, "rules", "Saved diagnostic checks, with ids.",
-             "Queries against our own telemetry (Prometheus, Sumo Logic) that policies run "
-             "automatically and responders run on demand.", ["wt --as t1a rules",
+             "Queries against our own telemetry (Prometheus, Sumo Logic), or one-off HTTP checks "
+             "of an endpoint such as a supplier's API (ADR-063), that policies run automatically "
+             "and responders run on demand.", ["wt --as t1a rules",
                                                             "wt --as t1a do ASM-0007 query rule=2"])
     _command(sub, "heartbeats", "Monitoring sources watched for silence, and their state.",
              "Alert-only monitors are quiet when all is well, so a broken webhook looks like good "

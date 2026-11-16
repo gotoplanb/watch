@@ -185,9 +185,9 @@ to come from Workspace.
 5. **Vendor adapters** (#69): Alertmanager, status page and any monitor that can't template our schema.
 6. **Monitor silence** (#68): done in ADR-062. Watched sources call a heartbeat URL; silence opens an
    assessment (scenario 7).
-7. **`http` diagnostic provider** (#70): on-demand verification of a supplier endpoint (D1).
+7. **`http` diagnostic provider** (#70): done in ADR-063.
 8. **Monitoring rechecks** (#67): done. A recovery signal triggers a recheck (ADR-059), and policies
    recheck monitoring assessments on a timer (ADR-061, default every 30 minutes).
 
-Gaps 3, 5 and 7 can all be built and tested locally. The SES transport and
+Gaps 3 and 5 can all be built and tested locally. The SES transport and
 provider accounts are `cloud` work.

@@ -140,7 +140,48 @@ def _measure_fixture(rule, assessment):
     return value, baseline, samples
 
 
+HTTP_MAX_TRIES = 10
+
+
+def _public_https(url: str) -> str:
+    """Refuse anything but https (http locally) to a host that resolves only to public addresses."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    if parts.scheme != "https" and not (settings.DEBUG and parts.scheme == "http"):
+        raise DiagnosticError("HTTP checks must use https.")
+    host = parts.hostname or ""
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(host, parts.port or 443)}
+    except (OSError, UnicodeError) as exc:
+        raise DiagnosticError(f"Could not resolve {host or 'the host'}.") from exc
+    for address in addresses:
+        ip = ipaddress.ip_address(address.split("%")[0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            raise DiagnosticError("HTTP checks may not target internal addresses.")
+    return url
+
+
+def http_check(url: str, tries: int) -> tuple[float, None, float]:
+    """One-off verification (ADR-057/063): `tries` requests now. Returns (failure %, None, tries).
+    A failure is a 4xx/5xx, a timeout or a connection error; redirects aren't followed."""
+    _public_https(url)
+    tries = max(1, min(tries, HTTP_MAX_TRIES))
+    failed = 0
+    for _ in range(tries):
+        try:
+            response = requests.get(url, timeout=settings.WATCH_DIAGNOSTIC_TIMEOUT, allow_redirects=False)
+            failed += response.status_code >= 400
+        except requests.RequestException:
+            failed += 1
+    return failed * 100.0 / tries, None, float(tries)
+
+
 def _measure_provider(rule, query, baseline_query, sample_query):
+    if rule.provider == "http":
+        return http_check(query, rule.minimum_samples)
     provider = prometheus if rule.provider == "prometheus" else (lambda q: sumo(q, rule.lookback_minutes))
     if rule.provider not in {"prometheus", "sumo"}:
         raise DiagnosticError("Unknown diagnostic provider.")
@@ -188,7 +229,16 @@ def _record_success(assessment, rule, run, snapshot, query, measurement):
                            {"run_id": str(run.pk), "breached": breached})
 
 
+def _check_http_template(rule):
+    """Signal data fills template variables, so none may sit in an HTTP check's host."""
+    from urllib.parse import urlsplit
+
+    if rule.provider == "http" and "${" in urlsplit(rule.query).netloc:
+        raise DiagnosticError("Template variables aren't allowed in an HTTP check's host.")
+
+
 def _evaluate(assessment, rule, run, snapshot):
+    _check_http_template(rule)
     query, baseline_query, sample_query = [render_query(q, assessment) for q in (rule.query, rule.baseline_query, rule.sample_query)]
     snapshot.update(query=query, baseline_query=baseline_query, sample_query=sample_query)
     _validate(rule, query)

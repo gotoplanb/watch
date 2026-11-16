@@ -31,7 +31,8 @@ immediate-incident policy reason). Closing as "no issue" needs a "no issue" conc
 ## Automation (policies)
 
 A **policy** matches assessments by customer, service and supplier, and runs **diagnostic checks**:
-saved queries against our own telemetry (Prometheus, Sumo Logic). From their results it can
+saved queries against our own telemetry (Prometheus, Sumo Logic), or a one-off HTTP check of an
+endpoint such as a supplier's API (ADR-063). From their results it can
 conclude, then promote on breach, close on "no issue", or draft a customer communication. A
 responder who steps in during automation takes over the decision.
 

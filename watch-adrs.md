@@ -1292,3 +1292,18 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 - A dead alert path becomes visible within the source's limit, instead of at the next real outage.
 - A heartbeat proves the monitor is checking, not that its alert webhook works end to end. Pairing the heartbeat with a periodic test alert would close that gap; not done now.
 - Anyone holding a heartbeat token can fake liveness for that source, masking a silence. Tokens are random and per source; the risk is limited to hiding one monitor's outage.
+
+## ADR-063 — An on-demand HTTP check as a diagnostic
+**Status:** Accepted. Realizes ADR-057 point 3. Resolves #70.
+
+**Context.** ADR-057 keeps continuous monitoring outside Watch but keeps on-demand verification inside: while assessing, a responder or policy should be able to ask "is Square's API answering right now?" Diagnostics only queried our own telemetry (Prometheus, Sumo).
+
+**Decision.**
+1. **A diagnostic rule can use the `http` provider.** Its query is the URL; `minimum_samples` is how many requests to make now (1-10); the value is the percentage that failed (4xx/5xx, timeout or connection error), so `above 0` means any failure breaches. Redirects aren't followed. It runs like any saved check: from a policy, or `wt do … query rule=N`.
+2. **It runs when asked, never on a schedule.** It's a check in context, not a monitor (ADR-057).
+3. **It's fenced.** https only (http in local development); the host must resolve only to public addresses; template variables (filled from signal data) may not appear in the host, checked both when the rule is saved and when it runs.
+
+**Consequences.**
+- An assessment can record a supplier endpoint's state at that moment as evidence, next to our own telemetry.
+- A few requests is a spot check, not an availability measurement; the result says so through its sample count.
+- DNS can change between the address check and the request (rebinding). Accepted for a feature whose URLs are configured by T2+ responders.

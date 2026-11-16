@@ -18,7 +18,7 @@ ACTIONS = {
         ["New evidence revokes any automatic-send approval on a pending communication."],
     ),
     "query": (
-        "Run a saved diagnostic check (Prometheus / Sumo) now; the worker records the result.",
+        "Run a saved diagnostic check now (Prometheus, Sumo, or an HTTP check of an endpoint); the worker records the result.",
         {"rule": "the check's id (`wt rules`)"},
         ["Needs the worker running (`make operations`)."],
     ),
