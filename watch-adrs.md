@@ -1224,3 +1224,20 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 - Sending reputation is isolated from company mail.
 - SES starts in sandbox mode and needs a production-access request before mail reaches real recipients (`cloud` work).
 - Customer email and attachments become operational data in S3 and Postgres, under the same retention questions ADR-055 already raises for evidence.
+
+## ADR-059 — Correlate re-fires and recoveries; a person resolves every incident
+**Status:** Accepted. Refines ADR-054 and ADR-057. Resolves #64 and most of #67.
+
+**Context.** External monitors (Uptime Robot, Sumo, status pages) report a condition going bad and coming back as separate events with different event ids. Deduplicating on the event id alone opened a second assessment for every re-fire or recovery. A recovery is also tempting to treat as "all clear", but a monitor recovering doesn't prove customers weren't affected while it was down.
+
+**Decision.**
+1. **Signals carry an optional correlation key and a state.** The key is the source's stable id for the condition (Sumo's alert id, Uptime Robot's monitor id); the state is `active` or `resolved`. The dedupe key still identifies one delivery; the correlation key spans the condition's life.
+2. **A signal for a condition already being assessed attaches to it.** An `active` re-fire is recorded as `signal_repeated` and a `resolved` one as `signal_resolved`, on every assessment still working that key from that source. That means open assessments, plus promoted ones whose incident is still open; a supplier recovery therefore reaches every customer and service it fanned out to. A retried delivery of the same event is recorded once. A `resolved` signal with nothing open opens nothing.
+3. **A recovery rechecks; it doesn't conclude.** For an open assessment with a matching policy, a recovery requeues the policy's diagnostics. A "monitoring" assessment closes as no issue only if our own telemetry says so and the policy allows automatic closing. That gives #67 its trigger; a timed recheck remains for conditions that never report recovery.
+4. **A person resolves every incident.** A recovery on a promoted assessment is recorded as evidence with a note that the incident stays open until a responder resolves it. This rarely adds toil: under ADR-054 most noise stops at the assessment stage, so only confirmed impact reaches an incident.
+5. **Correlation is the routing path's job.** `POST /api/signals/intake` correlates. `POST /api/assessments/intake` stores the key but always opens the one assessment it was asked for. Email has no correlation key; it threads by message headers (ADR-058).
+
+**Consequences.**
+- Flapping monitors produce one assessment with a repeat history, not a pile of assessments.
+- Sources must send a stable key to benefit. Without one, behavior is unchanged.
+- Cross-source correlation (a Square status page posting about an assessment opened by our own Sumo alert) is a different problem, still open as #65.

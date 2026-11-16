@@ -35,7 +35,7 @@ def _open(assessment):
 
 @transaction.atomic
 def receive(*, title, source, signal, customer="", service="", supplier="", payload=None,
-            source_event_id=None, signal_at=None, actor="system", assignee=None):
+            source_event_id=None, signal_at=None, actor="system", assignee=None, correlation_key=""):
     """Source-scoped delivery dedupe lasts beyond closure: a retry is not a new signal."""
     payload = payload or {}
     identity = source_event_id or json.dumps(
@@ -46,7 +46,8 @@ def receive(*, title, source, signal, customer="", service="", supplier="", payl
         dedupe_key=dedupe,
         defaults={"number": numbering.next_number("ASM"), "title": title, "source": source,
                   "signal": signal, "payload": payload, "customer": customer, "service": service,
-                  "supplier": supplier, "signal_at": signal_at or timezone.now(), "assignee": assignee},
+                  "supplier": supplier, "signal_at": signal_at or timezone.now(), "assignee": assignee,
+                  "correlation_key": correlation_key},
     )
     if created:
         append(assessment, "signal_received", signal, actor,

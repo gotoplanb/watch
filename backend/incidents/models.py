@@ -763,6 +763,9 @@ class Assessment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     number = models.CharField(max_length=20, unique=True)
     dedupe_key = models.CharField(max_length=128, unique=True)
+    # ADR-059: the source's stable id for the condition (Sumo alert id, Uptime Robot monitor id).
+    # Unlike the dedupe key it spans events: a re-fire or a recovery finds this assessment by it.
+    correlation_key = models.CharField(max_length=256, blank=True, db_index=True)
     title = models.CharField(max_length=512)
     source = models.CharField(max_length=128)
     signal = models.TextField()

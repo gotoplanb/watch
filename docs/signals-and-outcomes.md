@@ -92,8 +92,8 @@ pointing at the likely root cause. *Today:* it opens new, separate assessments (
 
 **4. A synthetic check blips once and recovers within a minute.**
 A down webhook, then an up webhook. *Expected:* the down signal's diagnostics find no sustained
-impact → **closed · no issue**, with the recovery recorded as evidence. *Today:* the up webhook
-would open a second assessment (see gaps).
+impact → **closed · no issue**, with the recovery recorded as evidence. *Now:* the up webhook
+attaches to it as `signal_resolved` when both carry the same correlation key (ADR-059).
 
 **5. A customer emails "card payments failing since 9:40".**
 *Expected:* email-in maps the sender's domain to customer A and opens an A/checkout assessment
@@ -172,8 +172,8 @@ to come from Workspace.
 
 ## Gaps this catalog exposes
 
-1. **Recovery correlation** (#64): an "up"/"resolved" signal should attach to the open assessment it
-   resolves, not open a new one (scenario 4). Needs a correlation key alongside the dedupe key.
+1. **Recovery correlation** (#64): done in ADR-059. A `resolved` signal with the same correlation key
+   attaches to the open assessment and rechecks it (scenario 4).
 2. **Cross-signal correlation** (#65): a supplier signal arriving while a related assessment is open
    should be offered as evidence on it (scenario 3).
 3. **Maintenance windows** (#66): scheduled supplier or our own maintenance should suppress or annotate
@@ -182,9 +182,8 @@ to come from Workspace.
 5. **Vendor adapters** (#69): Alertmanager, status page and any monitor that can't template our schema.
 6. **Monitor silence** (#68): detecting that a monitoring source has stopped reporting (scenario 7).
 7. **`http` diagnostic provider** (#70): on-demand verification of a supplier endpoint (D1).
-8. **Monitoring rechecks** (#67): a "monitoring" assessment is never rechecked automatically, and it
-   doesn't close when the supplier recovers (scenario 1). It needs a recheck interval in the
-   policy, or recovery correlation (gap 1).
+8. **Monitoring rechecks** (#67): a recovery signal now triggers a recheck (ADR-059). A timed recheck
+   is still needed for conditions that never report recovery (scenario 1).
 
 Gaps 1–3, 5–8 and the email parser can all be built and tested locally. The SES transport and
 provider accounts are `cloud` work.

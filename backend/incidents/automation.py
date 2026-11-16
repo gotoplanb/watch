@@ -31,18 +31,80 @@ def schedule(assessment):
     return True
 
 
-def receive_signal(**data):
-    """Fan supplier notices into independently evidenced customer/service assessments."""
+SIGNALS_ACTOR = "system:signals"
+ACTIVE, RESOLVED = "active", "resolved"
+
+
+def correlated(source, correlation_key):
+    """Assessments still being worked for this condition: open ones, and promoted ones whose
+    incident is still open. Fan-out shares one key, so a supplier recovery reaches every scope."""
+    still_open = ~Q(status__in=CLOSED_STATUSES) | Q(status="promoted", incident__status="OPEN")
+    return list(Assessment.objects.filter(still_open, source=source, correlation_key=correlation_key)
+                .select_related("incident").order_by("created_at"))
+
+
+def _recheck(row):
+    """Rerun the policy's checks so our own telemetry, not the monitor's recovery, decides."""
+    policy = policy_for(row)
+    if row.status in CLOSED_STATUSES or policy is None or row.automation_state in {"queued", "running"}:
+        return False
+    row.automation_state, row.automation_policy = "queued", policy
+    row.save(update_fields=["automation_state", "automation_policy", "updated_at"])
+    return True
+
+
+def _attach(row, state, data):
+    """Record a re-fire or recovery on an assessment already working this condition (ADR-059)."""
+    event_id = data.get("source_event_id") or ""
+    if event_id and row.history.filter(data__source_event_id=event_id).exists():
+        return  # a retried delivery of the same event
+    resolved = state == RESOLVED
+    note = data["signal"]
+    if resolved and row.status == "promoted":
+        note += f"\n[Source reports recovery. {row.incident.number} stays open until a responder resolves it.]"
+    assessments.append(row, "signal_resolved" if resolved else "signal_repeated", note, SIGNALS_ACTOR,
+                       {"source_event_id": event_id, "correlation_key": row.correlation_key,
+                        "state": state, "payload": data.get("payload") or {}})
+    if resolved and _recheck(row):
+        assessments.append(row, "recheck_requested",
+                           "Rechecking with the policy's diagnostics before any disposition.", SIGNALS_ACTOR)
+    row.save(update_fields=["updated_at"])
+
+
+@transaction.atomic
+def correlate(*, correlation_key, state, **data):
+    """A signal for a condition we're already assessing attaches to it instead of opening another.
+    Returns the rows it attached to; a recovery with nothing open opens nothing."""
+    rows = [Assessment.objects.select_for_update().get(pk=row.pk)
+            for row in correlated(data["source"], correlation_key)]
+    for row in rows:
+        _attach(row, state, data)
+    return rows
+
+
+def _scopes(data):
+    """The customer/service pairs a signal concerns: a supplier's dependents (narrowed by any scope
+    the signal names), else the signal's own scope."""
     supplier = data.get("supplier", "")
-    dependencies = ServiceDependency.objects.filter(active=True, supplier=supplier) if supplier else []
-    if supplier:
-        if data.get("customer"):
-            dependencies = dependencies.filter(customer=data["customer"])
-        if data.get("service"):
-            dependencies = dependencies.filter(service=data["service"])
-    scopes = [(d.customer, d.service) for d in dependencies] or [(data.get("customer", ""), data.get("service", ""))]
+    if not supplier:
+        return [(data.get("customer", ""), data.get("service", ""))]
+    dependencies = ServiceDependency.objects.filter(active=True, supplier=supplier)
+    for key in ("customer", "service"):
+        if data.get(key):
+            dependencies = dependencies.filter(**{key: data[key]})
+    return [(d.customer, d.service) for d in dependencies] or [(data.get("customer", ""), data.get("service", ""))]
+
+
+def receive_signal(*, correlation_key="", state=ACTIVE, **data):
+    """Fan supplier notices into independently evidenced customer/service assessments. With a
+    correlation key, a re-fire or recovery of a condition already being assessed attaches to it."""
+    if correlation_key:
+        attached = correlate(correlation_key=correlation_key, state=state, **data)
+        if attached or state == RESOLVED:
+            return [(row, False) for row in attached]
+    data["correlation_key"] = correlation_key
     results = []
-    for customer, service in scopes:
+    for customer, service in _scopes(data):
         scoped = {**data, "customer": customer, "service": service}
         if data.get("source_event_id"):
             scoped["source_event_id"] = f"{data['source_event_id']}:{customer}:{service}"

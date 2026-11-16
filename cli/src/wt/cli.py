@@ -101,6 +101,13 @@ def _parser():
             sig.add_argument(f"--{field}", default="")
         sig.add_argument("--event-id", default="")
         sig.add_argument("--payload", default="{}", type=json.loads)
+        sig.add_argument("--key", default="",
+                         help="Correlation key: the source's stable id for the condition (e.g. the "
+                         "monitor id). A re-fire or recovery with the same key "
+                         "attaches to the assessment already working it (ADR-059).")
+        sig.add_argument("--resolved", action="store_true",
+                         help="The source reports recovery. Opens nothing; rechecks the open "
+                         "assessment with our own diagnostics, and never resolves an incident.")
 
     email = sub.add_parser("email-in", help="Deliver a raw email (.eml) as inbound mail (ADR-058).",
                            description="Posts the message to /api/email/inbound exactly as the SES "
@@ -279,11 +286,14 @@ def run(args, client: Api):
 def _signal(args, client):
     body = {"title": args.title, "signal": args.signal, "source": args.source,
             "customer": args.customer, "service": args.service, "supplier": args.supplier,
-            "source_event_id": args.event_id, "payload": args.payload}
+            "source_event_id": args.event_id, "payload": args.payload,
+            "correlation_key": args.key, "state": "resolved" if args.resolved else "active"}
     path = "assessments/intake" if args.command == "assess" else "signals/intake"
     reply = client.webhook(path, body)
     rows = [reply] if args.command == "assess" else reply["assessments"]
     def human(_):
+        if "outcome" in reply:
+            print(f"{reply['outcome']}")
         for row in rows:
             print(_assessment_line(row) + ("" if row["created"] else "  (existing)"))
 
