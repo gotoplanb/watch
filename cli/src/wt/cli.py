@@ -7,6 +7,13 @@
   wt --as t2a wait INC-0042 --tier T2
   wt --as t2a show INC-0042               detail + transitions
   wt --as t1a show ASM-0007               an assessment + its history
+  wt --as t1a new "checkout errors" --signal "5xx up" --customer "Example Gateway"
+  wt --as t1a note ASM-0024 "dashboards: https://…" --photo shot.png
+  wt --as t1a do ASM-0024 conclusion verdict=degraded confidence=high reason="5xx 4%"
+  wt --as t1a do ASM-0024 promote reason="customer impact"
+  wt --as t1a comm <id> send              edit / send / suppress a communication
+  wt --as t3a sme-respond <id> ack
+  wt --as t1a rca ASM-0024                the RCA as markdown
   wt --as admin api incidents/?current_tier=T3
   wt --as t1a api -X POST incidents/INC-0042/ack/ -d '{"reason": "x"}'
 
@@ -39,8 +46,8 @@ class Api:
     def get(self, path):
         return request("GET", self.url(path), headers=self._headers())
 
-    def send(self, method, path, body=None):
-        return request(method, self.url(path), body=body, headers=self._headers())
+    def send(self, method, path, body=None, files=None):
+        return request(method, self.url(path), body=body, files=files, headers=self._headers())
 
     def webhook(self, path, body):
         secret = {"X-Watch-Webhook-Secret": config.webhook_secret(self.server)}
@@ -101,11 +108,88 @@ def _parser():
     wait.add_argument("--timeout", type=float, default=60)
     wait.add_argument("--interval", type=float, default=1)
 
+    _workspace_parsers(sub)
+
     api = sub.add_parser("api", help="Any /api/ path, raw.")
     api.add_argument("-X", dest="method", default="GET")
     api.add_argument("-d", dest="data", type=json.loads, help="JSON body")
     api.add_argument("path")
     return p
+
+
+def _workspace_parsers(sub):
+    pairs_help = "key=value fields (JSON values parse; key=@file uploads; repeat a key for a list)"
+    new = sub.add_parser("new", help="Open an assessment by hand, owned by you.")
+    new.add_argument("title")
+    new.add_argument("--signal", required=True)
+    new.add_argument("--source", default="operator",
+                     choices=["operator", "customer", "supplier", "monitor"])
+    for field in ("customer", "service", "supplier"):
+        new.add_argument(f"--{field}", default="")
+
+    do = sub.add_parser("do", help="Any workspace action on an assessment (see `wt do -h`).",
+                        description="Actions: " + ", ".join(WORKSPACE_ACTIONS))
+    do.add_argument("number")
+    do.add_argument("action", choices=WORKSPACE_ACTIONS, metavar="ACTION")
+    do.add_argument("pairs", nargs="*", help=pairs_help)
+
+    note = sub.add_parser("note", help="Add a note (and photos) to an assessment's history.")
+    note.add_argument("number")
+    note.add_argument("body", nargs="?", default="")
+    note.add_argument("--photo", action="append", default=[], help="Image file; repeatable.")
+
+    for name, what in (("comms", "Communications"), ("sme", "Specialist engagements"),
+                       ("remediations", "Corrective actions"), ("rca", "The RCA (markdown)")):
+        sub.add_parser(name, help=f"{what} for an assessment.").add_argument("number")
+
+    comm = sub.add_parser("comm", help="Show a communication, or edit / send / suppress it.")
+    comm.add_argument("id")
+    comm.add_argument("verb", nargs="?", choices=["edit", "send", "suppress"])
+    comm.add_argument("pairs", nargs="*",
+                      help=pairs_help + "; expected_version defaults to current")
+
+    respond = sub.add_parser("sme-respond", help="As the paged specialist: ack or complete.")
+    respond.add_argument("id")
+    respond.add_argument("verb", choices=["ack", "complete"])
+    respond.add_argument("--body", default="", help="What you did (needed to complete).")
+
+    fix = sub.add_parser("remediation", help="Update a corrective action: state=… verification=…")
+    fix.add_argument("id")
+    fix.add_argument("pairs", nargs="+", help=pairs_help)
+
+    report = sub.add_parser("report", help="Assessment/incident reporting summary.")
+    report.add_argument("--days", type=int, default=30)
+    for name, what in (("outbox", "Locally delivered communications."),
+                       ("rules", "Saved diagnostic checks (ids for `do … query rule=ID`)."),
+                       ("areas", "Specialist subject areas (ids for `do … engage area=ID`).")):
+        sub.add_parser(name, help=what)
+
+
+WORKSPACE_ACTIONS = ["comment", "evidence", "conclusion", "monitor", "no_issue", "promote", "email",
+                     "operation", "attachment", "query", "engage", "curate", "rca", "remediation",
+                     "context", "claim", "retry_automation", "retry_engine"]
+
+
+def pairs(items) -> tuple[dict, dict]:
+    """`key=value` → fields (JSON-parsed when it parses), `key=@path` → files to upload."""
+    fields, files = {}, {}
+    for item in items:
+        key, sep, value = item.partition("=")
+        if not sep:
+            raise SystemExit(f"wt: expected key=value, got {item!r}")
+        if value.startswith("@"):
+            files.setdefault(key, []).append(value[1:])
+            continue
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = value
+        if key in fields:
+            previous = fields[key] if isinstance(fields[key], list) else [fields[key]]
+            fields[key] = [*previous, parsed]
+        else:
+            fields[key] = parsed
+    return fields, files
 
 
 def main(argv=None) -> int:
@@ -171,6 +255,9 @@ def run(args, client: Api):
             return _signal(args, client)
         case "wait":
             return _wait(args, client)
+        case "new" | "do" | "note" | "comms" | "sme" | "remediations" | "rca" | "comm" \
+                | "sme-respond" | "remediation" | "report" | "outbox" | "rules" | "areas":
+            return _workspace(args, client)
         case "api":
             reply = client.send(args.method.upper(), args.path, args.data)
             print(json.dumps(reply, indent=2) if not isinstance(reply, str) else reply)
@@ -228,8 +315,7 @@ def _show(args, client):
             if assessment.get(key) not in (None, ""):
                 print(f"  {key:16} {assessment[key]}")
         for event in history:
-            print(f"  {event['occurred_at'][:19]}  {event['kind']:22} {event['actor']}: "
-                  f"{(event['body'] or '').splitlines()[0] if event['body'] else ''}")
+            print(_event_line(event))
         return
     incident = client.get(f"incidents/{args.number}/")
     if args.json:
@@ -261,3 +347,95 @@ def _wait(args, client):
                   file=sys.stderr)
             return 2
         time.sleep(args.interval)
+
+
+# --- the assessment workspace (ADR-056) ----------------------------------------------------------
+
+def _event_line(event) -> str:
+    first = (event.get("body") or "").splitlines()[0] if event.get("body") else ""
+    who = event.get("actor_name") or event["actor"]
+    return f"  #{event['id']:<5} {event['occurred_at'][:19]}  {event['kind']:22} {who}: {first}"
+
+
+def _print_action(result):
+    for event in result["events"]:
+        print(_event_line(event))
+    incident = f" -> {result['incident']}" if result.get("incident") else ""
+    print(f"{result['assessment']} {result['status']}{incident}")
+
+
+def _comm_line(c) -> str:
+    return (f"{c['id']}  {c['state']:10} v{c['revision']}  {c['subject']}  "
+            f"-> {', '.join(c['recipients'])}")
+
+
+def _print_rows(rows, line, empty):
+    if not rows:
+        print(empty)
+    for row in rows:
+        print(line(row))
+
+
+def _act(args, client, action, fields, files=None):
+    path = f"assessments/{args.number}/actions/{action}/"
+    _out(args, client.send("POST", path, fields, files), _print_action)
+
+
+def _comm(args, client):
+    path = f"communications/{args.id}/"
+    if not args.verb:
+        _out(args, client.get(path), lambda c: (print(_comm_line(c)), print(), print(c["body"])))
+        return
+    fields, _ = pairs(args.pairs)
+    if "expected_version" not in fields:  # what the page would have rendered
+        fields["expected_version"] = client.get(path)["revision"]
+    _out(args, client.send("POST", f"{path}{args.verb}/", fields), lambda c: print(_comm_line(c)))
+
+
+SIMPLE_LISTS = {
+    "comms": ("assessments/{}/communications/", _comm_line, "No communications."),
+    "sme": ("assessments/{}/engagements/",
+            lambda e: f"{e['id']}  {e['state']:12} {e['target'] or e['area']}  {e['reason']}",
+            "No specialist engagements."),
+    "remediations": ("assessments/{}/remediations/",
+                     lambda t: f"{t['id']}  {t['state']:12} {t['owner']:8} due {t['due_date']}"
+                               f"  {t['title']}", "No corrective actions."),
+    "outbox": ("outbox/", lambda r: f"{r['delivered_at'][:19]}  {r['assessment']}  v{r['version']}"
+                                    f"  {r['subject']}", "Outbox is empty."),
+    "rules": ("diagnostic-rules/", lambda r: f"{r['id']:4} {r['provider']:10} {r['name']}",
+              "No saved checks."),
+    "areas": ("subject-areas/", lambda a: f"{a['id']:4} {a['name']}  ({', '.join(a['members'])})",
+              "No subject areas."),
+}
+
+
+def _workspace(args, client):
+    command = args.command
+    if command in SIMPLE_LISTS:
+        path, line, empty = SIMPLE_LISTS[command]
+        rows = client.get(path.format(getattr(args, "number", "")))
+        _out(args, rows, lambda r: _print_rows(r, line, empty))
+    elif command == "new":
+        body = {k: getattr(args, k) for k in ("title", "signal", "source", "customer", "service",
+                                              "supplier")}
+        _out(args, client.send("POST", "assessments/", body), lambda a: print(_assessment_line(a)))
+    elif command == "do":
+        fields, files = pairs(args.pairs)
+        _act(args, client, args.action, fields, files)
+    elif command == "note":
+        photos = {"photos": args.photo} if args.photo else None
+        _act(args, client, "comment", {"body": args.body}, photos)
+    elif command == "comm":
+        _comm(args, client)
+    elif command == "sme-respond":
+        reply = client.send("POST", f"engagements/{args.id}/respond/",
+                            {"action": args.verb, "body": args.body})
+        _out(args, reply, lambda e: print(f"{e['id']}  {e['state']}"))
+    elif command == "remediation":
+        reply = client.send("POST", f"remediations/{args.id}/", pairs(args.pairs)[0])
+        _out(args, reply, lambda t: print(f"{t['id']}  {t['state']}  {t['title']}"))
+    elif command == "rca":
+        _out(args, client.get(f"assessments/{args.number}/rca/"), lambda r: print(r["markdown"]))
+    elif command == "report":
+        report = client.get(f"reports/?days={args.days}")
+        print(json.dumps(report, indent=2))

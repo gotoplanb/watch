@@ -1,4 +1,5 @@
 import hmac
+import uuid
 
 from django.conf import settings
 from rest_framework import serializers, status, viewsets
@@ -7,9 +8,11 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import assessments, automation
+from . import assessments, automation, operations_api
+from .assessment_forms import SignalForm
 from .api_common import NumberLookupMixin, filtered
 from .models import Assessment
+from .permissions import user_tier_rank
 
 
 class SignalSerializer(serializers.Serializer):
@@ -48,12 +51,53 @@ class AssessmentViewSet(NumberLookupMixin, viewsets.ReadOnlyModelViewSet):
             qs = filtered(qs, self.request.query_params, ("status",))
         return qs
 
+    def create(self, request):
+        """A responder opens an assessment by hand, as /ui/assessments/new/ does (owned by them)."""
+        if user_tier_rank(request.user) < 0:
+            return Response({"detail": "A responder role is required to create assessments."},
+                            status=status.HTTP_403_FORBIDDEN)
+        data = {"source": "operator", "source_event_id": str(uuid.uuid4()), **request.data}
+        form = SignalForm(data)
+        if not form.is_valid():
+            return Response({"detail": "Check the fields.", "errors": form.errors.get_json_data()},
+                            status=status.HTTP_400_BAD_REQUEST)
+        fields = {**form.cleaned_data, "source_event_id": str(form.cleaned_data["source_event_id"])}
+        assessment, created = assessments.receive(**fields, actor=request.user.username,
+                                                  assignee=request.user)
+        if created:
+            automation.schedule(assessment)
+        return Response({**AssessmentSerializer(assessment).data, "created": created},
+                        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
     @action(detail=True, methods=["get"])
     def history(self, request, pk=None):
-        assessment = self.get_object()
-        return Response(list(assessment.history.values(
-            "id", "kind", "actor", "body", "data", "occurred_at", "recorded_at"
-        )))
+        return Response(operations_api.events_json(self.get_object().history.order_by("pk")))
+
+    @action(detail=True, methods=["post"], url_path=r"actions/(?P<name>[a-z_]+)")
+    def actions(self, request, pk=None, name=None):
+        """Any workspace action: comment, evidence, conclusion, monitor, no_issue, promote, email,
+        operation, attachment, query, engage, curate, rca, remediation, context, claim, retry_*."""
+        return operations_api.run_action(request, self.get_object(), name)
+
+    @action(detail=True, methods=["get"])
+    def communications(self, request, pk=None):
+        rows = self.get_object().communications.prefetch_related("revisions").order_by("created_at")
+        return Response([operations_api.communication_json(c) for c in rows])
+
+    @action(detail=True, methods=["get"])
+    def engagements(self, request, pk=None):
+        rows = self.get_object().engagements.select_related(
+            "target", "area", "requested_by", "acknowledged_by").order_by("paged_at")
+        return Response([operations_api.engagement_json(e) for e in rows])
+
+    @action(detail=True, methods=["get"])
+    def remediations(self, request, pk=None):
+        rows = self.get_object().remediations.select_related("owner").order_by("due_date")
+        return Response([operations_api.remediation_json(t) for t in rows])
+
+    @action(detail=True, methods=["get"])
+    def rca(self, request, pk=None):
+        return Response(operations_api.rca_json(self.get_object()))
 
 
 class AssessmentIntakeView(APIView):

@@ -1,6 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from . import operations_api
 from .api_common import MeView
 from .health import HealthView, StatusView, status_stream_view
 from .assessment_api import AssessmentIntakeView, AssessmentViewSet, SignalIntakeView
@@ -24,6 +25,17 @@ router.register("assessments", AssessmentViewSet, basename="assessment")
 urlpatterns = [
     path("", include(router.urls)),
     path("me", MeView.as_view(), name="me"),
+    # The assessment workspace beyond the assessment itself (ADR-056).
+    path("communications/<uuid:pk>/", operations_api.communication_detail, name="api-communication"),
+    path("communications/<uuid:pk>/<str:name>/", operations_api.communication_action,
+         name="api-communication-action"),
+    path("engagements/<uuid:pk>/respond/", operations_api.engagement_respond,
+         name="api-engagement-respond"),
+    path("remediations/<uuid:pk>/", operations_api.remediation_update, name="api-remediation"),
+    path("diagnostic-rules/", operations_api.diagnostic_rules, name="api-diagnostic-rules"),
+    path("subject-areas/", operations_api.subject_areas, name="api-subject-areas"),
+    path("outbox/", operations_api.outbox, name="api-outbox"),
+    path("reports/", operations_api.reports, name="api-reports"),
     path("intake/webhook", IntakeWebhookView.as_view(), name="intake-webhook"),
     path("assessments/intake", AssessmentIntakeView.as_view(), name="assessment-intake"),
     path("signals/intake", SignalIntakeView.as_view(), name="signal-intake"),

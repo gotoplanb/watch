@@ -32,7 +32,9 @@ def server(tmp_path, monkeypatch):
     class Handler(BaseHTTPRequestHandler):
         def _serve(self):
             length = int(self.headers.get("Content-Length") or 0)
-            body = json.loads(self.rfile.read(length)) if length else None
+            raw = self.rfile.read(length) if length else b""
+            is_json = self.headers.get("Content-Type", "").startswith("application/json")
+            body = json.loads(raw) if raw and is_json else (raw or None)
             fake.calls.append((self.command, self.path, dict(self.headers), body))
             status, reply = fake.replies.get((self.command, self.path), (404, {"detail": "nope"}))
             payload = json.dumps(reply).encode()
@@ -137,7 +139,8 @@ def test_show_incident_and_assessment(server, capsys):
     server.reply("GET", "/api/incidents/INC-0042/", body=INCIDENT)
     server.reply("GET", "/api/assessments/ASM-0007/", body=ASSESSMENT)
     server.reply("GET", "/api/assessments/ASM-0007/history/", body=[
-        {"occurred_at": "2026-11-16T10:00:00Z", "kind": "note", "actor": "t1a", "body": "a\nb"}])
+        {"id": 9, "occurred_at": "2026-11-16T10:00:00Z", "kind": "note", "actor": "t1a",
+         "body": "a\nb"}])
     cli.main(["--as", "t1a", "show", "INC-0042"])
     cli.main(["--as", "t1a", "show", "asm-0007"])
     out = capsys.readouterr().out
@@ -178,3 +181,94 @@ def test_server_names(monkeypatch):
     with pytest.raises(SystemExit):
         config.server_url("bogus")
     assert config.webhook_secret("http://localhost:8010") == config.LOCAL_WEBHOOK_SECRET
+
+
+# --- workspace commands ---------------------------------------------------------------------------
+
+RESULT = {"assessment": "ASM-0007", "status": "promoted", "incident": "INC-0042",
+          "events": [{"id": 5, "kind": "incident_promoted", "actor": "t1a", "actor_name": "t1a",
+                      "body": "Promoted", "occurred_at": "2026-11-16T10:00:00Z"}]}
+COMM = {"id": "c-1", "state": "review", "revision": 2, "subject": "Update", "body": "Hello",
+        "recipients": ["ops@example.test"]}
+
+
+def test_pairs_parse_json_lists_and_files():
+    fields, files = cli.pairs(["a=1", "b=true", "c=hello world", "s=1", "s=2", "f=@x.png"])
+    assert fields == {"a": 1, "b": True, "c": "hello world", "s": [1, 2]}
+    assert files == {"f": ["x.png"]}
+    with pytest.raises(SystemExit, match="key=value"):
+        cli.pairs(["oops"])
+
+
+def test_do_posts_fields_and_prints_new_events(server, capsys):
+    server.reply("POST", "/api/assessments/ASM-0007/actions/promote/", body=RESULT)
+    assert cli.main(["--as", "t1a", "do", "asm-0007", "promote", "reason=impact"]) == 0
+    assert server.calls[0][3] == {"reason": "impact"}
+    out = capsys.readouterr().out
+    assert "#5" in out and "incident_promoted" in out
+    assert "ASM-0007 promoted -> INC-0042" in out
+
+
+def test_note_uploads_photos_as_multipart(server, tmp_path):
+    photo = tmp_path / "shot.png"
+    photo.write_bytes(b"\x89PNG\r\n\x1a\nexample")
+    path = "/api/assessments/ASM-0007/actions/comment/"
+    server.reply("POST", path, body={**RESULT, "events": []})
+    assert cli.main(["--as", "t1a", "note", "ASM-0007", "look", "--photo", str(photo)]) == 0
+    _, _, headers, body = server.calls[0]
+    assert headers["Content-Type"].startswith("multipart/form-data; boundary=")
+    assert b'name="photos"; filename="shot.png"' in body and b"look" in body
+
+
+def test_new_assessment(server, capsys):
+    server.reply("POST", "/api/assessments/", 201, ASSESSMENT)
+    cli.main(["--as", "t1a", "new", "latency", "--signal", "p99", "--customer", "acme"])
+    assert server.calls[0][3]["customer"] == "acme"
+    assert "ASM-0007" in capsys.readouterr().out
+
+
+def test_comm_show_and_send_with_current_version(server, capsys):
+    server.reply("GET", "/api/communications/c-1/", body=COMM)
+    server.reply("POST", "/api/communications/c-1/send/", body={**COMM, "state": "sent"})
+    cli.main(["--as", "t1a", "comm", "c-1"])
+    cli.main(["--as", "t1a", "comm", "c-1", "send"])
+    assert server.calls[-1][3] == {"expected_version": 2}
+    out = capsys.readouterr().out
+    assert "Hello" in out and "sent" in out
+
+
+def test_lists_and_rca(server, capsys):
+    server.reply("GET", "/api/assessments/ASM-0007/communications/", body=[COMM])
+    server.reply("GET", "/api/assessments/ASM-0007/engagements/", body=[])
+    server.reply("GET", "/api/assessments/ASM-0007/rca/", body={"markdown": "# RCA — ASM-0007"})
+    server.reply("GET", "/api/subject-areas/", body=[{"id": 1, "name": "Pay", "members": ["t3a"]}])
+    for argv in (["comms", "ASM-0007"], ["sme", "ASM-0007"], ["rca", "ASM-0007"], ["areas"]):
+        assert cli.main(["--as", "t1a", *argv]) == 0
+    out = capsys.readouterr().out
+    assert "c-1  review" in out and "No specialist engagements." in out
+    assert "# RCA — ASM-0007" in out and "Pay  (t3a)" in out
+
+
+def test_sme_respond_remediation_and_report(server, capsys):
+    acked = {"id": "g-1", "state": "acknowledged"}
+    server.reply("POST", "/api/engagements/g-1/respond/", body=acked)
+    server.reply("POST", "/api/remediations/r-1/", body={"id": "r-1", "state": "done",
+                                                         "title": "x"})
+    server.reply("GET", "/api/reports/?days=7", body={"days": 7})
+    config.set_key(server.url, "t3a", "wm_3_x")
+    cli.main(["--as", "t3a", "sme-respond", "g-1", "ack"])
+    cli.main(["--as", "t3a", "remediation", "r-1", "state=done"])
+    cli.main(["--as", "t3a", "report", "--days", "7"])
+    assert server.calls[0][3] == {"action": "ack", "body": ""}
+    assert server.calls[1][3] == {"state": "done"}
+    out = capsys.readouterr().out
+    assert "acknowledged" in out and '"days": 7' in out
+
+
+def test_error_lists_form_fields_and_html_titles():
+    from wt.http import ApiError
+    err = ApiError(400, {"detail": "Check the fields.",
+                         "errors": {"verdict": [{"message": "Not a choice."}]}})
+    assert "verdict: Not a choice." in str(err)
+    assert str(ApiError(404, "<html><title>Page not found</title></html>")) == \
+        "HTTP 404: Page not found"
