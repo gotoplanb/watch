@@ -150,3 +150,22 @@ def test_concurrent_due_engine_retries_do_not_double_attempt_or_append_failures(
     assert len(calls) == row.engine_start_failures == 2
     assert row.engine_start_retry_at > timezone.now()
     assert row.history.filter(kind="escalation_start_failed").count() == 1
+
+
+def test_upload_and_email_intake_open_their_own_transactions():
+    """Regression: upload() and email intake take select_for_update locks, so each must open its own
+    transaction, as a real request has none. SQLite ignores the lock, so only Postgres catches it."""
+    from django.contrib.auth.models import Group, User
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from incidents import email_intake, operations
+
+    row = assessments.receive(title="t", source="monitor", signal="s")[0]
+    user = User.objects.create_user("t1-upload")
+    user.groups.add(Group.objects.get_or_create(name="T1")[0])
+    item = operations.upload(row.pk, user=user, file=SimpleUploadedFile("n.txt", b"note"),
+                             description="")
+    assert item.content_type == "text/plain"
+    raw = (b"From: a@customer.example\r\nSubject: Re [" + row.number.encode() +
+           b"]\r\nMessage-ID: <i1@customer.example>\r\n\r\nstill broken")
+    assert email_intake.receive(raw).outcome == "reply"

@@ -49,8 +49,8 @@ outcome is named.
 | **Synthetic check on our endpoints** | Uptime Robot (or similar) webhook | `POST /api/signals/intake` | monitor id + down-event time | service | Works if the vendor can template the body and send our secret header. |
 | **Synthetic check on a supplier** (e.g. Square API) | Uptime Robot webhook | `POST /api/signals/intake` with `supplier=Square` | monitor id + down-event time | supplier → fans out | Works. Fan-out needs `ServiceDependency` rows. |
 | **Supplier status page** (Square, GitHub) | The status page's webhook or email subscription | `signals/intake` (webhook) or email-in | incident id from the status page | supplier → fans out | Webhook: an adapter. Email: needs email-in. |
-| **Email from a person** (customer, supplier, colleague) | Today an address hosted by ServiceNow | none | `Message-ID` | sender → customer; subject/body → signal | **Gap: email-in.** |
-| **Reply to a Watch email** | email | none | `In-Reply-To` / `[ASM-0025]` token | the existing assessment | **Gap: email-in threading.** |
+| **Email from a person** (customer, supplier, colleague) | Today an address hosted by ServiceNow; SES on a subdomain later (#72) | `POST /api/email/inbound` (raw message) | `Message-ID` | `EmailRoute`: sender address or domain → customer/service/supplier | Parser works locally (`wt email-in`); the SES transport is still to come. |
+| **Reply to a Watch email** | email | `POST /api/email/inbound` | `In-Reply-To` / `References` / `[ASM-0025]` token | the existing assessment | Works locally. |
 | **Operator by hand** | UI or `wt new` | `POST /api/assessments/` | generated | whatever they enter | Works. |
 | **Public status-page report** | Anonymous form (ADR-027) | `/api/report/incident` | rate-limited | none | Works. |
 | **Session check** | Webhook (ADR-022) | `/api/checks/webhook` | check id | user session | Works. |

@@ -47,9 +47,9 @@ def record_action(pk, *, user, kind, body, selected=()):
                               {"evidence_ids": evidence_ids(row, selected), "execution": "operator_recorded"})
 
 
-@transaction.atomic
-def upload(pk, *, user, file, description, images_only=False, record_event=True):
-    row = lock_case(pk, user, participant=True)
+def validate_evidence(file, *, images_only=False):
+    """Read and type-check an evidence file by its content, not its name. Returns
+    (content, content_type, safe filename); raises ValueError for anything we don't keep."""
     content = file.read(5 * 1024 * 1024 + 1)
     if not content or len(content) > 5 * 1024 * 1024:
         raise ValueError("Evidence files must be nonempty and at most 5 MB.")
@@ -68,6 +68,13 @@ def upload(pk, *, user, file, description, images_only=False, record_event=True)
     if images_only and content_type not in {"image/png", "image/jpeg", "image/webp"}:
         raise ValueError("Photos must be PNG, JPEG or WebP images.")
     filename = re.sub(r"[^A-Za-z0-9_. -]", "_", file.name.replace("\\", "/").split("/")[-1])[:255] or "evidence"
+    return content, content_type, filename
+
+
+@transaction.atomic
+def upload(pk, *, user, file, description, images_only=False, record_event=True):
+    row = lock_case(pk, user, participant=True)
+    content, content_type, filename = validate_evidence(file, images_only=images_only)
     attachment = EvidenceAttachment.objects.create(
         assessment=row, uploaded_by=user, filename=filename, content_type=content_type,
         sha256=hashlib.sha256(content).hexdigest(), content=content,

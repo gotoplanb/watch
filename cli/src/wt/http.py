@@ -53,11 +53,15 @@ def multipart(fields: dict, files: dict[str, list[str]]) -> tuple[bytes, str]:
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
-def request(method: str, url: str, *, body=None, files=None, headers=None, timeout: float = 30):
-    """Send JSON (or multipart when files are given); return the decoded reply. Raises ApiError."""
+def request(method: str, url: str, *, body=None, files=None, raw=None, headers=None,
+            timeout: float = 30):
+    """Send JSON, multipart (files) or raw bytes (`raw=(bytes, content_type)`); return the decoded
+    reply. Raises ApiError."""
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})}
     data = None
-    if files:
+    if raw is not None:
+        data, headers["Content-Type"] = raw
+    elif files:
         data, headers["Content-Type"] = multipart(body or {}, files)
     elif body is not None:
         data = json.dumps(body).encode()

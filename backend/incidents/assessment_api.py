@@ -4,15 +4,25 @@ import uuid
 from django.conf import settings
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ParseError
+from rest_framework.parsers import BaseParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import assessments, automation, operations_api
+from . import assessments, automation, email_intake, operations_api
 from .assessment_forms import SignalForm
 from .api_common import NumberLookupMixin, filtered
 from .models import Assessment
 from .permissions import user_tier_rank
+
+
+def _secret_denied(request):
+    """The intake shared-secret check (ADR-008: machine-to-machine, not a user session)."""
+    secret = request.headers.get("X-Watch-Webhook-Secret", "")
+    if settings.INTAKE_WEBHOOK_SECRET and hmac.compare_digest(secret, settings.INTAKE_WEBHOOK_SECRET):
+        return None
+    return Response({"detail": "Invalid webhook secret."}, status=status.HTTP_401_UNAUTHORIZED)
 
 
 class SignalSerializer(serializers.Serializer):
@@ -105,9 +115,8 @@ class AssessmentIntakeView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        secret = request.headers.get("X-Watch-Webhook-Secret", "")
-        if not settings.INTAKE_WEBHOOK_SECRET or not hmac.compare_digest(secret, settings.INTAKE_WEBHOOK_SECRET):
-            return Response({"detail": "Invalid webhook secret."}, status=status.HTTP_401_UNAUTHORIZED)
+        if (denied := _secret_denied(request)) is not None:
+            return denied
         serializer = SignalSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         assessment, created = assessments.receive(**serializer.validated_data)
@@ -119,11 +128,44 @@ class AssessmentIntakeView(APIView):
 
 class SignalIntakeView(AssessmentIntakeView):
     def post(self, request):
-        secret = request.headers.get("X-Watch-Webhook-Secret", "")
-        if not settings.INTAKE_WEBHOOK_SECRET or not hmac.compare_digest(secret, settings.INTAKE_WEBHOOK_SECRET):
-            return Response({"detail": "Invalid webhook secret."}, status=status.HTTP_401_UNAUTHORIZED)
+        if (denied := _secret_denied(request)) is not None:
+            return denied
         serializer = SignalSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         rows = automation.receive_signal(**serializer.validated_data)
         return Response({"assessments": [{**AssessmentSerializer(row).data, "created": created} for row, created in rows]},
                         status=201 if any(created for _, created in rows) else 200)
+
+
+class RawEmailParser(BaseParser):
+    """`message/rfc822` bodies arrive as bytes. Read straight from the stream, so the email's own
+    size cap applies instead of DATA_UPLOAD_MAX_MEMORY_SIZE (attachments can reach 8 × 5 MB)."""
+    media_type = "message/rfc822"
+    max_bytes = 45 * 1024 * 1024
+
+    def parse(self, stream, media_type=None, parser_context=None):
+        raw = stream.read(self.max_bytes + 1) if stream else b""
+        if len(raw) > self.max_bytes:
+            raise ParseError("Email is larger than 45 MB.")
+        return raw
+
+
+class EmailIntakeView(APIView):
+    """Inbound email (ADR-058): the raw message as `message/rfc822`, behind the intake secret. The SES
+    receipt Lambda posts here in the cloud; `wt email-in` does locally."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    parser_classes = [RawEmailParser]
+
+    def post(self, request):
+        if (denied := _secret_denied(request)) is not None:
+            return denied
+        if not isinstance(request.data, bytes) or not request.data.strip():
+            return Response({"detail": "Send the raw message as message/rfc822."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        result = email_intake.receive(request.data)
+        created = any(c for _, c in result.assessments)
+        return Response({
+            "outcome": result.outcome, "reason": result.reason,
+            "assessments": [{**AssessmentSerializer(row).data, "created": c} for row, c in result.assessments],
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)

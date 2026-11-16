@@ -31,6 +31,7 @@ wt --as t2a wait INC-0042 --tier T3 --timeout 120
 wt --as t2a show INC-0042                  # detail + transitions
 wt assess "p99 latency" --signal "p99 > 2s" --customer "Example Gateway"
 wt signal "p99 latency" --signal "p99 > 2s"   # through the routing policies
+wt email-in message.eml                    # inbound email, as SES will deliver it (ADR-058)
 wt --as t1a assessments --status investigating
 wt --as t1a show ASM-0007                  # assessment + its history
 wt --as admin api incidents/?current_tier=T3

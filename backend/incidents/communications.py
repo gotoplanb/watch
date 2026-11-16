@@ -163,8 +163,8 @@ def message_bytes(receipt):
     message = EmailMessage()
     message["Subject"] = revision.subject
     message["To"] = ", ".join(revision.recipients)
-    message["From"] = "watch@local.example.test"
-    message["Message-ID"] = f"<{receipt.pk}@local.example.test>"
+    message["From"] = f"watch@{settings.WATCH_EMAIL_DOMAIN}"
+    message["Message-ID"] = f"<{receipt.pk}@{settings.WATCH_EMAIL_DOMAIN}>"
     message["X-Watch-Delivery"] = "local-outbox"
     message.set_content(revision.body + "\n\nLocal delivery preview. No external email was transmitted.")
     return message.as_bytes()

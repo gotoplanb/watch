@@ -5,6 +5,7 @@ from django.contrib.auth.models import User
 from . import session_index
 
 from .models import (
+    EmailRoute,
     Annotation,
     ErrorSpan,
     Incident,
@@ -133,6 +134,12 @@ def force_sign_out(modeladmin, request, queryset):
     """Superuser force-logout (ADR-008): revoke every session of the selected users."""
     total = sum(session_index.flush(user) for user in queryset)
     modeladmin.message_user(request, f"Signed out {total} session(s) across {queryset.count()} user(s).")
+
+
+@admin.register(EmailRoute)
+class EmailRouteAdmin(admin.ModelAdmin):
+    list_display = ("sender", "customer", "service", "supplier", "active")
+    search_fields = ("sender", "customer", "supplier")
 
 
 admin.site.unregister(User)

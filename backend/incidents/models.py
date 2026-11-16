@@ -1046,3 +1046,24 @@ class OperationsHeartbeat(models.Model):
     name = models.CharField(max_length=32, primary_key=True)
     last_tick = models.DateTimeField(default=timezone.now)
     detail = models.JSONField(default=dict)
+
+
+class EmailRoute(models.Model):
+    """Who an inbound email is from, in Watch's terms (ADR-058). `sender` is an exact address
+    (alice@customer.example) or a whole domain (customer.example); an exact address wins. The scope
+    lands on the assessment the same way a webhook's customer/service/supplier fields do, so a
+    supplier's mail fans out through ServiceDependency like any supplier signal."""
+    sender = models.CharField(max_length=254, unique=True)
+    customer = models.CharField(max_length=128, blank=True)
+    service = models.CharField(max_length=128, blank=True)
+    supplier = models.CharField(max_length=128, blank=True)
+    active = models.BooleanField(default=True)
+    note = models.CharField(max_length=512, blank=True)
+
+    def save(self, *args, **kwargs):
+        self.sender = self.sender.strip().lower().lstrip("@")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        scope = " / ".join(filter(None, [self.customer, self.service, self.supplier])) or "unscoped"
+        return f"{self.sender} → {scope}"

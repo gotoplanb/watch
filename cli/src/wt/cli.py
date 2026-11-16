@@ -14,6 +14,7 @@
   wt --as t1a comm <id> send              edit / send / suppress a communication
   wt --as t3a sme-respond <id> ack
   wt --as t1a rca ASM-0024                the RCA as markdown
+  wt email-in message.eml                 an inbound email, as SES would deliver it
   wt --as admin api incidents/?current_tier=T3
   wt --as t1a api -X POST incidents/INC-0042/ack/ -d '{"reason": "x"}'
 
@@ -25,6 +26,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 from . import __version__, config
 from .http import ApiError, request
@@ -49,9 +51,9 @@ class Api:
     def send(self, method, path, body=None, files=None):
         return request(method, self.url(path), body=body, files=files, headers=self._headers())
 
-    def webhook(self, path, body):
+    def webhook(self, path, body=None, raw=None):
         secret = {"X-Watch-Webhook-Secret": config.webhook_secret(self.server)}
-        return request("POST", self.url(path), body=body, headers=secret)
+        return request("POST", self.url(path), body=body, raw=raw, headers=secret)
 
 
 def _parser():
@@ -99,6 +101,13 @@ def _parser():
             sig.add_argument(f"--{field}", default="")
         sig.add_argument("--event-id", default="")
         sig.add_argument("--payload", default="{}", type=json.loads)
+
+    email = sub.add_parser("email-in", help="Deliver a raw email (.eml) as inbound mail (ADR-058).",
+                           description="Posts the message to /api/email/inbound exactly as the SES "
+                           "receipt Lambda will. The outcome is a new signal, a reply appended to "
+                           "the assessment it answers, or ignored (auto-reply, bounce, our own "
+                           "mail, a repeat) with the reason.")
+    email.add_argument("file", help="An .eml file, or - for stdin.")
 
     wait = sub.add_parser("wait", help="Poll an incident until every given condition holds.")
     wait.add_argument("number")
@@ -253,6 +262,10 @@ def run(args, client: Api):
                 _incident_line(i) + ("" if i["created"] else "  (existing, deduped)")))
         case "assess" | "signal":
             return _signal(args, client)
+        case "email-in":
+            raw = sys.stdin.buffer.read() if args.file == "-" else Path(args.file).read_bytes()
+            reply = client.webhook("email/inbound", raw=(raw, "message/rfc822"))
+            _out(args, reply, _print_email)
         case "wait":
             return _wait(args, client)
         case "new" | "do" | "note" | "comms" | "sme" | "remediations" | "rca" | "comm" \
@@ -275,6 +288,12 @@ def _signal(args, client):
             print(_assessment_line(row) + ("" if row["created"] else "  (existing)"))
 
     _out(args, reply, human)
+
+
+def _print_email(reply):
+    print(f"{reply['outcome']}: {reply['reason']}")
+    for row in reply["assessments"]:
+        print(_assessment_line(row) + ("" if row["created"] else "  (existing)"))
 
 
 def _incident_line(i) -> str:

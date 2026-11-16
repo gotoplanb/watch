@@ -272,3 +272,17 @@ def test_error_lists_form_fields_and_html_titles():
     assert "verdict: Not a choice." in str(err)
     assert str(ApiError(404, "<html><title>Page not found</title></html>")) == \
         "HTTP 404: Page not found"
+
+
+def test_email_in_posts_the_raw_message(server, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("WT_WEBHOOK_SECRET", "s")
+    eml = tmp_path / "m.eml"
+    eml.write_bytes(b"From: a@b.example\r\nSubject: hi\r\n\r\nbody")
+    server.reply("POST", "/api/email/inbound", 201, {"outcome": "signal", "reason": "new signal",
+                                                     "assessments": [ASSESSMENT]})
+    assert cli.main(["email-in", str(eml)]) == 0
+    _, _, headers, body = server.calls[0]
+    assert headers["Content-Type"] == "message/rfc822"
+    assert body == eml.read_bytes()
+    out = capsys.readouterr().out
+    assert "signal: new signal" in out and "ASM-0007" in out
