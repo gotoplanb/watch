@@ -58,7 +58,7 @@ def correlated(source, correlation_key):
                 .select_related("incident").order_by("created_at"))
 
 
-def _recheck(row):
+def recheck(row):
     """Rerun the policy's checks so our own telemetry, not the monitor's recovery, decides."""
     policy = policy_for(row)
     if row.status in CLOSED_STATUSES or policy is None or row.automation_state in {"queued", "running"}:
@@ -80,7 +80,7 @@ def _attach(row, state, data):
     assessments.append(row, "signal_resolved" if resolved else "signal_repeated", note, SIGNALS_ACTOR,
                        {"source_event_id": event_id, "correlation_key": row.correlation_key,
                         "state": state, "payload": data.get("payload") or {}})
-    if resolved and _recheck(row):
+    if resolved and recheck(row):
         assessments.append(row, "recheck_requested",
                            "Rechecking with the policy's diagnostics before any disposition.", SIGNALS_ACTOR)
     row.save(update_fields=["updated_at"])

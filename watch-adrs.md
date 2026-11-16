@@ -1260,3 +1260,18 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 - Two genuinely separate problems for the same customer and service share one assessment until one is closed. Accepted: they ask the same question about customer impact.
 - The worker needs Chromium: a larger image, and memory while a capture runs (#73 for the cloud image). Locally it reuses the e2e suite's browser build.
 - Screenshots are third-party content stored as evidence, under the same retention questions as other evidence (ADR-055).
+
+## ADR-061 — Monitoring assessments recheck on a timer
+**Status:** Accepted. Refines ADR-054 and ADR-059. Resolves #67.
+
+**Context.** "Monitoring" means inconclusive, or a supplier still unstable. Under ADR-059 a correlated recovery signal reruns the checks, but many conditions never report recovery (a status-page notice that's simply edited away, a customer email). Without a timer, a monitoring assessment stayed open until someone remembered it.
+
+**Decision.**
+1. **Policies set a recheck interval**, `recheck_minutes`: default 30, 0 turns it off, at most daily.
+2. **The operations sweep schedules and runs rechecks.** A monitoring assessment with a customer and service, covered by an active policy with an interval, gets a `next_recheck_at`. When it's due, the policy's checks are requeued (`recheck_requested`, by `system:deadline`) and the existing automation decides as usual: promote on breach, close on "no issue" where the policy allows, or stay monitoring and be rescheduled.
+3. **A recheck never closes or promotes on its own.** It only reruns the checks; the policy's existing disposition rules decide.
+
+**Consequences.**
+- Monitoring assessments resolve themselves when our own telemetry says so, instead of lingering.
+- A long supplier outage reruns its checks every interval for as long as it lasts. These are cheap queries against our own telemetry; the interval is the knob.
+- Assessments without a policy, or without a customer and service, still need a person to recheck them.

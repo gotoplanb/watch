@@ -113,12 +113,18 @@ class PolicyForm(StyledModelForm):
 
     class Meta:
         model = AssessmentPolicy
-        fields = ["name", "customer", "service", "supplier", "active", "rules", "recipients", "auto_promote", "auto_close_no_issue", "auto_send", "communication_sla_seconds", "review_seconds", "severity", "impact", "route_to_t2"]
+        fields = ["name", "customer", "service", "supplier", "active", "rules", "recipients", "auto_promote", "auto_close_no_issue", "auto_send", "communication_sla_seconds", "review_seconds", "severity", "impact", "route_to_t2", "recheck_minutes"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["recheck_minutes"].required = False
+        self.fields["recheck_minutes"].help_text = "Rerun the checks this often while monitoring; 0 turns it off."
         if self.instance.pk:
             self.initial["recipients"] = ", ".join(self.instance.recipients)
+
+    def clean_recheck_minutes(self):
+        value = self.cleaned_data.get("recheck_minutes")
+        return 30 if value is None else value
 
     def clean_recipients(self):
         text = self.cleaned_data["recipients"]
@@ -139,6 +145,8 @@ class PolicyForm(StyledModelForm):
             self.add_error("review_seconds", "Choose a review window between 1 and 86,400 seconds.")
         if not 1 <= data.get("communication_sla_seconds", 0) <= 604800:
             self.add_error("communication_sla_seconds", "Choose an SLA between 1 and 604,800 seconds.")
+        if data.get("recheck_minutes", 0) > 1440:
+            self.add_error("recheck_minutes", "Recheck at least daily (at most 1,440 minutes); 0 turns rechecks off.")
         return data
 
 

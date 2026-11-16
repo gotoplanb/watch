@@ -22,7 +22,7 @@ The ways it can end:
 | Outcome | When |
 |---|---|
 | **Closed · no issue** | A "no issue" conclusion. The evidence stays on record. |
-| **Monitoring** | Inconclusive, or a supplier is still unstable. Stays open. |
+| **Monitoring** | Inconclusive, or a supplier is still unstable. Stays open; a policy reruns its checks every 30 minutes by default (ADR-061). |
 | **Promoted** | Impact confirmed. An incident opens at T1 (or T2 by policy), with the history attached. |
 
 The server enforces the order. Promotion needs evidence of degradation (or an explicit

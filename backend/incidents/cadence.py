@@ -88,8 +88,33 @@ def _expire_local_tier(pk, now):
     return True
 
 
+def _schedule_recheck(pk, now):
+    """Give a monitoring assessment covered by a policy its next recheck time (ADR-061)."""
+    row = Assessment.objects.select_for_update().get(pk=pk)
+    if row.status != "monitoring" or row.next_recheck_at is not None:
+        return False
+    policy = automation.policy_for(row)
+    if policy is None or not policy.recheck_minutes:
+        return False
+    row.next_recheck_at = now + timedelta(minutes=policy.recheck_minutes)
+    row.save(update_fields=["next_recheck_at"])
+    return True
+
+
+def _recheck_due(pk):
+    """Rerun the policy's checks for a monitoring assessment whose recheck time has come."""
+    row = Assessment.objects.select_for_update().get(pk=pk)
+    row.next_recheck_at = None
+    row.save(update_fields=["next_recheck_at"])
+    if row.status != "monitoring" or not automation.recheck(row):
+        return False
+    assessments.append(row, "recheck_requested", "Timed recheck while monitoring: rerunning the policy's checks.",
+                       DEADLINE_ACTOR)
+    return True
+
+
 def tick():
-    counts = {"communications": 0, "handoffs": 0, "escalations": 0, "errors": 0}
+    counts = {"communications": 0, "handoffs": 0, "escalations": 0, "rechecks": 0, "errors": 0}
     now = timezone.now()
     cutoff = now - timedelta(hours=1)
     _sweep(Assessment.objects.filter(automation_state="running", updated_at__lt=cutoff).values_list("pk", flat=True),
@@ -107,6 +132,10 @@ def tick():
            assessments.start_engine, counts)
     _sweep(Assessment.objects.filter(status="promoted", automation_policy__route_to_t2=True, incident__current_tier="T1", incident__status="OPEN").values_list("pk", flat=True),
            _route_to_t2, counts)
+    monitoring = Assessment.objects.filter(status="monitoring").exclude(customer="").exclude(service="")
+    _sweep(monitoring.filter(next_recheck_at__isnull=True).exclude(automation_state__in=["queued", "running"])
+           .values_list("pk", flat=True), lambda pk: _schedule_recheck(pk, now), counts)
+    _sweep(monitoring.filter(next_recheck_at__lte=now).values_list("pk", flat=True), _recheck_due, counts, "rechecks")
     if settings.ESCALATION_LOCAL_MODE:
         _sweep(Incident.objects.filter(status="OPEN", escalation_execution_arn__startswith="local:execution:", origin_assessment__isnull=False, sla_deadline_at__lte=now).values_list("pk", flat=True),
                lambda pk: _expire_local_tier(pk, now), counts, "escalations")

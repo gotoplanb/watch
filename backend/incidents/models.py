@@ -766,6 +766,8 @@ class Assessment(models.Model):
     # ADR-059: the source's stable id for the condition (Sumo alert id, Uptime Robot monitor id).
     # Unlike the dedupe key it spans events: a re-fire or a recovery finds this assessment by it.
     correlation_key = models.CharField(max_length=256, blank=True, db_index=True)
+    # ADR-061: when a "monitoring" assessment next reruns its policy's checks (null: not scheduled).
+    next_recheck_at = models.DateTimeField(null=True, blank=True)
     title = models.CharField(max_length=512)
     source = models.CharField(max_length=128)
     signal = models.TextField()
@@ -897,6 +899,8 @@ class AssessmentPolicy(models.Model):
     severity = models.CharField(max_length=2, default="P2")
     impact = models.CharField(max_length=16, default="moderate")
     route_to_t2 = models.BooleanField(default=False)
+    # ADR-061: how often a "monitoring" assessment reruns this policy's checks; 0 turns it off.
+    recheck_minutes = models.PositiveIntegerField(default=30)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
