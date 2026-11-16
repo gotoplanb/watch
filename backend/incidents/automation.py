@@ -158,6 +158,9 @@ def receive_signal(*, correlation_key="", state=ACTIVE, evidence_url="", **data)
     A re-fire or recovery of a condition already being assessed attaches to it (ADR-059), and a
     signal for a customer/service scope already being assessed is evidence there, not a new
     assessment (ADR-060). A cited status page is linked, and screenshotted if allow-listed."""
+    from . import heartbeats
+
+    heartbeats.seen(data["source"])  # any signal is a sign of life (ADR-062)
     if correlation_key:
         attached = correlate(correlation_key=correlation_key, state=state, **data)
         if attached or state == RESOLVED:

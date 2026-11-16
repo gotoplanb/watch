@@ -1115,3 +1115,25 @@ class EvidenceCapture(models.Model):
     captured_at = models.DateTimeField(null=True, blank=True)
     final_url = models.URLField(max_length=2000, blank=True)
     error = models.TextField(blank=True)
+
+
+class MonitoredSource(models.Model):
+    """A signal source whose silence matters (ADR-062). Alert-only monitors are quiet when all is
+    well, so a source proves it's alive by calling its heartbeat URL (or by sending any signal).
+    Missing `max_silence_minutes` opens an assessment; the next sign of life records recovery."""
+    name = models.CharField(max_length=128, unique=True)  # the `source` its signals carry
+    token = models.CharField(max_length=64, unique=True, editable=False)
+    max_silence_minutes = models.PositiveIntegerField(default=15)
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    silent_since = models.DateTimeField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            import secrets
+            self.token = secrets.token_urlsafe(24)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.name} (every {self.max_silence_minutes} min)"

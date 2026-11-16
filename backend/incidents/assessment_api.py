@@ -10,10 +10,10 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import assessments, automation, email_intake, operations_api
+from . import assessments, automation, email_intake, heartbeats, operations_api
 from .assessment_forms import SignalForm
 from .api_common import NumberLookupMixin, filtered
-from .models import Assessment
+from .models import Assessment, MonitoredSource
 from .permissions import user_tier_rank
 
 
@@ -186,3 +186,33 @@ class EmailIntakeView(APIView):
             "outcome": result.outcome, "reason": result.reason,
             "assessments": [{**AssessmentSerializer(row).data, "created": c} for row, c in result.assessments],
         }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+
+class HeartbeatView(APIView):
+    """A monitoring source's sign of life (ADR-062): GET or POST /api/heartbeats/<token>. The token
+    is the credential, so a monitor that can only poll a URL (Uptime Robot) can call it."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def _beat(self, request, token):
+        source = MonitoredSource.objects.filter(token=token, active=True).first()
+        if source is None:
+            return Response({"detail": "Unknown heartbeat."}, status=status.HTTP_404_NOT_FOUND)
+        heartbeats.seen(source.name, via="heartbeat")
+        return Response({"source": source.name, "ok": True})
+
+    def get(self, request, token):
+        return self._beat(request, token)
+
+    def post(self, request, token):
+        return self._beat(request, token)
+
+
+class HeartbeatListView(APIView):
+    """Which monitoring sources are watched for silence, and their state (`wt heartbeats`)."""
+
+    def get(self, request):
+        return Response([{"name": s.name, "max_silence_minutes": s.max_silence_minutes,
+                          "last_seen_at": s.last_seen_at, "silent_since": s.silent_since,
+                          "state": "silent" if s.silent_since else ("waiting" if not s.last_seen_at else "ok")}
+                         for s in MonitoredSource.objects.filter(active=True).order_by("name")])

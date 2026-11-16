@@ -55,3 +55,14 @@ the capture, and the browser can't reach internal addresses.
 
     wt signal "Square degraded" --signal "elevated errors" --supplier Square \
         --url https://status.example.com/incidents/abc
+
+## When a monitor goes quiet (ADR-062)
+
+Monitors like Uptime Robot only speak when something changes, so an expired plan or a broken webhook
+looks exactly like "all fine". A source can be watched for silence (set up in the admin): it gets a
+heartbeat URL, `/api/heartbeats/<token>`, that it calls on a schedule. Uptime Robot can poll it as an
+ordinary monitored URL; Sumo can call it from a scheduled search. Any signal from the source also
+counts. Silence past the source's limit opens an assessment ("uptimerobot has gone quiet"), and
+the next sign of life records the recovery on it, so someone checks what might have been missed.
+
+    wt --as t1a heartbeats

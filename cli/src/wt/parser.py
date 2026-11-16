@@ -273,6 +273,11 @@ def _workspace(sub):
              "Queries against our own telemetry (Prometheus, Sumo Logic) that policies run "
              "automatically and responders run on demand.", ["wt --as t1a rules",
                                                             "wt --as t1a do ASM-0007 query rule=2"])
+    _command(sub, "heartbeats", "Monitoring sources watched for silence, and their state.",
+             "Alert-only monitors are quiet when all is well, so a broken webhook looks like good "
+             "news. A watched source proves it's alive via its heartbeat URL or any signal; silence "
+             "past its limit opens an assessment (ADR-062). States: ok, waiting (never heard from), "
+             "silent.", ["wt --as t1a heartbeats"])
     _command(sub, "areas", "Specialist subject areas and their members, with ids.",
              "Knowledge groups such as Payments, separate from tiers (ADR-052).",
              ["wt --as t1a areas", "wt --as t1a do ASM-0007 engage area=1 reason=\"...\""])

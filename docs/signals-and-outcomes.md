@@ -109,7 +109,8 @@ hand. *Today:* no concept of a maintenance window (see gaps).
 
 **7. Uptime Robot itself goes quiet** (expired subscription, broken webhook).
 *Expected:* the absence of check-ins is visible. This mirrors the operations heartbeat Watch already
-keeps for its own worker. *Today:* not covered.
+keeps for its own worker. *Now:* sources watched for silence call a heartbeat URL; silence past their limit
+opens an assessment (ADR-062).
 
 ## Decisions
 
@@ -182,10 +183,11 @@ to come from Workspace.
    signals for that scope and time (scenario 6).
 4. **Email in / email out:** the parser (#71, local) and the SES transport (#72, `cloud`).
 5. **Vendor adapters** (#69): Alertmanager, status page and any monitor that can't template our schema.
-6. **Monitor silence** (#68): detecting that a monitoring source has stopped reporting (scenario 7).
+6. **Monitor silence** (#68): done in ADR-062. Watched sources call a heartbeat URL; silence opens an
+   assessment (scenario 7).
 7. **`http` diagnostic provider** (#70): on-demand verification of a supplier endpoint (D1).
 8. **Monitoring rechecks** (#67): done. A recovery signal triggers a recheck (ADR-059), and policies
    recheck monitoring assessments on a timer (ADR-061, default every 30 minutes).
 
-Gaps 3 and 5–7 can all be built and tested locally. The SES transport and
+Gaps 3, 5 and 7 can all be built and tested locally. The SES transport and
 provider accounts are `cloud` work.

@@ -1275,3 +1275,20 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 - Monitoring assessments resolve themselves when our own telemetry says so, instead of lingering.
 - A long supplier outage reruns its checks every interval for as long as it lasts. These are cheap queries against our own telemetry; the interval is the knob.
 - Assessments without a policy, or without a customer and service, still need a person to recheck them.
+
+## ADR-062 — Watch notices when a monitoring source goes quiet
+**Status:** Accepted. Refines ADR-057 (external monitoring) and ADR-059 (correlation). Resolves #68.
+
+**Context.** ADR-057 puts synthetic monitoring in external services, which only send webhooks when something changes. An expired plan, a deleted alert contact or a broken webhook therefore looks exactly like "all is well", and nothing would tell us alerts had stopped arriving.
+
+**Decision.**
+1. **A `MonitoredSource` names a source whose silence matters**, with a `max_silence_minutes` limit and its own random token. It's configured in the admin.
+2. **Sources prove they're alive.** `GET` or `POST /api/heartbeats/<token>` (the token in the path is the credential, so a monitor that can only poll a URL can use it: Uptime Robot polls it as an ordinary monitor, Sumo can call it from a scheduled search). Any signal carrying that source's name also counts.
+3. **Silence opens an assessment.** The operations sweep flags a source quiet past its limit once per silence, opening "<source> has gone quiet" (source `watch`, correlation key `silence:<source>`). It's unscoped, so no policy disposes of it: a person checks what might have been missed.
+4. **The next sign of life records the recovery** on that assessment as a resolved signal (ADR-059). A person closes it.
+5. **`wt heartbeats`** lists watched sources and their state.
+
+**Consequences.**
+- A dead alert path becomes visible within the source's limit, instead of at the next real outage.
+- A heartbeat proves the monitor is checking, not that its alert webhook works end to end. Pairing the heartbeat with a periodic test alert would close that gap; not done now.
+- Anyone holding a heartbeat token can fake liveness for that source, masking a silence. Tokens are random and per source; the risk is limited to hiding one monitor's outage.

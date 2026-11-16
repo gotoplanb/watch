@@ -143,7 +143,8 @@ def run(args, client: Api):
         case "wait":
             return _wait(args, client)
         case "new" | "do" | "note" | "comms" | "sme" | "remediations" | "rca" | "comm" \
-                | "sme-respond" | "remediation" | "report" | "outbox" | "rules" | "areas":
+                | "sme-respond" | "remediation" | "report" | "outbox" | "rules" | "areas" \
+                | "heartbeats":
             return _workspace(args, client)
         case "api":
             reply = client.send(args.method.upper(), args.path, args.data)
@@ -300,6 +301,10 @@ SIMPLE_LISTS = {
                                f"  {t['title']}", "No corrective actions."),
     "outbox": ("outbox/", lambda r: f"{r['delivered_at'][:19]}  {r['assessment']}  v{r['version']}"
                                     f"  {r['subject']}", "Outbox is empty."),
+    "heartbeats": ("heartbeats/", lambda h: f"{h['state']:8} {h['name']:20} limit "
+                                            f"{h['max_silence_minutes']} min  last seen "
+                                            f"{(h['last_seen_at'] or 'never')[:19]}",
+                   "No sources are watched for silence."),
     "rules": ("diagnostic-rules/", lambda r: f"{r['id']:4} {r['provider']:10} {r['name']}",
               "No saved checks."),
     "areas": ("subject-areas/", lambda a: f"{a['id']:4} {a['name']}  ({', '.join(a['members'])})",

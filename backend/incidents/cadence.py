@@ -11,7 +11,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from . import assessments, automation, communications, escalation, services
+from . import assessments, automation, communications, escalation, heartbeats, services
 from .models import Assessment, Communication, DiagnosticRun, Incident, OperationsHeartbeat, SmeEngagement, Tier
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ def _recheck_due(pk):
 
 
 def tick():
-    counts = {"communications": 0, "handoffs": 0, "escalations": 0, "rechecks": 0, "errors": 0}
+    counts = {"communications": 0, "handoffs": 0, "escalations": 0, "rechecks": 0, "silent": 0, "errors": 0}
     now = timezone.now()
     cutoff = now - timedelta(hours=1)
     _sweep(Assessment.objects.filter(automation_state="running", updated_at__lt=cutoff).values_list("pk", flat=True),
@@ -136,6 +136,7 @@ def tick():
     _sweep(monitoring.filter(next_recheck_at__isnull=True).exclude(automation_state__in=["queued", "running"])
            .values_list("pk", flat=True), lambda pk: _schedule_recheck(pk, now), counts)
     _sweep(monitoring.filter(next_recheck_at__lte=now).values_list("pk", flat=True), _recheck_due, counts, "rechecks")
+    _sweep(heartbeats.overdue(now), lambda pk: heartbeats.check_silence(pk, now), counts, "silent")
     if settings.ESCALATION_LOCAL_MODE:
         _sweep(Incident.objects.filter(status="OPEN", escalation_execution_arn__startswith="local:execution:", origin_assessment__isnull=False, sla_deadline_at__lte=now).values_list("pk", flat=True),
                lambda pk: _expire_local_tier(pk, now), counts, "escalations")
