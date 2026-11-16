@@ -1169,3 +1169,23 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 - The same source history supports active work, chronological replay, communication audit, specialist handoffs, RCA and source-linked reporting.
 - Local transactional delivery proves workflow behavior, not remote delivery guarantees. A future external transport needs its own delivery/retry/idempotency design and operational validation.
 - Source history and uploads can contain sensitive runtime evidence. They are operational data, not repository fixtures or publication artifacts. Publishing a contribution requires a separate content/history/artifact review; passing tests or a scanner is not publication authorization.
+
+## ADR-056 — `wt`: a development CLI over the API, ahead of the browser and MCP
+**Status:** Accepted. Refines ADR-038 (MCP) and ADR-029/030 (derived per-user keys). The CLI is a development tool, not an operations product.
+
+**Context.** Verifying features has meant raw `curl` calls with hand-built headers, or driving Playwright through flows that only need a state check. Both are slow, and neither exercises tier authorization as a particular user without a browser login. Dave has had good results giving other projects their own CLI (`zm`, in `zeromission-cli`). Watch already has the pieces: a DRF API under `/api/`, per-user derived keys, and OAuth access tokens (ADR-038).
+
+**Decision.**
+1. **The order we build in: API → CLI → browser → MCP subset.** A feature is drivable through `/api/` and verified with `wt` first, then verified in the browser, then (only where an assistant should have it) exposed as an MCP tool. The CLI covers the whole development surface; MCP stays a curated subset for assistants (ADR-038). A feature with no API is a gap to fill on the server, not something the CLI works around.
+2. **`wt` talks to the server's HTTP API only.** It never opens the database or runs `manage.py`, so every call goes through the same serializers, permissions and services as the UI. The one exception is bootstrapping local keys (point 4).
+3. **The API accepts user bearer credentials.** A DRF authentication class accepts `Authorization: Bearer` with the ADR-038 `wm_` key or an OAuth access token, alongside session auth. The `wk_` ops-ingest key stays ingest-only (ADR-029). Actions are attributed to the key's user, exactly as in the UI.
+4. **Acting as any seeded user is the point.** `wt --as t2a escalate INC-0042` uses that user's key. `make cli-keys` writes each active user's `wm_` key for the local server to `~/.config/wt/keys.json` (mode 600). For any other server, keys are added by hand from `/ui/settings` (`wt key set`).
+5. **Shape, borrowed from `zm`.** Standard library only, Python 3.12+. Global `--server` (`local` by default, or a URL), `--as` and `--json`. `wt api <path>` reaches any endpoint raw. Webhook intake uses the shared secret (the `make dev` value by default, `WT_WEBHOOK_SECRET` overrides). `wt wait` polls until a condition holds, so scripted checks don't sleep blindly.
+6. **It lives in this repo, in `cli/`,** as its own package (`uv tool install -e ./cli`), versioned with the API it drives. It has its own tests (`make cli-test`) and sits outside the backend coverage/Sonar gates. If it ever becomes how people operate a cloud estate, it can move to its own repo the way `zm` did.
+7. **Named `wt`, not `watch`,** because `watch(1)` (procps) is a standard Unix command.
+
+**Consequences.**
+- Verification becomes short, scriptable and per-user: tier denials, optimistic tier conflicts and intake dedupe are one command each.
+- The API must catch up with the UI. #60's assessment workflow (communications, specialist engagement, RCA curation) is UI-only today; each piece gets API endpoints when the CLI first needs it.
+- A bearer key now carries a user's full API powers, not just MCP's. It is the same principal and the same rotation seed (ADR-030), and `/ui/settings` already treats the `wm_` key as an incident-action credential.
+- Deadline-driven behavior still waits on real time. A development clock to fast-forward SLAs is a later decision, not part of this ADR.

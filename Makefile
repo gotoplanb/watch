@@ -10,7 +10,7 @@ PY := python3.12
 VENV := backend/.venv
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: help venv test e2e a11y demo dev infra status-page up down logs seed seed-dev seed-incidents seed-assessments seed-operations operations migrate-dev smoke \
+.PHONY: help venv test e2e a11y demo dev infra status-page up down logs seed seed-dev seed-incidents seed-assessments seed-operations operations migrate-dev smoke cli-keys cli-install cli-test \
         coverage sonar-scan sonar-scan-only install-hooks integration clean \
         tunnel-domain tunnel-up tunnel-down tunnel-status
 
@@ -230,6 +230,16 @@ operations: ## Process diagnostic jobs, communication deadlines and local escala
 
 seed-operations: ## Add fictional end-to-end operations scenarios and a live Watchtower check
 	$(subst seed_demo,seed_operations,$(SEED_CMD))
+
+# The wt development CLI (ADR-056): cli/ is its own stdlib-only package.
+cli-keys: ## Write every local user's wm_ key to ~/.config/wt/keys.json (wt --as <user>)
+	$(subst seed_demo,cli_keys --write $(HOME)/.config/wt/keys.json --server http://localhost:8010,$(SEED_CMD))
+
+cli-install: ## Put wt on your PATH (editable: edits take effect at once)
+	uv tool install --force -e ./cli
+
+cli-test: ## The wt CLI's own tests
+	cd cli && uv run --with pytest pytest -q
 
 publication-test: ## Verify the local source-publication guard (no network)
 	python3 -m unittest discover -s scripts/tests -v

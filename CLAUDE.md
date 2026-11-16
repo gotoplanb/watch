@@ -101,6 +101,12 @@ can't reach PyPI, so `make dev` is the working loop.
   (`config.settings_integration`); integration tests are marked and skip cleanly when a
   dependency container is down.
 
+- **Verify with `wt` first (ADR-056).** `cli/` is a stdlib-only CLI over `/api/` that acts as any
+  seeded user: `make cli-install && make cli-keys`, then e.g. `wt intake "…"`,
+  `wt --as t1a escalate INC-0042 --expect T1`, `wt --as t2a wait INC-0042 --tier T3`. Prefer it to
+  raw `curl` or Playwright for state checks. Build order: **API → `wt` → browser → MCP subset**. A
+  feature `wt` can't drive is an API gap to fix on the server, not something to script around.
+
 ## Quality gates (before committing)
 Mirror the conduct project. **Both must be green before a commit:**
 1. **≥90% unit-test coverage** — `make coverage` (gate enforced by `fail_under = 90` in

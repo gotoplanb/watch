@@ -28,6 +28,7 @@ from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
 from . import checks, escalation, services
+from .api_common import NumberLookupMixin, filtered
 from .authentication import ApiKeyAuthentication
 from .intake import create_incident_idempotent
 from .models import CheckSource, CheckSubjectKind, Digest, EnvStatus, Incident, Status
@@ -47,9 +48,15 @@ from .serializers import (
 _ENV_RE = re.compile(r"^[a-z0-9-]+$")  # ADR-028 environment label
 
 
-class IncidentViewSet(viewsets.ReadOnlyModelViewSet):
+class IncidentViewSet(NumberLookupMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Incident.objects.all().order_by("-created_at")
     serializer_class = IncidentSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.action == "list":
+            qs = filtered(qs, self.request.query_params, ("status", "current_tier"))
+        return qs
 
     def _validated(self, request):
         s = ActionSerializer(data=request.data)
@@ -139,7 +146,9 @@ class IntakeWebhookView(APIView):
             incident.save(update_fields=["escalation_execution_arn", "updated_at"])
 
         return Response(
-            {"id": str(incident.id), "created": created, "status": incident.status},
+            {"id": str(incident.id), "number": incident.number, "created": created,
+             "status": incident.status, "current_tier": incident.current_tier,
+             "title": incident.title},
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 

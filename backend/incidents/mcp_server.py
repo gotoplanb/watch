@@ -26,7 +26,7 @@ from django.contrib.auth.models import User
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from . import apikeys, checks, escalation, oauth, permissions, services
+from . import authentication, checks, escalation, oauth, permissions, services
 from .models import Incident, Status, Tier
 
 # Set per-request by the auth middleware; read by the tools.
@@ -273,13 +273,8 @@ def _bearer_from_scope(scope: dict) -> str:
 
 
 def _resolve_bearer_sync(token: str):
-    """Either credential form resolves to a user: a derived `wm_` MCP key, or an OAuth access
-    token. Prefix-dispatched so a key never hits the token table and vice versa."""
-    if token.startswith(f"{apikeys._MCP_PREFIX}_"):
-        return apikeys.user_for_mcp_key(token)
-    if token.startswith(oauth.ACCESS_TOKEN_PREFIX):
-        return oauth.resolve_access_token(token)
-    return None
+    """Either credential form resolves to a user (shared with the API, ADR-056)."""
+    return authentication.resolve_user_bearer(token)
 
 
 # thread_sensitive: the auth lookup shares the main sync thread (fast, and keeps sqlite tests

@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import assessments, automation
+from .api_common import NumberLookupMixin, filtered
 from .models import Assessment
 
 
@@ -37,9 +38,15 @@ class AssessmentSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class AssessmentViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Assessment.objects.select_related("incident", "assignee")
+class AssessmentViewSet(NumberLookupMixin, viewsets.ReadOnlyModelViewSet):
+    queryset = Assessment.objects.select_related("incident", "assignee").order_by("-created_at")
     serializer_class = AssessmentSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.action == "list":
+            qs = filtered(qs, self.request.query_params, ("status",))
+        return qs
 
     @action(detail=True, methods=["get"])
     def history(self, request, pk=None):

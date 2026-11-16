@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from . import services
 from .models import Digest, EnvStatus, Incident, Tier, Transition
 
 
@@ -26,12 +27,18 @@ class DigestReadSerializer(serializers.ModelSerializer):
 
 
 class TransitionSerializer(serializers.ModelSerializer):
+    # The stored actor is the user's pk (survives renames); the name is resolved for display.
+    actor_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Transition
         fields = [
             "id", "from_status", "from_tier", "to_status", "to_tier",
-            "actor", "reason", "at",
+            "actor", "actor_name", "reason", "at",
         ]
+
+    def get_actor_name(self, obj) -> str:
+        return services.actor_label(obj.actor)
 
 
 class IncidentSerializer(serializers.ModelSerializer):
@@ -40,7 +47,7 @@ class IncidentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Incident
         fields = [
-            "id", "source", "title", "status", "current_tier", "acknowledged_at",
+            "id", "number", "source", "title", "status", "current_tier", "acknowledged_at",
             "assignee", "sla_deadline_at", "escalation_execution_arn",
             "created_at", "updated_at", "transitions",
         ]

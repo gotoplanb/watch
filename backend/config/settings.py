@@ -150,6 +150,8 @@ REST_FRAMEWORK = {
     # DRF auth class here later; nothing else changes.
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
+        # ADR-056: wm_ key / OAuth bearer, so the `wt` CLI can act as a user.
+        "incidents.authentication.UserBearerAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
