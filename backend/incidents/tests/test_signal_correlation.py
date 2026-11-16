@@ -49,10 +49,13 @@ def test_resolved_without_policy_records_evidence_only():
     assert (event.actor, event.data["state"]) == (automation.SIGNALS_ACTOR, "resolved")
 
 
-def test_unkeyed_signals_never_correlate():
-    signal(key="")
-    signal(key="", event="e2")
-    assert Assessment.objects.count() == 2
+def test_unkeyed_signals_correlate_only_by_scope():
+    signal(key="", customer="", service="")
+    signal(key="", event="e2", customer="", service="")
+    assert Assessment.objects.count() == 2  # unscoped: nothing shared to attach to
+    [(row, _)] = signal(key="")
+    [routed] = signal(key="", event="e3")  # same customer/service: ADR-060 attaches
+    assert (routed[0].pk, routed[1], routed.how) == (row.pk, False, "attached")
 
 
 @pytest.fixture

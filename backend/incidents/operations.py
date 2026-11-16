@@ -47,6 +47,18 @@ def record_action(pk, *, user, kind, body, selected=()):
                               {"evidence_ids": evidence_ids(row, selected), "execution": "operator_recorded"})
 
 
+def system_user(username):
+    """An inactive user recorded as the uploader of machine-filed evidence (email, screenshots).
+    It can't log in and its keys never resolve (apikeys requires is_active)."""
+    from django.contrib.auth.models import User
+
+    user, created = User.objects.get_or_create(username=username, defaults={"is_active": False})
+    if created:
+        user.set_unusable_password()
+        user.save(update_fields=["password"])
+    return user
+
+
 def validate_evidence(file, *, images_only=False):
     """Read and type-check an evidence file by its content, not its name. Returns
     (content, content_type, safe filename); raises ValueError for anything we don't keep."""

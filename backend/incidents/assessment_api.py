@@ -38,6 +38,8 @@ class SignalSerializer(serializers.Serializer):
     # ADR-059: the condition's stable id at the source, and whether it is active or has recovered.
     correlation_key = serializers.CharField(max_length=256, required=False, default="", allow_blank=True)
     state = serializers.ChoiceField(choices=["active", "resolved"], required=False, default="active")
+    # ADR-060: a status page the signal cites; recorded, and screenshotted if its host is allow-listed.
+    evidence_url = serializers.URLField(max_length=2000, required=False, default="", allow_blank=True)
 
     def validate_payload(self, value):
         if not isinstance(value, dict):
@@ -124,6 +126,7 @@ class AssessmentIntakeView(APIView):
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
         data.pop("state")  # correlation is the routing path's job (signals/intake); this opens one
+        data.pop("evidence_url")
         assessment, created = assessments.receive(**data)
         if created:
             automation.schedule(assessment)
@@ -138,14 +141,16 @@ class SignalIntakeView(AssessmentIntakeView):
         serializer = SignalSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         rows = automation.receive_signal(**serializer.validated_data)
-        if any(created for _, created in rows):
+        hows = {routed.how for routed in rows}
+        if "created" in hows:
             outcome = "created"
         elif rows:
-            outcome = "correlated"
+            outcome = next(iter(hows)) if len(hows) == 1 else "attached"  # attached/correlated/duplicate
         else:
             outcome = "nothing open"  # a recovery for a condition no assessment is working
         return Response({"outcome": outcome,
-                         "assessments": [{**AssessmentSerializer(row).data, "created": created} for row, created in rows]},
+                         "assessments": [{**AssessmentSerializer(routed[0]).data, "created": routed[1],
+                                          "how": routed.how} for routed in rows]},
                         status=201 if outcome == "created" else 200)
 
 

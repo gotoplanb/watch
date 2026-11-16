@@ -1070,3 +1070,44 @@ class EmailRoute(models.Model):
     def __str__(self):
         scope = " / ".join(filter(None, [self.customer, self.service, self.supplier])) or "unscoped"
         return f"{self.sender} → {scope}"
+
+
+class AssessmentCorrelation(models.Model):
+    """A further condition an assessment is answering (ADR-060). A signal from another source (a
+    supplier's status page while our own alert's assessment is open) attaches to it; recording its
+    source and key here lets that source's later re-fire or recovery find the same assessment."""
+    assessment = models.ForeignKey(Assessment, related_name="correlations", on_delete=models.PROTECT)
+    source = models.CharField(max_length=128)
+    key = models.CharField(max_length=256)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["assessment", "source", "key"],
+                                               name="unique_assessment_correlation")]
+
+
+class StatusPage(models.Model):
+    """The capture allow-list (ADR-060): hosts whose pages Watch may load and screenshot as
+    evidence. `host` covers itself and its subdomains (status.example.com, or example.com)."""
+    supplier = models.CharField(max_length=128)
+    host = models.CharField(max_length=253, unique=True)
+    active = models.BooleanField(default=True)
+
+    def save(self, *args, **kwargs):
+        self.host = self.host.strip().lower().removeprefix("https://").split("/")[0]
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.supplier}: {self.host}"
+
+
+class EvidenceCapture(models.Model):
+    """One screenshot of a status page, taken once and filed on every assessment that cited it."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    url = models.URLField(max_length=2000)
+    assessments = models.ManyToManyField(Assessment, related_name="captures")
+    state = models.CharField(max_length=16, default="queued")  # queued | running | done | failed
+    requested_at = models.DateTimeField(auto_now_add=True)
+    captured_at = models.DateTimeField(null=True, blank=True)
+    final_url = models.URLField(max_length=2000, blank=True)
+    error = models.TextField(blank=True)

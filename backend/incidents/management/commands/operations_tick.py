@@ -6,8 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 
-from incidents import automation, cadence, diagnostics
-from incidents.models import Assessment, DiagnosticRun
+from incidents import automation, cadence, diagnostics, evidence_capture
+from incidents.models import Assessment, DiagnosticRun, EvidenceCapture
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,8 @@ def run_job(kind, pk):
     try:
         if kind == "assessment":
             automation.run(pk)
+        elif kind == "capture":
+            evidence_capture.run(pk)
         else:
             run = DiagnosticRun.objects.select_related("assessment", "rule").get(pk=pk)
             diagnostics.execute(run.assessment, run.rule, run_id=run.pk)
@@ -34,6 +36,7 @@ def _reap_finished(jobs):
 def _queued_candidates():
     candidates = [("assessment", pk) for pk in Assessment.objects.filter(automation_state="queued").values_list("pk", flat=True)[:3]]
     candidates += [("diagnostic", pk) for pk in DiagnosticRun.objects.filter(state="queued").values_list("pk", flat=True)[:3]]
+    candidates += [("capture", pk) for pk in EvidenceCapture.objects.filter(state="queued").values_list("pk", flat=True)[:2]]
     return candidates
 
 

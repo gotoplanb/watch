@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from . import session_index
 
 from .models import (
-    EmailRoute,
+    EmailRoute, EvidenceCapture, StatusPage,
     Annotation,
     ErrorSpan,
     Incident,
@@ -140,6 +140,17 @@ def force_sign_out(modeladmin, request, queryset):
 class EmailRouteAdmin(admin.ModelAdmin):
     list_display = ("sender", "customer", "service", "supplier", "active")
     search_fields = ("sender", "customer", "supplier")
+
+
+@admin.register(StatusPage)
+class StatusPageAdmin(admin.ModelAdmin):
+    list_display = ("supplier", "host", "active")
+
+
+@admin.register(EvidenceCapture)
+class EvidenceCaptureAdmin(admin.ModelAdmin):
+    list_display = ("url", "state", "requested_at", "captured_at")
+    readonly_fields = ("url", "final_url", "state", "error", "captured_at")
 
 
 admin.site.unregister(User)

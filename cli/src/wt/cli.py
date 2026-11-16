@@ -154,7 +154,8 @@ def _signal(args, client):
     body = {"title": args.title, "signal": args.signal, "source": args.source,
             "customer": args.customer, "service": args.service, "supplier": args.supplier,
             "source_event_id": args.event_id, "payload": args.payload,
-            "correlation_key": args.key, "state": "resolved" if args.resolved else "active"}
+            "correlation_key": args.key, "state": "resolved" if args.resolved else "active",
+            **({"evidence_url": args.url} if getattr(args, "url", "") else {})}
     path = "assessments/intake" if args.command == "assess" else "signals/intake"
     reply = client.webhook(path, body)
     rows = [reply] if args.command == "assess" else reply["assessments"]
@@ -162,7 +163,8 @@ def _signal(args, client):
         if "outcome" in reply:
             print(f"{reply['outcome']}")
         for row in rows:
-            print(_assessment_line(row) + ("" if row["created"] else "  (existing)"))
+            how = row.get("how", "created" if row["created"] else "existing")
+            print(_assessment_line(row) + ("" if how == "created" else f"  ({how})"))
 
     _out(args, reply, human)
 

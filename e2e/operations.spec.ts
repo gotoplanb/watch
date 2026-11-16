@@ -83,7 +83,10 @@ test("policy-driven healthy assessment auto-delivers locally and closes without 
 test("investigation supports real telemetry, reviewed communications, SME handoff, source-linked RCA and reports", { tag: "@local" }, async ({ page, browser }) => {
   test.setTimeout(180000);
   await login(page);
-  const [assessment] = await signal(page, { title: `Example regional recovery ${Date.now()}`, customer: "Example Browser Investigation", service: "Checkout" });
+  // A fresh customer per run: an open assessment for the same customer/service would take the
+  // signal as evidence instead of opening a new one (ADR-060).
+  const stamp = Date.now();
+  const [assessment] = await signal(page, { title: `Example regional recovery ${stamp}`, customer: `Example Browser Investigation ${stamp}`, service: "Checkout" });
   const url = `${BASE}/ui/assessments/${assessment.id}/`;
   await page.goto(url + "?compose=evidence");
   await page.locator("#evidence-summary").fill("Regional errors confirmed");
@@ -207,7 +210,8 @@ test("investigation supports real telemetry, reviewed communications, SME handof
 
 test("top composer posts dashboard notes and chosen/pasted photos together", { tag: "@local" }, async ({ page }) => {
   await login(page);
-  const [assessment] = await signal(page, { title: `Example photo note ${Date.now()}`, customer: "Example Photo Review", service: "Catalog" });
+  const stamp = Date.now();  // fresh scope per run (ADR-060)
+  const [assessment] = await signal(page, { title: `Example photo note ${stamp}`, customer: `Example Photo Review ${stamp}`, service: "Catalog" });
   const url = `${BASE}/ui/assessments/${assessment.id}/`;
   await page.goto(url);
   const composer = page.locator("#composer");

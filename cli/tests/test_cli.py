@@ -126,16 +126,19 @@ def test_assess_and_signal(server, monkeypatch, capsys):
     monkeypatch.setenv("WT_WEBHOOK_SECRET", "s")
     server.reply("POST", "/api/assessments/intake", 201, ASSESSMENT)
     server.reply("POST", "/api/signals/intake", 200,
-                 {"outcome": "correlated", "assessments": [{**ASSESSMENT, "created": False}]})
+                 {"outcome": "correlated", "assessments": [{**ASSESSMENT, "created": False,
+                                                            "how": "correlated"}]})
     cli.main(["assess", "latency", "--signal", "p99", "--customer", "acme"])
-    cli.main(["signal", "latency", "--signal", "p99", "--key", "m-1", "--resolved"])
+    cli.main(["signal", "latency", "--signal", "p99", "--key", "m-1", "--resolved",
+              "--url", "https://status.example.com/x"])
     assert server.calls[0][3]["customer"] == "acme"
     sent = server.calls[1][3]
     assert (sent["correlation_key"], sent["state"]) == ("m-1", "resolved")
+    assert sent["evidence_url"] == "https://status.example.com/x"
     out = capsys.readouterr().out
     assert "ASM-0007  investigating latency" in out
     assert "correlated" in out
-    assert "(existing)" in out
+    assert "(correlated)" in out
 
 
 def test_show_incident_and_assessment(server, capsys):

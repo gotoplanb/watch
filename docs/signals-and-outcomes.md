@@ -88,7 +88,9 @@ payments specialist area is engaged if T1 needs Square expertise.
 **3. Our own Sumo alert fires: checkout 5xx at 4%. No supplier signal.**
 One assessment, checkout scoped. The diagnostics confirm it → **promoted**. Twenty minutes later
 Square posts an incident. *Expected:* it attaches as evidence to the open checkout assessment,
-pointing at the likely root cause. *Today:* it opens new, separate assessments (see gaps).
+pointing at the likely root cause. *Now:* it attaches as `related_signal` evidence, and Square's later
+recovery finds the same assessment (ADR-060). If Square's notice cites its status page, a
+screenshot is filed as evidence, because the page itself has no timestamped permalink.
 
 **4. A synthetic check blips once and recovers within a minute.**
 A down webhook, then an up webhook. *Expected:* the down signal's diagnostics find no sustained
@@ -174,8 +176,8 @@ to come from Workspace.
 
 1. **Recovery correlation** (#64): done in ADR-059. A `resolved` signal with the same correlation key
    attaches to the open assessment and rechecks it (scenario 4).
-2. **Cross-signal correlation** (#65): a supplier signal arriving while a related assessment is open
-   should be offered as evidence on it (scenario 3).
+2. **Cross-signal correlation** (#65): done in ADR-060. A signal for a customer/service already being
+   assessed is evidence on that assessment, and cited status pages are screenshotted (scenario 3).
 3. **Maintenance windows** (#66): scheduled supplier or our own maintenance should suppress or annotate
    signals for that scope and time (scenario 6).
 4. **Email in / email out:** the parser (#71, local) and the SES transport (#72, `cloud`).
@@ -185,5 +187,5 @@ to come from Workspace.
 8. **Monitoring rechecks** (#67): a recovery signal now triggers a recheck (ADR-059). A timed recheck
    is still needed for conditions that never report recovery (scenario 1).
 
-Gaps 1–3, 5–8 and the email parser can all be built and tested locally. The SES transport and
+Gaps 3, 5–8 can all be built and tested locally. The SES transport and
 provider accounts are `cloud` work.

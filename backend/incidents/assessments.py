@@ -34,14 +34,21 @@ def _open(assessment):
 
 
 @transaction.atomic
+def dedupe_key(*, title, source, signal, customer="", service="", supplier="", payload=None,
+               source_event_id=None, **_ignored):
+    """One delivery's identity: the source's event id, else the content, scoped to the source."""
+    identity = source_event_id or json.dumps(
+        [title, signal, customer, service, supplier, payload or {}], sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(f"{source}\0{identity}".encode()).hexdigest()
+
+
 def receive(*, title, source, signal, customer="", service="", supplier="", payload=None,
             source_event_id=None, signal_at=None, actor="system", assignee=None, correlation_key=""):
     """Source-scoped delivery dedupe lasts beyond closure: a retry is not a new signal."""
     payload = payload or {}
-    identity = source_event_id or json.dumps(
-        [title, signal, customer, service, supplier, payload], sort_keys=True, separators=(",", ":")
-    )
-    dedupe = hashlib.sha256(f"{source}\0{identity}".encode()).hexdigest()
+    dedupe = dedupe_key(title=title, source=source, signal=signal, customer=customer, service=service,
+                        supplier=supplier, payload=payload, source_event_id=source_event_id)
     assessment, created = Assessment.objects.get_or_create(
         dedupe_key=dedupe,
         defaults={"number": numbering.next_number("ASM"), "title": title, "source": source,

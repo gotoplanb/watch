@@ -230,7 +230,7 @@ def _workspace_history(request, row, tab):
     if lens == "conversation":
         history = history.filter(kind__in=["comment", "hypothesis", "decision", "incident_promoted", "lifecycle_transition"])
     elif lens == "evidence":
-        history = history.filter(Q(kind__in=["evidence_added", "evidence_attached", "query_started", "query_completed", "query_failed"]) | Q(kind="comment", data__has_key="attachments"))
+        history = history.filter(Q(kind__in=["evidence_added", "evidence_attached", "evidence_captured", "evidence_linked", "related_signal", "query_started", "query_completed", "query_failed"]) | Q(kind="comment", data__has_key="attachments"))
     events = list(history.order_by("-occurred_at", "-pk").prefetch_related("annotations__author")[:HISTORY_PAGE])[::-1]
     labels = services.actor_labels(event.actor for event in events)
     for event in events:
@@ -255,7 +255,7 @@ def _workspace_context(request, row, forms, action, can_manage, can_participate,
         "compose": current_action if current_action in forms else "comment", "tab": tab, "lens": lens,
         "error": error, "can_manage": can_manage, "can_participate": can_participate,
         "is_open": row.status not in CLOSED_STATUSES, "source_event": source_event,
-        "evidence_count": row.history.filter(Q(kind__in=["evidence_added", "evidence_attached"]) | Q(kind="comment", data__has_key="attachments")).count(),
+        "evidence_count": row.history.filter(Q(kind__in=["evidence_added", "evidence_attached", "evidence_captured"]) | Q(kind="comment", data__has_key="attachments")).count(),
         "communications": row.communications.prefetch_related("revisions"),
         "engagements": row.engagements.select_related("target", "area", "acknowledged_by").prefetch_related("evidence"),
         "projection": projection,

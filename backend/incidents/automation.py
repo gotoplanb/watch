@@ -4,8 +4,8 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from . import assessments, communications, diagnostics
-from .models import Assessment, AssessmentPolicy, ServiceDependency
+from . import assessments, communications, diagnostics, evidence_capture
+from .models import Assessment, AssessmentCorrelation, AssessmentPolicy, ServiceDependency
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +33,28 @@ def schedule(assessment):
 
 SIGNALS_ACTOR = "system:signals"
 ACTIVE, RESOLVED = "active", "resolved"
+# Still being worked: open, or promoted with its incident still open.
+STILL_OPEN = ~Q(status__in=CLOSED_STATUSES) | Q(status="promoted", incident__status="OPEN")
+
+
+class Routed(tuple):
+    """(assessment, created), plus how the signal reached it: created, duplicate (a retried
+    delivery), attached (another source's signal for a scope already being assessed, ADR-060)
+    or correlated (a re-fire or recovery of the same condition, ADR-059)."""
+
+    def __new__(cls, row, how):
+        routed = super().__new__(cls, (row, how == "created"))
+        routed.how = how
+        return routed
 
 
 def correlated(source, correlation_key):
-    """Assessments still being worked for this condition: open ones, and promoted ones whose
-    incident is still open. Fan-out shares one key, so a supplier recovery reaches every scope."""
-    still_open = ~Q(status__in=CLOSED_STATUSES) | Q(status="promoted", incident__status="OPEN")
-    return list(Assessment.objects.filter(still_open, source=source, correlation_key=correlation_key)
+    """Assessments still being worked for this condition, found by their own key or a key they
+    took on from another source (ADR-060). Fan-out shares one key, so a supplier recovery reaches
+    every scope."""
+    own = Q(source=source, correlation_key=correlation_key)
+    taken_on = Q(correlations__source=source, correlations__key=correlation_key)
+    return list(Assessment.objects.filter(STILL_OPEN).filter(own | taken_on).distinct()
                 .select_related("incident").order_by("created_at"))
 
 
@@ -95,24 +110,70 @@ def _scopes(data):
     return [(d.customer, d.service) for d in dependencies] or [(data.get("customer", ""), data.get("service", ""))]
 
 
-def receive_signal(*, correlation_key="", state=ACTIVE, **data):
-    """Fan supplier notices into independently evidenced customer/service assessments. With a
-    correlation key, a re-fire or recovery of a condition already being assessed attaches to it."""
+def _open_for_scope(customer, service):
+    """The assessment already answering "are this customer's users of this service affected?"."""
+    if not (customer and service):
+        return None  # unscoped signals never merge: there's no shared question to attach to
+    return (Assessment.objects.filter(STILL_OPEN, customer=customer, service=service)
+            .order_by("-created_at").first())
+
+
+@transaction.atomic
+def _attach_related(row, data):
+    """Another source's signal for a scope already being assessed is evidence on that assessment,
+    not a second assessment (ADR-060). Its key is taken on, so its re-fire or recovery finds it."""
+    row = Assessment.objects.select_for_update().get(pk=row.pk)
+    event_id = data.get("source_event_id") or ""
+    if event_id and row.history.filter(data__source_event_id=event_id).exists():
+        return row
+    label = f"{data['source']}" + (f" ({data['supplier']})" if data.get("supplier") else "")
+    assessments.append(row, "related_signal", f"{label}: {data['title']}\n{data['signal']}", SIGNALS_ACTOR,
+                       {"source": data["source"], "source_event_id": event_id,
+                        "correlation_key": data.get("correlation_key", ""),
+                        "supplier": data.get("supplier", ""), "payload": data.get("payload") or {}})
+    if data.get("correlation_key"):
+        AssessmentCorrelation.objects.get_or_create(assessment=row, source=data["source"],
+                                                    key=data["correlation_key"])
+    row.save(update_fields=["updated_at"])
+    return row
+
+
+def _route_scope(data, customer, service):
+    scoped = {**data, "customer": customer, "service": service}
+    if data.get("source_event_id"):
+        scoped["source_event_id"] = f"{data['source_event_id']}:{customer}:{service}"
+    is_retry = Assessment.objects.filter(dedupe_key=assessments.dedupe_key(**scoped)).exists()
+    existing = None if is_retry else _open_for_scope(customer, service)
+    if existing is not None:
+        return Routed(_attach_related(existing, scoped), "attached")
+    assessment, created = assessments.receive(**scoped)
+    if created:
+        schedule(assessment)
+    return Routed(assessment, "created" if created else "duplicate")
+
+
+def receive_signal(*, correlation_key="", state=ACTIVE, evidence_url="", **data):
+    """Fan supplier notices into independently evidenced customer/service assessments.
+
+    A re-fire or recovery of a condition already being assessed attaches to it (ADR-059), and a
+    signal for a customer/service scope already being assessed is evidence there, not a new
+    assessment (ADR-060). A cited status page is linked, and screenshotted if allow-listed."""
     if correlation_key:
         attached = correlate(correlation_key=correlation_key, state=state, **data)
         if attached or state == RESOLVED:
-            return [(row, False) for row in attached]
+            results = [Routed(row, "correlated") for row in attached]
+            _link_evidence(evidence_url, results)
+            return results
     data["correlation_key"] = correlation_key
-    results = []
-    for customer, service in _scopes(data):
-        scoped = {**data, "customer": customer, "service": service}
-        if data.get("source_event_id"):
-            scoped["source_event_id"] = f"{data['source_event_id']}:{customer}:{service}"
-        assessment, created = assessments.receive(**scoped)
-        if created:
-            schedule(assessment)
-        results.append((assessment, created))
+    results = [_route_scope(data, customer, service) for customer, service in _scopes(data)]
+    _link_evidence(evidence_url, results)
     return results
+
+
+def _link_evidence(url, results):
+    rows = [routed[0] for routed in results if routed.how != "duplicate"]
+    if url and rows:
+        evidence_capture.link(url, rows)
 
 
 def _run_reason(run):

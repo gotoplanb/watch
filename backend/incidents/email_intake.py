@@ -18,10 +18,9 @@ from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from io import BytesIO
 
 from django.conf import settings
-from django.contrib.auth.models import User
 from django.db import transaction
 
-from . import assessments, automation, operations
+from . import assessments, automation, evidence_capture, operations
 from .models import Assessment, AssessmentEvent, EmailRoute, EvidenceAttachment, OutboxMessage
 
 SOURCE = "email"
@@ -158,12 +157,8 @@ def _is_uuid(value: str) -> bool:
 
 # --- attachments ---------------------------------------------------------------------------------
 
-def _intake_user() -> User:
-    user, created = User.objects.get_or_create(username=INTAKE_USERNAME, defaults={"is_active": False})
-    if created:
-        user.set_unusable_password()
-        user.save(update_fields=["password"])
-    return user
+def _intake_user():
+    return operations.system_user(INTAKE_USERNAME)
 
 
 class _Part(BytesIO):
@@ -240,9 +235,11 @@ def _signal(message, envelope: dict) -> Result:
     rows = automation.receive_signal(
         title=subject[:512], source=SOURCE, signal=text[:MAX_TEXT] or subject,
         source_event_id=envelope["message_id"], signal_at=_signal_at(message),
-        payload={"email": envelope}, **route_for(envelope["from"]))
-    for row, created in rows:
-        if not created:
+        payload={"email": envelope}, evidence_url=evidence_capture.first_allowed(text),
+        **route_for(envelope["from"]))
+    for routed in rows:
+        row = routed[0]
+        if routed.how not in {"created", "attached"}:
             continue
         attachments, skipped = store_attachments(row, message)
         if attachments or skipped or not envelope["authentication"]["verified"]:
@@ -251,8 +248,14 @@ def _signal(message, envelope: dict) -> Result:
             data = {"email": envelope, **({"attachments": attachments} if attachments else {})}
             assessments.append(row, "comment", _note("Received by email.", envelope["authentication"],
                                                      skipped), envelope["from"], data)
-    created_any = any(created for _, created in rows)
-    return Result("signal", "new signal" if created_any else "already received", rows)
+    hows = {routed.how for routed in rows}
+    if "created" in hows:
+        reason = "new signal"
+    elif hows & {"attached", "correlated"}:
+        reason = "added to an open assessment for the same customer and service"
+    else:
+        reason = "already received"
+    return Result("signal", reason, rows)
 
 
 def receive(raw: bytes) -> Result:

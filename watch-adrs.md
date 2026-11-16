@@ -1241,3 +1241,22 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 - Flapping monitors produce one assessment with a repeat history, not a pile of assessments.
 - Sources must send a stable key to benefit. Without one, behavior is unchanged.
 - Cross-source correlation (a Square status page posting about an assessment opened by our own Sumo alert) is a different problem, still open as #65.
+
+## ADR-060 — One assessment per question across sources; status pages captured as evidence
+**Status:** Accepted. Refines ADR-054, ADR-057 and ADR-059. Resolves #65.
+
+**Context.** Our own Sumo alert opens an assessment for customer A's checkout. Twenty minutes later Square's status page reports a payments incident. Before this, Square's notice fanned out into a fresh A/checkout assessment beside the open one: two assessments asking the same question, with the likely cause separated from the symptom. Status pages also have no timestamped permalinks. Once a supplier edits or clears its notice, what it said and when is gone, which matters for later review and for supplier accountability.
+
+**Decision.**
+1. **One open assessment per customer and service.** An assessment answers "are this customer's users of this service affected?". A signal for a customer/service scope that already has one still being worked (open, or promoted with its incident open) is recorded on it as `related_signal` evidence instead of opening a second. A retried delivery of the original event is still just a duplicate. Signals with no customer and service never merge.
+2. **The attached source's key is taken on.** If the attached signal carries a correlation key, the assessment records it (`AssessmentCorrelation`), so that source's later re-fire or recovery finds this assessment under ADR-059's rules.
+3. **Signals may cite a status page** (`evidence_url`; email-in takes the first allow-listed link from a supplier's message). The link is recorded on each assessment at once.
+4. **Allow-listed status pages are screenshotted by the operations worker** in headless Chromium (Playwright): one capture per page per burst, filed on every assessment that cited it, with the capture time, the URL it finally landed on and a SHA-256. A failure is recorded, never raised.
+5. **Capture is fenced.** Only https hosts on the status-page allow-list (`StatusPage`, configured in the admin; host or subdomain) are loaded. A redirect off the list fails the capture. The browser refuses every request to private, loopback, link-local or reserved addresses, so a signal cannot make Watch fetch internal URLs.
+6. **This is evidence capture, not monitoring** (ADR-057). Watch loads a page once, because a signal cited it; it never polls a page on a schedule.
+
+**Consequences.**
+- The symptom (our alert) and the likely cause (Square's notice) sit in one history, and Square's recovery reaches the assessment that matters.
+- Two genuinely separate problems for the same customer and service share one assessment until one is closed. Accepted: they ask the same question about customer impact.
+- The worker needs Chromium: a larger image, and memory while a capture runs (#73 for the cloud image). Locally it reuses the e2e suite's browser build.
+- Screenshots are third-party content stored as evidence, under the same retention questions as other evidence (ADR-055).

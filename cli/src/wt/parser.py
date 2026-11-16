@@ -182,17 +182,25 @@ def _signals(sub):
                       "The main intake path (ADR-054). A signal is a question: are customers "
                       "affected? It opens an assessment per customer and service concerned; a "
                       "supplier signal fans out to everything depending on that supplier. A matching "
-                      "policy then runs diagnostic checks on our own telemetry. With --key, a "
-                      "re-fire or recovery of the same condition attaches to the open assessment "
-                      "instead of opening another (ADR-059). Uses the intake secret, not a user.",
+                      "policy then runs diagnostic checks on our own telemetry. A customer/service "
+                      "that already has an open assessment gets the signal as evidence there instead "
+                      "of a second one (ADR-060). With --key, a re-fire or recovery of the same "
+                      "condition attaches to the assessment working it (ADR-059). With --url, a "
+                      "cited status page is screenshotted as evidence (ADR-060). Uses the intake "
+                      "secret, not a user.",
                       ["wt signal \"Square API down\" --signal \"HTTP 503\" --supplier Square "
                        "--key monitor-778",
                        "wt signal \"Square API up\" --signal \"HTTP 200\" --supplier Square "
-                       "--key monitor-778 --resolved"])
+                       "--key monitor-778 --resolved",
+                       "wt signal \"Square degraded\" --signal \"elevated errors\" --supplier Square "
+                       "--url https://status.example.com/incidents/abc"])
     _signal_fields(signal)
     signal.add_argument("--key", default="",
                         help="Correlation key: the source's stable id for the condition (e.g. the "
                         "monitor id).")
+    signal.add_argument("--url", default="",
+                        help="A status page the signal cites. Recorded; screenshotted as evidence if "
+                        "its host is on the status-page allow-list (ADR-060).")
     signal.add_argument("--resolved", action="store_true",
                         help="The source reports recovery: opens nothing, records it on the open "
                         "assessment and reruns its checks. Never resolves an incident.")

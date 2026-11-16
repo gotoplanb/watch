@@ -34,3 +34,24 @@ A **correlation key** is the source's stable id for the condition (the monitor i
 - a recovery never resolves an incident; a responder does.
 
     wt signal "Square API up" --signal "HTTP 200" --supplier Square --key monitor-778 --resolved
+
+## One assessment per question (ADR-060)
+
+An assessment asks "are this customer's users of this service affected?". If one is already open
+for that customer and service, a signal from another source is added to it as evidence
+(`related_signal`) instead of opening a second assessment. Say our Sumo alert opened
+A/checkout, then Square's status page reports a payments incident: Square's notice lands on that
+assessment as a likely cause, and Square's later recovery finds it too. Signals with no customer
+and service never merge.
+
+## Status-page screenshots (ADR-060)
+
+Status pages have no timestamped permalinks, so what they said is lost once they change. A signal
+can cite one (`--url`; email-in picks the link out of a supplier's email). Watch records the link,
+and if the host is on the status-page allow-list (set up in the admin) the worker takes a
+screenshot: stored as evidence with the capture time, the URL it landed on and a SHA-256, on every
+assessment that cited it. Only allow-listed https hosts are loaded, a redirect off the list fails
+the capture, and the browser can't reach internal addresses.
+
+    wt signal "Square degraded" --signal "elevated errors" --supplier Square \
+        --url https://status.example.com/incidents/abc

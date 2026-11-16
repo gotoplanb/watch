@@ -10,6 +10,9 @@ PyYAML>=6.0                    # triage-matrix.yaml loader (ADR-037)
 mcp>=1.2,<2                    # FastMCP server — the AI-assistant tool surface (ADR-038)
 uvicorn>=0.30                  # serves the MCP ASGI app (manage.py mcp — ADR-038)
 gunicorn>=21.2                 # served behind ALB on Fargate (§4.3)
+# Status-page screenshots as evidence (ADR-060), headless Chromium in the operations worker. Pinned to
+# the e2e suite's minor (1.61) so both share one browser build; see e2e/README.md on seeding it.
+playwright>=1.61,<1.62
 
 # Observability (OpenTelemetry from day one — §4.8). Coordinated release train;
 # pip resolves matching sdk/instrumentation versions.
