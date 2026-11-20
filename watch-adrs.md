@@ -195,7 +195,7 @@
 ---
 
 ## ADR-012 — On-call schedule overlays tier Groups (capability vs. responsibility)
-**Status:** Accepted · *Refines ADR-008 / §3*
+**Status:** Accepted · *Refines ADR-008 / §3* · *Amended by ADR-066 §7: in deployed environments the schedule is owned by Grafana IRM and `OnCallShift` is a read-only copy synced from it; capability vs. responsibility is unchanged.*
 
 **Context.** Tiers are static Django Groups granting who *may* act (ADR-008, tier-or-above). Real escalation also needs to know who is **on-call** for each tier right now — to auto-assign and to page (ADR-013). Making the schedule the source of authz would couple "can act" to the rota: a scheduling gap would leave a live incident with **nobody authorized**, and it loses senior-override / coverage.
 
@@ -1343,7 +1343,7 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 - A Statuspage webhook token in the wrong hands can inject signals for that one supplier, or announce fake maintenance that holds automatic promotion for its scope (capped at 7 days, and never holding a person). Tokens are random per page and visible only in the admin.
 
 ## ADR-066 — Production telemetry goes to Sumo Logic, Grafana Cloud as a cross-check; Grafana IRM delivers pages
-**Status:** Accepted (direction; not yet built). Amends ADR-016 §2 (prod's vendor), ADR-013 (paging provider) and ADR-026 (which trace store reads Watch's own prod telemetry).
+**Status:** Accepted (direction; not yet built). Amends ADR-016 §2 (prod's vendor), ADR-013 (paging provider), ADR-012 (where the on-call schedule lives) and ADR-026 (which trace store reads Watch's own prod telemetry).
 
 **Context.** ADR-016 left prod's last hop as "a managed vendor (Grafana Cloud / Datadog / Sumo)" and its amendments assumed Grafana Cloud. Sumo Logic is what work already runs, so that is where prod telemetry is most useful. ADR-013 pages through ntfy, which has no on-call schedules, acknowledgement or phone/SMS escalation. Grafana's open-source OnCall was archived on 2026-03-24; Grafana Cloud IRM replaces it.
 
@@ -1354,9 +1354,16 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 4. **Session Check reads Watch's own prod telemetry from Sumo** (`TRACE_STORE_PROVIDER=sumologic`, ADR-026); `grafana_cloud` remains available.
 5. **Pages are delivered through Grafana IRM in deployed environments.** Watch still decides who is paged and when (tiers, SLAs, on-call shifts: ADR-007, ADR-012); IRM delivers the page (app push, SMS, phone) and records the acknowledgement. Watch sends to an IRM webhook integration through the existing `notify` seam, one alert per page, with a grouping id per incident and tier, and a resolve when the tier is left. IRM escalation chains for Watch's integration only notify; they don't escalate on their own, so there is one clock, Watch's. ntfy stays the local provider.
 6. **Watch's own health alerts go to IRM directly** (from Sumo or Grafana alerting), not through Watch, so an outage of Watch still pages someone.
+7. **IRM's schedules are the system of record for who is on call; Watch keeps a read-only copy.** The reason is the dead man's switch: when Watch is down, IRM must still know who to page, so the schedule can't live only in Watch. Decided 2026-11-20.
+   - One IRM schedule per tier, configured by id. The operations worker pulls each schedule's final shifts (`GET /api/v1/schedules/<id>/final_shifts`) from now to two weeks out, every few minutes, and replaces the copied future shifts in `OnCallShift` (marked as copied from IRM). Past shifts are left as they were, so history isn't rewritten by later schedule edits.
+   - IRM users are matched to Watch users by email. A shift whose person has no Watch account is skipped and reported; that time counts as a gap, so the incident stays unassigned and the page goes to the tier (ADR-012, ADR-013).
+   - When the sync is on, shifts can't be edited in Watch; changes are made in IRM. Locally, with no IRM, shifts stay editable in Watch as today.
+   - If IRM can't be reached, Watch keeps using its last copy, and the sync reports in as a monitored source (ADR-062), so a stale copy opens an assessment instead of failing silently.
 
 **Consequences.**
 - Prod data lands where the team already looks; Grafana Cloud stays one setting away, which also keeps the vendor swap from ADR-016 honest.
 - Two ingest bills if the cross-check is left on; it's meant to be turned on deliberately.
-- IRM brings real on-call delivery and acknowledgement, at the cost of a second place that knows about on-call people. **Open:** whether Watch's on-call shifts or IRM's schedules are the source of truth for who is on call. Until decided, Watch's shifts decide and the page names the person; IRM routes on that.
+- IRM brings real on-call delivery and acknowledgement; with schedules owned there too (§7), who is on call survives an outage of Watch.
+- The replica can lag IRM by up to one sync interval, and someone in IRM with no matching Watch account can't be assigned.
+- IRM's `final_shifts` field names are taken from its API docs and need checking against a live stack.
 - None of this works without a Sumo account, a Grafana Cloud stack and IRM, so the build work is labelled `cloud` and lands mostly in the platform repo.
