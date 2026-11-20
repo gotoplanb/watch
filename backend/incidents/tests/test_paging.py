@@ -14,12 +14,17 @@ from incidents.models import Incident, OnCallShift, Page, PageStatus, Status, Ti
 class FakeNotifier:
     def __init__(self, fail=False):
         self.sent = []
+        self.cleared = []
         self.fail = fail
 
-    def send(self, topic, title, message, priority="default", tags=None):
+    def send(self, page):
         if self.fail:
             raise RuntimeError("ntfy down")
-        self.sent.append({"topic": topic, "title": title, "message": message})
+        self.sent.append({"topic": page.topic, "title": page.title, "message": page.body,
+                          "alert": page.alert})
+
+    def clear(self, alert, title):
+        self.cleared.append(alert["uid"])
 
 
 @pytest.fixture
@@ -157,3 +162,55 @@ def test_acknowledge_does_not_page(notifier, django_capture_on_commit_callbacks)
         services.acknowledge(inc.id, actor="alice")
     assert Page.objects.count() == 0
     assert notifier.sent == []
+
+
+# --- Grafana IRM (ADR-066): one alert per incident+tier, withdrawn when the tier is left ---------
+
+class IrmNotifier(FakeNotifier):
+    name = "grafana_irm"
+
+
+@pytest.fixture
+def irm():
+    f = IrmNotifier()
+    notify.set_provider_for_tests(f)
+    yield f
+    notify.set_provider_for_tests(None)
+
+
+@pytest.mark.django_db
+def test_irm_page_carries_the_alert_and_audits_its_uid(settings, irm):
+    settings.PAGING_ENV = "test"
+    settings.WATCH_PUBLIC_BASE_URL = "https://watch.example/"
+    _paging("on")
+    inc = _incident("T2")
+    services._page(inc, "T2")
+    alert = irm.sent[0]["alert"]
+    assert alert == {"uid": f"watch-test-{inc.id}-T2", "tier": "T2", "incident": inc.number,
+                     "assignee": "", "link": f"https://watch.example/ui/incidents/{inc.id}/"}
+    assert Page.objects.get().topic == f"grafana_irm:watch-test-{inc.id}-T2"
+
+
+@pytest.mark.django_db
+def test_escalate_clears_the_previous_tiers_page(settings, irm, django_capture_on_commit_callbacks):
+    settings.PAGING_ENV = "test"
+    _paging("on")
+    inc = Incident.objects.create(title="x", source="s", dedupe_key="c1", current_tier=Tier.T1, status=Status.OPEN)
+    services._page(inc, "T1")
+    with django_capture_on_commit_callbacks(execute=True):
+        services.escalate(inc.id, actor="alice")
+    assert irm.cleared == [f"watch-test-{inc.id}-T1"]
+    with django_capture_on_commit_callbacks(execute=True):
+        services.resolve(inc.id, actor="alice")
+    assert irm.cleared[-1] == f"watch-test-{inc.id}-T2"
+
+
+@pytest.mark.django_db
+def test_nothing_is_cleared_without_a_sent_page(irm, django_capture_on_commit_callbacks):
+    inc = Incident.objects.create(title="x", source="s", dedupe_key="c2", current_tier=Tier.T1, status=Status.OPEN)
+    Page.objects.create(incident=inc, tier="T1", topic="local:in-app:T1", status=PageStatus.SENT)
+    Page.objects.create(incident=inc, tier="T1", topic="grafana_irm:x", status=PageStatus.FAILED)
+    with django_capture_on_commit_callbacks(execute=True):
+        services.acknowledge(inc.id, actor="alice")  # same tier: nothing to clear
+        services.resolve(inc.id, actor="alice")
+    assert irm.cleared == []

@@ -79,6 +79,35 @@ def paging_topic(kind: str, ident, seed: str = "") -> str:
     return f"{base}-{digest[:12]}"
 
 
+def page_alert(incident, tier, user=None) -> dict:
+    """What a provider that tracks pages (Grafana IRM, ADR-066) needs: one alert per incident and
+    tier, so a re-page groups with the first and leaving the tier can resolve it."""
+    return {
+        "uid": f"watch-{settings.PAGING_ENV}-{incident.id}-{tier}",
+        "tier": str(tier),
+        "incident": incident.number or str(incident.id),
+        "assignee": user.username if user else "",
+        "link": f"{settings.WATCH_PUBLIC_BASE_URL.rstrip('/')}/ui/incidents/{incident.id}/",
+    }
+
+
+def clear_page_on_tier_exit(incident, tier) -> None:
+    """Withdraw a tier's page once the incident leaves that tier (escalated or resolved), so IRM
+    stops notifying people who are no longer responsible. Only pages that were actually sent are
+    cleared; ntfy has nothing to withdraw. After commit, best-effort, like paging itself."""
+    transaction.on_commit(lambda: _clear_page(incident, tier))
+
+
+def _clear_page(incident, tier) -> None:
+    try:
+        if not (Page.objects.filter(incident=incident, tier=tier, status=PageStatus.SENT)
+                .exclude(topic__startswith="local:").exists()):
+            return
+        notify.clear(page_alert(incident, tier), f"[{tier}] {incident.title}"[:110])
+    except Exception:  # pragma: no cover - defensive: paging must never break the domain
+        logger.warning("clearing the page failed for incident %s", getattr(incident, "id", "?"), exc_info=True)
+
+
 def _page(incident, tier) -> None:
     try:
         from .models import Assessment
@@ -98,10 +127,13 @@ def _page(incident, tier) -> None:
         user = shift.user if shift else None
         # Per-user topic, falling back to the tier topic when the rota has a gap (ADR-013).
         topic = paging_topic("user", user.id, seed=apikeys.seed_for(user)) if user else paging_topic("tier", tier)
+        alert = page_alert(incident, tier, user)
+        if notify.provider_name() == "grafana_irm":
+            topic = f"grafana_irm:{alert['uid']}"  # IRM routes on the tier; the audit names the alert
         who = f"@{user.username}" if user else f"{tier} on-call (rota gap)"
         title = f"[{tier}] {incident.title}"[:110]
         message = f"{who} — incident at {tier}\n{incident.title}\nid {incident.id}"
-        ok, err = notify.send(topic, title, message, priority="high", tags=["rotating_light"])
+        ok, err = notify.send(topic, title, message, priority="high", tags=["rotating_light"], alert=alert)
         Page.objects.create(
             incident=incident, tier=tier, topic=topic, target=user,
             status=PageStatus.SENT if ok else PageStatus.FAILED, error="" if ok else err,
@@ -120,6 +152,8 @@ def _record(incident, *, to_status, to_tier, actor, reason, from_status, from_ti
         actor=actor,
         reason=reason,
     )
+    if from_status == Status.OPEN and (to_status == Status.RESOLVED or to_tier != from_tier):
+        clear_page_on_tier_exit(incident, from_tier)
     from .assessments import mirror
     mirror(incident, kind="lifecycle_transition",
            body=f"{from_tier} → {to_tier} · {to_status}. {reason}", actor=actor,
