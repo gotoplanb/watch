@@ -214,7 +214,7 @@
 ---
 
 ## ADR-013 — Escalation paging via ntfy, targeted at the on-call
-**Status:** Accepted · *amended: unguessable topic names (secret salt)*
+**Status:** Accepted · *amended: unguessable topic names (secret salt)* · *Amended by ADR-066: deployed environments deliver pages through Grafana IRM; ntfy stays the local provider.*
 
 **Context.** Escalation moves the tier silently — no human is notified. We need to page the responsible person when an incident reaches their tier (manual or auto). ntfy.sh is a lightweight pub-sub push service (HTTP POST to a topic; phone/web subscribers) that fits the phone-first loop.
 
@@ -271,7 +271,7 @@
 ---
 
 ## ADR-016 — Telemetry topology: the app is backend-agnostic; OTLP to a local Alloy collector, topology varies per environment
-**Status:** Accepted · *Refines ADR-003* · *Amended 2026-06-30: staging uses the sidecar+gateway topology too (mirrors prod, per ADR-019); the only per-env difference is the exporter destination; Watchtower runs in AWS as a platform slice (ADR-018), never the laptop.* · *Amended 2026-07-02: plane **deployed & verified end-to-end on staging** (app → local Alloy sidecar → per-env Alloy gateway → Tempo, viewed as live traces in Grafana). Realized as platform-repo modules `modules/{alloy,gateway,tempo,grafana}` — the shared Alloy renderer (`sidecar`/`gateway` roles) is the "shared config module" guardrail; the Watchtower slice is these modules (rewritten from the ~/watchtower draft), **co-located in the staging VPC and kept warm-minimal** (deviations → ADR-018/019). **Prod's gateway exports to Grafana Cloud** (managed vendor), confirming §2 — no Tempo/Watchtower in product prod. Tail-sampling (§3) is a gated var, currently off pending enablement.* · *Amended 2026-07-05: tail-sampling **enabled** on the staging gateway (Session Check, ADR-022, now queries the staging Tempo end-to-end — provider `tempo`, SG-scoped query access). Added the **`authenticated` keep policy** (§3): session-bearing traces (`session.id`) are kept 100% so a Session Check is never fooled by a session that was sampled away; only unauthenticated volume is sampled.*
+**Status:** Accepted · *Refines ADR-003* · *Amended 2026-11-20 by ADR-066: prod's vendor is **Sumo Logic**, with Grafana Cloud as an optional second destination.* · *Amended 2026-06-30: staging uses the sidecar+gateway topology too (mirrors prod, per ADR-019); the only per-env difference is the exporter destination; Watchtower runs in AWS as a platform slice (ADR-018), never the laptop.* · *Amended 2026-07-02: plane **deployed & verified end-to-end on staging** (app → local Alloy sidecar → per-env Alloy gateway → Tempo, viewed as live traces in Grafana). Realized as platform-repo modules `modules/{alloy,gateway,tempo,grafana}` — the shared Alloy renderer (`sidecar`/`gateway` roles) is the "shared config module" guardrail; the Watchtower slice is these modules (rewritten from the ~/watchtower draft), **co-located in the staging VPC and kept warm-minimal** (deviations → ADR-018/019). **Prod's gateway exports to Grafana Cloud** (managed vendor), confirming §2 — no Tempo/Watchtower in product prod. Tail-sampling (§3) is a gated var, currently off pending enablement.* · *Amended 2026-07-05: tail-sampling **enabled** on the staging gateway (Session Check, ADR-022, now queries the staging Tempo end-to-end — provider `tempo`, SG-scoped query access). Added the **`authenticated` keep policy** (§3): session-bearing traces (`session.id`) are kept 100% so a Session Check is never fooled by a session that was sampled away; only unauthenticated volume is sampled.*
 
 **Context.** The application must **never know what telemetry backend exists, in any environment.** An app that names a vendor or a remote endpoint couples it to that backend's identity and availability, and forces a redeploy to switch. Earlier notes ("OTel → existing Watchtower") conflated a local dev convenience with a deployed topology and implied prod depends on Watchtower — it must not (ADR-018).
 
@@ -482,7 +482,7 @@
 ---
 
 ## ADR-026 — Multi-vendor trace store for Session Check (own telemetry + query-only adapters)
-**Status:** Accepted · *Realizes the deferral in ADR-022; refines the `trace_store` seam*
+**Status:** Accepted · *Realizes the deferral in ADR-022; refines the `trace_store` seam* · *Amended by ADR-066: Watch's own prod telemetry is read from Sumo (`sumologic`).*
 
 **Context.** ADR-022's Session Check queries a trace backend for a session's error spans, and left the vendor impl deferred (only `none` + in-VPC `tempo`). Two distinct needs surfaced: **(a)** query Watch's **own** prod telemetry — which goes to **Grafana Cloud** (ADR-016 §2), not an in-VPC Tempo; and **(b)** use Watch as an **SRE tool against *existing* telemetry at work** — **Datadog** and **Sumo Logic** — where Watch does **not** own ingest and the traces are put there by unrelated systems.
 
@@ -1341,3 +1341,22 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 - The common monitoring sources connect without glue code of our own outside Watch.
 - Vendors change payloads. Each adapter is small, tested against the documented shape, and refuses what it doesn't understand with a 400 rather than guessing.
 - A Statuspage webhook token in the wrong hands can inject signals for that one supplier, or announce fake maintenance that holds automatic promotion for its scope (capped at 7 days, and never holding a person). Tokens are random per page and visible only in the admin.
+
+## ADR-066 — Production telemetry goes to Sumo Logic, Grafana Cloud as a cross-check; Grafana IRM delivers pages
+**Status:** Accepted (direction; not yet built). Amends ADR-016 §2 (prod's vendor), ADR-013 (paging provider) and ADR-026 (which trace store reads Watch's own prod telemetry).
+
+**Context.** ADR-016 left prod's last hop as "a managed vendor (Grafana Cloud / Datadog / Sumo)" and its amendments assumed Grafana Cloud. Sumo Logic is what work already runs, so that is where prod telemetry is most useful. ADR-013 pages through ntfy, which has no on-call schedules, acknowledgement or phone/SMS escalation. Grafana's open-source OnCall was archived on 2026-03-24; Grafana Cloud IRM replaces it.
+
+**Decision.**
+1. **Local is unchanged.** The app sends OTLP to the local Alloy, which exports to the local Watchtower (Grafana, Tempo, Loki, Prometheus). Staging still exports to the Watchtower platform slice (ADR-018).
+2. **Prod's gateway exports to Sumo Logic**, through a Sumo hosted collector's OTLP/HTTP source (traces, metrics and logs), with its token held by the gateway (ADR-016 §3). Sumo is the system of record for prod telemetry.
+3. **Grafana Cloud stays supported as a second destination.** The same gateway can fan out to Grafana Cloud as well, so prod data can be read in the same Grafana views used locally and in staging, and the two vendors can be checked against each other. It is a gateway setting, off unless enabled. The app still names no vendor (ADR-016 §1).
+4. **Session Check reads Watch's own prod telemetry from Sumo** (`TRACE_STORE_PROVIDER=sumologic`, ADR-026); `grafana_cloud` remains available.
+5. **Pages are delivered through Grafana IRM in deployed environments.** Watch still decides who is paged and when (tiers, SLAs, on-call shifts: ADR-007, ADR-012); IRM delivers the page (app push, SMS, phone) and records the acknowledgement. Watch sends to an IRM webhook integration through the existing `notify` seam, one alert per page, with a grouping id per incident and tier, and a resolve when the tier is left. IRM escalation chains for Watch's integration only notify; they don't escalate on their own, so there is one clock, Watch's. ntfy stays the local provider.
+6. **Watch's own health alerts go to IRM directly** (from Sumo or Grafana alerting), not through Watch, so an outage of Watch still pages someone.
+
+**Consequences.**
+- Prod data lands where the team already looks; Grafana Cloud stays one setting away, which also keeps the vendor swap from ADR-016 honest.
+- Two ingest bills if the cross-check is left on; it's meant to be turned on deliberately.
+- IRM brings real on-call delivery and acknowledgement, at the cost of a second place that knows about on-call people. **Open:** whether Watch's on-call shifts or IRM's schedules are the source of truth for who is on call. Until decided, Watch's shifts decide and the page names the person; IRM routes on that.
+- None of this works without a Sumo account, a Grafana Cloud stack and IRM, so the build work is labelled `cloud` and lands mostly in the platform repo.

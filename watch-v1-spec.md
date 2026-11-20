@@ -71,7 +71,7 @@ React SPA (S3 + CloudFront) ─────────────────�
 
 **OnCallShift (on-call schedule, ADR-012)** — `tier`, `user`, `starts_at`, `ends_at`. Defines **responsibility** (who's on-call now), distinct from capability. `current_on_call(tier)` resolves the active shift; on entering/escalating to a tier the engine auto-sets `incident.assignee` to it (realizes "auto-route on escalation"). A rota gap leaves `assignee` null; the incident stays actionable by any T-or-above member.
 
-**Paging (ADR-013)** — on a real tier change (new incident at T1, or escalate to T2/T3), the single transition-writer pages the current on-call via **ntfy** (per-user topic, tier-topic fallback), behind the `paging_enabled` flag, best-effort with an audit record. ntfy topics are public by default → prod uses access tokens / self-hosted ntfy.
+**Paging (ADR-013)** — on a real tier change (new incident at T1, or escalate to T2/T3), the single transition-writer pages the current on-call via **ntfy** (per-user topic, tier-topic fallback), behind the `paging_enabled` flag, best-effort with an audit record. ntfy topics are public by default. Deployed environments deliver pages through **Grafana IRM** instead (ADR-066); ntfy stays the local provider.
 
 ---
 

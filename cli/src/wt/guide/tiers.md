@@ -28,8 +28,8 @@ unassigned but still actionable by anyone in the tier or above. Assigning grants
 
 ## Paging
 
-Entering a tier (a new incident at T1, or an escalation) pages the on-call person through ntfy;
-acknowledging does not page. With nobody on call, the page goes to the whole tier. Paging is
+Entering a tier (a new incident at T1, or an escalation) pages the on-call person (through ntfy
+locally; deployed environments will use Grafana IRM, ADR-066); acknowledging does not page. With nobody on call, the page goes to the whole tier. Paging is
 best-effort, never blocks the escalation itself, and sits behind the `paging_enabled` flag
 (ADR-003), which is off in local development.
 
