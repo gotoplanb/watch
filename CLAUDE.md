@@ -101,6 +101,9 @@ can't reach PyPI, so `make dev` is the working loop.
   (`config.settings_integration`); integration tests are marked and skip cleanly when a
   dependency container is down.
 
+- **AWS Emulator (opt-in, ADR-067).** `make emulator-up` / `emulator-test` / `emulator-probe` /
+  `emulator-down` (`local/aws-emulator/`). Used today for the SQS worker path only; it can't run our
+  Django Lambdas yet (RustPython, no network). After bumping `EMULATOR_VERSION`, rerun the probe.
 - **Verify with `wt` first (ADR-056).** `cli/` is a stdlib-only CLI over `/api/` that acts as any
   seeded user: `make cli-install && make cli-keys`, then e.g. `wt intake "…"`,
   `wt --as t1a escalate INC-0042 --expect T1`, `wt --as t2a wait INC-0042 --tier T3`. Prefer it to

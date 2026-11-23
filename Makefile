@@ -205,6 +205,40 @@ integration: venv infra ## Integration tests vs running infra (Postgres, AppConf
 	  APPCONFIG_AGENT_URL=http://localhost:2772 \
 	  .venv/bin/pytest -m integration -p no:cacheprovider
 
+# --- AWS Emulator (opt-in, ADR-067; local/aws-emulator/README.md) ---
+# Pinned on purpose: it releases several times a day. Bump, then rerun emulator-test + -probe.
+EMULATOR_VERSION ?= 1.0.587
+EMULATOR_PORT ?= 9297
+EMULATOR_ARCH := $(if $(filter arm64 aarch64,$(shell uname -m)),aarch64,x86_64)
+EMULATOR_IMAGE := watch-aws-emulator:$(EMULATOR_VERSION)
+
+emulator-build: ## Build the pinned AWS Emulator image (local Docker build; may need a macOS approval)
+	docker build -t $(EMULATOR_IMAGE) --build-arg VERSION=$(EMULATOR_VERSION) \
+	  --build-arg ARCH=$(EMULATOR_ARCH) local/aws-emulator
+
+emulator-up: ## Start the AWS Emulator on 127.0.0.1:$(EMULATOR_PORT) (telemetry off; state in memory)
+	@docker image inspect $(EMULATOR_IMAGE) >/dev/null 2>&1 || $(MAKE) emulator-build
+	@mkdir -p $(HOME)/.aws/emulator
+	@docker stop watch-aws-emulator >/dev/null 2>&1 || true
+	docker run -d --rm --name watch-aws-emulator --memory=2g --memory-swap=2g \
+	  -p 127.0.0.1:$(EMULATOR_PORT):$(EMULATOR_PORT) -e HOME="$(HOME)" -e EMULATOR_TELEMETRY=off \
+	  -v "$(HOME)/.aws/emulator:$(HOME)/.aws/emulator" --add-host host.docker.internal:host-gateway \
+	  $(EMULATOR_IMAGE) -p $(EMULATOR_PORT) >/dev/null
+	@for i in $$(seq 30); do curl -sf --cacert $(HOME)/.aws/emulator/$(EMULATOR_PORT)/ca.pem \
+	  https://127.0.0.1:$(EMULATOR_PORT)/__admin/health >/dev/null 2>&1 && break; sleep 1; done
+	@echo "AWS Emulator $(EMULATOR_VERSION) up on https://127.0.0.1:$(EMULATOR_PORT); source local/aws-emulator/env.sh"
+
+emulator-down: ## Stop the AWS Emulator (wipes its in-memory state)
+	-docker stop watch-aws-emulator
+
+emulator-test: venv ## Integration tests marked `emulator` (today: the SQS worker path)
+	cd backend && DJANGO_SETTINGS_MODULE=config.settings_integration \
+	  POSTGRES_HOST=localhost POSTGRES_PORT=5433 VALKEY_URL=redis://localhost:6380/0 \
+	  EMULATOR_PORT=$(EMULATOR_PORT) .venv/bin/pytest -m emulator -p no:cacheprovider
+
+emulator-probe: venv ## Can the AWS Emulator run Watch's escalation Lambdas yet? (prints READY / NOT YET)
+	@. local/aws-emulator/env.sh && $(VENV)/bin/python local/aws-emulator/probe_lambda.py
+
 down: ## Stop the stack and remove volumes
 	docker compose --profile integration down -v
 

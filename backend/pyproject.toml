@@ -19,6 +19,7 @@ python_files = ["test_*.py"]
 addopts = "-q -m 'not integration'"
 markers = [
     "integration: needs the docker-compose stack (Postgres, AppConfig Agent, SFN Local)",
+    "emulator: needs the opt-in AWS Emulator (make emulator-up, ADR-067); also marked integration",
 ]
 
 [tool.coverage.run]

@@ -1367,3 +1367,20 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
 - The replica can lag IRM by up to one sync interval, and someone in IRM with no matching Watch account can't be assigned.
 - The plugin API is IRM's internal API, not a documented public one, so it can change without notice; the sync is small and isolated so a change is one function. The shape of a shift in `filter_events` is still unverified: the test stack's schedules have no rotations yet.
 - None of this works without a Sumo account, a Grafana Cloud stack and IRM, so the build work is labelled `cloud` and lands mostly in the platform repo.
+
+## ADR-067 — AWS Emulator as an opt-in local target, re-checked as it grows
+**Status:** Accepted. Complements ADR-010 (local escalation engine); doesn't replace it.
+
+**Context.** AWS released a local emulator of its APIs in November 2026: one HTTPS endpoint, state in memory, generated from AWS's API models and scored per release against published fidelity tests. It ships several releases a day and is expected to grow. A trial on 2026-11-23 (v1.0.587) found that from the host it is faithful where we tried it (SQS; Step Functions task tokens, real-time `TimeoutSeconds`, execution-role trust), but its Python Lambdas run in an embedded RustPython with no compiled packages, no TLS and no network beyond the emulator. Watch's escalation Lambdas are Django talking to Postgres, so they can't run there. It has no Terraform fidelity tests, and CloudFormation passes about 27%.
+
+**Decision.**
+1. **Opt-in, outside the loops that gate work.** `make emulator-up` / `emulator-down` / `emulator-test` / `emulator-probe` (`local/aws-emulator/`). It isn't part of `make dev`, `make integration`'s required services or the pre-commit gates.
+2. **Pinned version, telemetry off.** The image is built from AWS's versioned package (`EMULATOR_VERSION` in the `Makefile`) and bumped on purpose; published on 127.0.0.1 only.
+3. **Used today for the SQS worker path** (`QUEUE_PROVIDER=sqs` + `run_sqs_worker`: run and delete, and redrive to a dead-letter queue), which otherwise runs only in AWS (#61). Tests are marked `emulator` and skip when it isn't running.
+4. **Step Functions Local + `run_lambda_shim` stay** for the real escalation engine (ADR-010).
+5. **Re-check after upgrades,** especially after an AWS launch: `make emulator-probe` deploys a probe function and prints READY when Python Lambdas run on CPython with TLS and can reach Postgres on the host. READY reopens this ADR: replacing Step Functions Local and the shim, and reproducing #57 locally.
+
+**Consequences.**
+- Cheap to keep: about 2 GB of memory while running, nothing when stopped.
+- Two local Step Functions implementations could disagree; the emulator isn't used for escalation tests until the probe says READY.
+- A test that passes on the emulator says the code matches the emulator, which is close to AWS where its fidelity tests pass; for APIs that matter, AWS remains the last word.
