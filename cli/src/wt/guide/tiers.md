@@ -26,6 +26,11 @@ Who **may** act (tier roles) is separate from who **should** act (the on-call ro
 tier assigns the incident to that tier's current on-call person. A gap in the rota leaves it
 unassigned but still actionable by anyone in the tier or above. Assigning grants no authority.
 
+Where the rota lives depends on the environment. Locally you edit shifts on the Schedule page. In a
+deployed environment the rota is kept in Grafana IRM, so IRM can still page someone if Watch is down.
+Watch copies it every few minutes, read-only, matching people by email (ADR-066 §7). Someone on the
+IRM rota with no Watch account shows as a gap in Watch.
+
 ## Paging
 
 Entering a tier (a new incident at T1, or an escalation) pages the on-call person; acknowledging does not page.

@@ -231,6 +231,14 @@ CONDUCT_TIMEOUT = int(_env("CONDUCT_TIMEOUT", "60"))
 PAGING_PROVIDER = _env("PAGING_PROVIDER", "ntfy")
 # The IRM formatted-webhook integration URL. It carries its own secret: SSM in deployed envs.
 GRAFANA_IRM_WEBHOOK_URL = _env("GRAFANA_IRM_WEBHOOK_URL", "")
+# ADR-066 §7: IRM schedules are the on-call system of record; Watch copies them read-only.
+# IRM_SCHEDULE_IDS = "T1:<id>,T2:<id>,T3:<id>". Sync is on when it and the token are both set;
+# locally (unset) shifts stay editable in Watch. The token is a Grafana service-account token.
+GRAFANA_IRM_URL = _env("GRAFANA_IRM_URL", "")  # the stack, e.g. https://<stack>.grafana.net
+GRAFANA_IRM_TOKEN = _env("GRAFANA_IRM_TOKEN", "")
+IRM_SCHEDULE_IDS = _env("IRM_SCHEDULE_IDS", "")
+IRM_SYNC_INTERVAL_SECONDS = int(_env("IRM_SYNC_INTERVAL_SECONDS", "300"))
+IRM_SYNC_DAYS = int(_env("IRM_SYNC_DAYS", "14"))
 PAGING_ENV = _env("PAGING_ENV", "local")  # topic namespace: watch-<env>-user-<id> / -tier-<T>
 NTFY_BASE_URL = _env("NTFY_BASE_URL", "https://ntfy.sh")
 NTFY_TOKEN = _env("NTFY_TOKEN", "")  # empty for public ntfy.sh; access token / self-host for prod

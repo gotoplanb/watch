@@ -11,7 +11,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from . import assessments, automation, communications, escalation, heartbeats, services
+from . import assessments, automation, communications, escalation, heartbeats, irm_schedule, services
 from .models import Assessment, Communication, DiagnosticRun, Incident, OperationsHeartbeat, SmeEngagement, Tier
 
 logger = logging.getLogger(__name__)
@@ -137,6 +137,11 @@ def tick():
            .values_list("pk", flat=True), lambda pk: _schedule_recheck(pk, now), counts)
     _sweep(monitoring.filter(next_recheck_at__lte=now).values_list("pk", flat=True), _recheck_due, counts, "rechecks")
     _sweep(heartbeats.overdue(now), lambda pk: heartbeats.check_silence(pk, now), counts, "silent")
+    try:
+        irm_schedule.sync_if_due(now)  # ADR-066 §7; a no-op unless IRM schedules are configured
+    except Exception:
+        counts["errors"] += 1
+        logger.exception("IRM schedule sync failed")
     if settings.ESCALATION_LOCAL_MODE:
         _sweep(Incident.objects.filter(status="OPEN", escalation_execution_arn__startswith="local:execution:", origin_assessment__isnull=False, sla_deadline_at__lte=now).values_list("pk", flat=True),
                lambda pk: _expire_local_tier(pk, now), counts, "escalations")

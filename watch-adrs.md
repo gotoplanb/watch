@@ -1359,13 +1359,14 @@ Evidence photos currently reside in Postgres binary fields, bounded to eight ima
    - IRM users are matched to Watch users by email. A shift whose person has no Watch account is skipped and reported; that time counts as a gap in Watch, so the incident stays unassigned (ADR-012). The page itself is unaffected: IRM routes it by tier to its own schedule.
    - When the sync is on, shifts can't be edited in Watch; changes are made in IRM. Locally, with no IRM, shifts stay editable in Watch as today.
    - If IRM can't be reached, Watch keeps using its last copy, and the sync reports in as a monitored source (ADR-062), so a stale copy opens an assessment instead of failing silently.
+   - *Built 2026-11-23 (`incidents/irm_schedule.py`, migration 0034, `manage.py sync_irm_schedule`).* Configured by `GRAFANA_IRM_URL`, `GRAFANA_IRM_TOKEN` and `IRM_SCHEDULE_IDS=T1:<id>,T2:<id>,T3:<id>`; with any of them unset the copy is off and shifts stay editable. The operations sweep syncs every `IRM_SYNC_INTERVAL_SECONDS` (default 300), reading `IRM_SYNC_DAYS` (default 14) ahead. Copied rows carry `source="irm"` and IRM's rotation id. All tiers are read before any is written, and each tier's shifts that haven't ended are replaced in one transaction; an in-progress shift is rewritten with its original start, and ended ones are kept. IRM returns a daily rotation as one event per day, so back-to-back events for the same person and rotation are joined. Gap and empty events carry no one. The first successful sync creates the `irm-schedule` monitored source (silence limit: three intervals, at least 15 minutes). The Schedule page and the admin are read-only while the copy is on. Verified live against the test stack's T1 rotation.
 
 **Consequences.**
 - Prod data lands where the team already looks; Grafana Cloud stays one setting away, which also keeps the vendor swap from ADR-016 honest.
 - Two ingest bills if the cross-check is left on; it's meant to be turned on deliberately.
 - IRM brings real on-call delivery and acknowledgement; with schedules owned there too (§7), who is on call survives an outage of Watch.
 - The replica can lag IRM by up to one sync interval, and someone in IRM with no matching Watch account can't be assigned.
-- The plugin API is IRM's internal API, not a documented public one, so it can change without notice; the sync is small and isolated so a change is one function. The shape of a shift in `filter_events` is still unverified: the test stack's schedules have no rotations yet.
+- The plugin API is IRM's internal API, not a documented public one, so it can change without notice; the sync is small and isolated so a change is one function. The `filter_events` shift shape was confirmed against a live rotation on 2026-11-23.
 - None of this works without a Sumo account, a Grafana Cloud stack and IRM, so the build work is labelled `cloud` and lands mostly in the platform repo.
 
 ## ADR-067 — AWS Emulator as an opt-in local target, re-checked as it grows

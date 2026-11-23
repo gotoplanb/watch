@@ -257,6 +257,10 @@ class OnCallShift(models.Model):
     starts_at = models.DateTimeField()
     ends_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
+    # ADR-066 §7: "irm" rows are a read-only copy of a Grafana IRM schedule; `external_id` is
+    # IRM's shift (rotation) pk. "watch" rows are entered here (local, or no IRM).
+    source = models.CharField(max_length=16, default="watch")
+    external_id = models.CharField(max_length=64, blank=True)
 
     class Meta:
         ordering = ["-starts_at", "-id"]

@@ -20,7 +20,7 @@ from django.contrib import messages
 
 from . import apikeys
 from . import checks as checks_svc
-from . import envview, escalation, flags, rca_ai, services, session_index
+from . import envview, escalation, flags, irm_schedule, rca_ai, services, session_index
 from .models import (
     AnnotationTag,
     CheckSource,
@@ -227,6 +227,7 @@ def _schedule_ctx():
         "tiers": Tier.choices,
         "users": User.objects.order_by("username"),
         "now": timezone.now(),
+        "irm_managed": irm_schedule.enabled(),  # ADR-066 §7: edit in IRM, not here
     }
 
 
@@ -239,6 +240,8 @@ def schedule(request):
 @login_required
 @require_POST
 def add_shift(request):
+    if irm_schedule.enabled():
+        return HttpResponseForbidden("On-call shifts are managed in Grafana IRM (ADR-066).")
     tier = request.POST.get("tier")
     user_id = request.POST.get("user") or ""
     starts = _aware(parse_datetime(request.POST.get("starts_at") or ""))

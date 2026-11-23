@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
 
-from . import session_index
+from . import irm_schedule, session_index
 
 from .models import (
     EmailRoute, EvidenceCapture, MaintenanceWindow, MonitoredSource, StatusPage,
@@ -59,8 +59,18 @@ class AnnotationAdmin(admin.ModelAdmin):
 
 @admin.register(OnCallShift)
 class OnCallShiftAdmin(admin.ModelAdmin):
-    list_display = ["tier", "user", "starts_at", "ends_at"]
-    list_filter = ["tier", "user"]
+    list_display = ["tier", "user", "starts_at", "ends_at", "source"]
+    list_filter = ["tier", "source", "user"]
+
+    # ADR-066 §7: with the IRM copy on, the rota is edited in IRM; the admin only reads it.
+    def has_add_permission(self, request):
+        return not irm_schedule.enabled() and super().has_add_permission(request)
+
+    def has_change_permission(self, request, obj=None):
+        return not irm_schedule.enabled() and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return not irm_schedule.enabled() and super().has_delete_permission(request, obj)
 
 
 class ErrorSpanInline(admin.TabularInline):
